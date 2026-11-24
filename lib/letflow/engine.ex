@@ -2132,7 +2132,13 @@ defmodule Letflow.Engine do
         # every transaction, in `PlatformStepRunner`.
         :platform ->
           Multi.run(acc_multi, {:platform_step, token_record_id}, fn repo, _changes ->
-            arm_platform_step(repo, arm_attrs, node_id_of(prepared), prefix)
+            arm_platform_step(
+              repo,
+              arm_attrs,
+              node_id_of(prepared),
+              prefix,
+              Map.get(prepared, :platform_applying_id)
+            )
           end)
       end
     end)
@@ -2148,27 +2154,47 @@ defmodule Letflow.Engine do
   # running, or advanced-but-not-applied is the CURRENT visit, so arming it again gives the same
   # key. Only a loop back that arrives after the previous visit was applied is a new visit (and a
   # new call): the applied row would otherwise be replayed and leave the instance parked for good.
-  defp platform_step_visit(repo, instance_id, node_id, prefix) do
-    repo.aggregate(
+  #
+  # `applying_id` is the platform row whose apply runs in THIS transaction (put on the prepared
+  # dispatches by `mark_platform_applying/2` in `do_persist_service_task_advance/10`). Its completion key
+  # is written later in the same transaction, after the hop chain armed the next nodes, so a loop
+  # that goes straight back to the same node (call -> gateway -> call) would not yet see it as
+  # applied: it is counted as applied here.
+  defp platform_step_visit(repo, instance_id, node_id, prefix, applying_id) do
+    rows =
       from(d in PlatformStepDispatch,
         as: :d,
-        where: d.instance_id == ^instance_id and d.node_id == ^node_id,
-        where:
-          exists(
-            from(i in IdempotencyRecord,
-              where:
-                i.idempotency_key ==
-                  fragment(
-                    "? || ?::text",
-                    ^@platform_step_completion_prefix,
-                    parent_as(:d).id
-                  ),
-              select: 1
-            )
-          )
-      ),
-      :count,
-      prefix: prefix
+        where: d.instance_id == ^instance_id and d.node_id == ^node_id
+      )
+
+    applied =
+      case applying_id do
+        nil -> where(rows, [d], exists(platform_completion_key_query()))
+        id -> where(rows, [d], d.id == ^id or exists(platform_completion_key_query()))
+      end
+
+    repo.aggregate(applied, :count, prefix: prefix)
+  end
+
+  # The platform row an apply completes (`platform_completion/3`'s `:platform_dispatch_id`; nil on
+  # the HTTP and script routes) goes with every dispatch the apply's hop chain arms.
+  defp mark_platform_applying(prepared_dispatches, completion) do
+    case Map.get(completion, :platform_dispatch_id) do
+      nil -> prepared_dispatches
+      id -> Enum.map(prepared_dispatches, &Map.put(&1, :platform_applying_id, id))
+    end
+  end
+
+  defp platform_completion_key_query do
+    from(i in IdempotencyRecord,
+      where:
+        i.idempotency_key ==
+          fragment(
+            "? || ?::text",
+            ^@platform_step_completion_prefix,
+            parent_as(:d).id
+          ),
+      select: 1
     )
   end
 
@@ -2178,9 +2204,9 @@ defmodule Letflow.Engine do
   # accepted and not run twice. A key that belongs to ANOTHER instance or node is refused: the
   # first result is not this instance's to resume.
   @doc false
-  @spec arm_platform_step(module(), map(), String.t(), String.t()) ::
+  @spec arm_platform_step(module(), map(), String.t(), String.t(), Ecto.UUID.t() | nil) ::
           {:ok, PlatformStepDispatch.t()} | {:error, term()}
-  def arm_platform_step(repo, arm_attrs, node_id, prefix) do
+  def arm_platform_step(repo, arm_attrs, node_id, prefix, applying_id \\ nil) do
     case repo.get_by(InstanceProjection, [instance_id: arm_attrs.instance_id], prefix: prefix) do
       nil ->
         {:error, :instance_not_found}
@@ -2194,7 +2220,7 @@ defmodule Letflow.Engine do
             {:ok, row}
 
           nil ->
-            do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix)
+            do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix, applying_id)
         end
     end
   end
@@ -2211,8 +2237,8 @@ defmodule Letflow.Engine do
     )
   end
 
-  defp do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix) do
-    visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix)
+  defp do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix, applying_id) do
+    visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix, applying_id)
 
     opts = [
       prefix: prefix,
@@ -6265,6 +6291,7 @@ defmodule Letflow.Engine do
         decoded_body: outputs
       },
       idempotency_key: completion_key,
+      platform_dispatch_id: row.id,
       on_advanced: &Function.identity/1,
       on_no_matching_edge: &Function.identity/1,
       # A hop chain with no matching edge is a REFUSAL of the apply on this route: the whole apply
@@ -6424,6 +6451,7 @@ defmodule Letflow.Engine do
            required(:on_advanced) => (Multi.t() -> Multi.t()),
            required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
            optional(:refuse_no_matching_edge) => boolean(),
+           optional(:platform_dispatch_id) => Ecto.UUID.t(),
            optional(:incident_variables) => map(),
            optional(:incident_labels) => map()
          }
@@ -6842,7 +6870,7 @@ defmodule Letflow.Engine do
 
                 build_service_task_dispatch_multi(
                   Multi.new(),
-                  prepared_service_task_dispatches,
+                  mark_platform_applying(prepared_service_task_dispatches, completion),
                   id_map,
                   tenant_id,
                   prefix
@@ -10738,6 +10766,13 @@ defmodule Letflow.Engine do
       # same lock-order rule (dispatch row before the projection), the order
       # apply_script_task_result/3 takes too; an ineligible cancel rolls it back.
       ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
+    end)
+    |> Multi.run(:platform_step_dispatch_cancellations, fn repo, _changes ->
+      # T-2703: the platform route's pending AND running rows, same lock-order rule (dispatch row
+      # before the projection; the order apply_platform_step_result/3 and the dispatcher's claim
+      # take). The claim also refuses a row whose instance has ended, so a row this read misses
+      # never runs either.
+      PlatformDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
     end)
     |> Multi.run(:instance_projection, fn repo, _changes ->
       # GH #2695: parent-side order: P then T, same as the cascade.

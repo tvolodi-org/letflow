@@ -116,6 +116,11 @@ defmodule Letflow.Engine.PlatformStepRunner do
       {:error, reason} when reason in [:platform_step_in_flight, :platform_step_lease_lost] ->
         acc
 
+      # The instance ended (cancelled) before the call was claimed: the row is closed, the
+      # function never ran, and there is no instance left to put in ERROR.
+      {:error, :platform_step_instance_cancelled} ->
+        acc
+
       {:error, _reason} ->
         case Engine.fail_platform_step(id, prefix) do
           {:ok, :error_set} -> %{acc | failed: acc.failed + 1}

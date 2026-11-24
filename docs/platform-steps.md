@@ -444,7 +444,11 @@ fence, when the token enters the node (`:conflicting_routes`, nothing is armed o
 | outstanding row + runner resumed after ANY age (days) | applied / landed like a fresh one | continues / ERROR + DLQ | R12 |
 | `given_up` (landed) + DLQ retry (G7) | `pending` -> run -> `advanced`, applied with `resume: true` | ERROR lifted, continues exactly once; a second retry moves nothing | R4 |
 | `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13, R15 |
-| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11, R14e (the first arm of the new visit from two concurrent transactions: one new row; two runs in all) |
+| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11, R14e (the first arm of the new visit from two concurrent transactions: one new row) |
+| `advanced` being applied + loop STRAIGHT back to the node in the same apply (call -> gateway -> call) | a NEW row: the row whose apply arms the next visit is counted as applied (its completion key is written later in the same transaction), so the next arm gets the next visit | continues on the node: the new visit runs in the next cycle, once | R17 |
+| `pending` / `running` (any lease) + instance cancelled | `given_up` with `platform_step_instance_cancelled`, in the cancel's own transaction (dispatch rows before the projection, the order of the apply and the claim) | cancelled; the function never runs; no EXECUTION_ERROR, no DLQ entry | R16a, R16b |
+| any open row + claim (automatic or the DLQ retry) after the instance ended (cancelled or completed) | `given_up` with `platform_step_instance_cancelled` at the claim; the function is not run | unchanged | R16c, R14e |
+| `running` with a body in flight + instance cancelled | the body cannot be stopped; the row is closed by the cancel, so its outcome write finds it no longer `running` (claim token) and is dropped | cancelled | (the claim-token contract: dispatcher S8) |
 | any + foreign (company) tenant or unlisted function | never runs (`run_due/2` refuses the prefix; unknown function refused at arm) | the company tenant cannot hold the call | R6 |
 | outstanding row + instance no longer active (cancelled, terminated) | left as is: no sweep reads it | unchanged | R13 |
 

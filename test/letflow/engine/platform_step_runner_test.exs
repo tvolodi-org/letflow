@@ -24,6 +24,8 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   | R13 | an apply refusal is LANDED (ERROR + EXECUTION_ERROR + DLQ), its retry runs nothing; an outstanding row of a cancelled instance is left alone; the sweep pages past its limit |
   | R14 | a duplicate arm of the SAME visit (row pending / running / advanced-not-applied / given_up; sequential, and two processes at once, each in its own transaction on its own connection) is the same row and the function body runs once (its calls are traced, not inferred from `attempt_index`); the visit counts APPLIED visits, not rows |
   | R15 | a result whose hop chain has no matching edge is landed as the PLATFORM failure (platform_step DLQ entry), and the G7 retry resumes it |
+  | R16 | the cancel of an instance closes its pending and running calls; the claim refuses a call whose instance has ended (also a manual retry): the function never runs |
+  | R17 | a loop straight back to the node (call -> gateway -> call, inside one apply) arms a NEW visit each cycle, and each visit runs once |
 
   The state x event table these rows prove is in `docs/platform-steps.md` ("The state machine
   of a platform_call dispatch").
@@ -893,9 +895,14 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
     assert {:ok, %StepDispatch{id: ^second}} = arm_again(ctx, row)
     assert length(rows(ctx, instance_id)) == 2
 
-    # The new visit runs once more: two runs in all, one per visit.
-    assert %{claimed: 1} = PlatformStepRunner.run_due(ctx.prefix)
-    assert function_runs(instance_id) == 2
+    # This instance COMPLETED with its first visit (call -> end): the arm above is the bare engine
+    # entry point, so the claim fence (R16c) closes the new row instead of running it. The run of
+    # a genuine loop-back visit is R11 (through a task) and R17 (straight back, in one apply).
+    assert %{claimed: 1, advanced: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 1
+
+    assert %StepDispatch{status: :given_up, last_failure_kind: "platform_step_instance_cancelled"} =
+             Repo.get!(StepDispatch, second, prefix: ctx.prefix)
   end
 
   # ── R15 ───────────────────────────────────────────────────────────────────
@@ -1004,5 +1011,175 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
 
     assert {:ok, %{status: "already_final"}} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
     assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
+  end
+
+  # ── R16: the cancel of an instance stops its queued calls ────────────────
+
+  defp cancel!(ctx, instance_id) do
+    assert {:ok, _cancelled} =
+             Engine.cancel_instance(
+               instance_id,
+               %{actor_id: ctx.admin.id, idempotency_key: "t2703-cancel-#{Ecto.UUID.generate()}"},
+               prefix: ctx.prefix
+             )
+  end
+
+  test "R16a: a call still PENDING when the instance is cancelled never runs", ctx do
+    trace_function_runs()
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-cancel-pending")
+    [%StepDispatch{id: id, status: :pending}] = rows(ctx, instance_id)
+
+    cancel!(ctx, instance_id)
+
+    assert [%StepDispatch{id: ^id, status: :given_up} = row] = rows(ctx, instance_id)
+    assert row.last_failure_kind == "platform_step_instance_cancelled"
+    assert %{claimed: 0, applied: 0, failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 0
+    assert projection(ctx, instance_id).status == :cancelled
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 0
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 0
+  end
+
+  test "R16b: an expired RUNNING claim of a cancelled instance is not taken over", ctx do
+    trace_function_runs()
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-cancel-running")
+    [%StepDispatch{id: id}] = rows(ctx, instance_id)
+
+    # A claim that died: `running` with a lease that has expired (the takeover shape of R5).
+    Repo.update_all(
+      from(d in StepDispatch, where: d.id == ^id),
+      [
+        set: [
+          status: :running,
+          attempt_index: 1,
+          next_attempt_at: DateTime.add(DateTime.utc_now(), -1, :second)
+        ]
+      ],
+      prefix: ctx.prefix
+    )
+
+    cancel!(ctx, instance_id)
+
+    assert [
+             %StepDispatch{
+               status: :given_up,
+               last_failure_kind: "platform_step_instance_cancelled"
+             }
+           ] =
+             rows(ctx, instance_id)
+
+    assert %{claimed: 0, applied: 0, failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 0
+    assert projection(ctx, instance_id).status == :cancelled
+  end
+
+  test "R16c: the claim refuses a call whose instance has ended, whatever the row says", ctx do
+    trace_function_runs()
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-cancel-fence")
+    [%StepDispatch{id: id}] = rows(ctx, instance_id)
+    cancel!(ctx, instance_id)
+
+    # A row that reaches a claim anyway (missed by the cancel, or re-armed by a retry): due again,
+    # once pending and once as an expired running claim.
+    for status <- [:pending, :running] do
+      Repo.update_all(
+        from(d in StepDispatch, where: d.id == ^id),
+        [
+          set: [
+            status: status,
+            last_failure_kind: nil,
+            next_attempt_at: DateTime.add(DateTime.utc_now(), -1, :second)
+          ]
+        ],
+        prefix: ctx.prefix
+      )
+
+      assert {:error, :platform_step_instance_cancelled} =
+               Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(id, ctx.prefix)
+
+      assert [%StepDispatch{status: :given_up} = row] = rows(ctx, instance_id)
+      assert row.last_failure_kind == "platform_step_instance_cancelled"
+    end
+
+    # The DLQ-style manual retry of the closed row is refused the same way.
+    assert {:error, :platform_step_instance_cancelled} =
+             Letflow.PlatformFunctions.Dispatcher.retry_failed_step(id, ctx.prefix)
+
+    assert function_runs(instance_id) == 0
+  end
+
+  # ── R17: a loop straight back to the node, inside one apply ──────────────
+
+  test "R17: call -> gateway -> the same call: each cycle is a new visit and a new run", ctx do
+    trace_function_runs()
+
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "call",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{"platform_call" => call()}
+        },
+        %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "call"},
+        %{"id" => "e2", "source" => "call", "target" => "xg"},
+        %{
+          "id" => "e3",
+          "source" => "xg",
+          "target" => "call",
+          "condition" => "variables.normalized_slug == \"acme-gw\""
+        },
+        %{"id" => "e4", "source" => "xg", "target" => "end", "is_default" => true}
+      ]
+    }
+
+    step = call()
+
+    schemas =
+      (Map.to_list(step["reads"]) ++ Map.to_list(step["writes"]))
+      |> Enum.map(fn {key, type} -> %{variable_key: key, json_schema: %{"type" => type}} end)
+
+    draft =
+      Fx.definition_with_schemas!(
+        ctx.prefix,
+        graph,
+        "t2703-gw-#{System.unique_integer([:positive])}",
+        schemas
+      )
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, %{already_active: false}} =
+             Definitions.activate(draft.id, prefix: ctx.prefix, activator: activator)
+
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, draft, "acme-gw")
+
+    # Each cycle applies the current visit; the apply's hop chain goes straight back to the node
+    # IN THE SAME TRANSACTION and arms the NEXT visit: a new row, pending, run by the next cycle.
+    for cycle <- 1..2 do
+      assert %{claimed: 1, advanced: 1, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+      assert function_runs(instance_id) == cycle
+      assert %{current_nodes: ["call"], status: :active} = projection(ctx, instance_id)
+
+      dispatches = rows(ctx, instance_id)
+      assert length(dispatches) == cycle + 1
+      assert Enum.count(dispatches, &(&1.status == :pending)) == 1
+      assert Enum.count(dispatches, &(&1.status == :advanced)) == cycle
+    end
+
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 2
+
+    # The loop ends with the cancel (R16): its open visit never runs.
+    cancel!(ctx, instance_id)
+    assert %{claimed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 2
   end
 end
