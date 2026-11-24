@@ -56,10 +56,15 @@ declare `requested_tenant_id`, `tenant_type` or `notify_admin`. Both builders fi
 key `register_tenant_start_key(slug)` already has a start: `Letflow.Engine.IdempotentReplay.lookup/3` on the platform
 prefix (the call `Engine.start_replay_check/3` makes).
 
-- **A start exists (a replay).** The builder builds the variables as for a new start, then keeps ONLY the keys that the
-  original `INSTANCE_STARTED` payload's `initial_variables` holds (the key set of the first start, not its values; the
-  values come from the request, so a changed value still differs and the engine answers 409). The active definition is
-  not read, so a v1 -> v2 activation, a rollback to v1 and a deprecation do not change what a replay sends. The engine's
+- **A start exists (a replay).** The builder builds the variables as for a new start, then keeps ONLY the keys that
+  the ORIGINAL VERSION's start contract declares: it reads the `variable_schemas` of the definition version the first
+  instance runs (found from the start ledger's instance), the set `C`. It does NOT filter by the keys the first start
+  happened to send: the builder omits an absent optional value, so a key-presence filter would drop a newly supplied
+  `hostname` and let the changed request replay. With `C` as the filter: a key in `C` that was absent at the first start
+  and is supplied now is kept, the variables differ and the engine answers 409 (absent -> present); a key in `C` that
+  was sent first and is omitted now is missing from the variables and the engine answers 409 (present -> absent); a
+  key not in `C` (a v2 key on a v1 first start) is dropped, so v1 -> v2 activation does not turn a replay into a 409.
+  The values come from the request, so a changed value differs too. The ACTIVE definition is not read, so a v1 -> v2 activation, a rollback to v1 and a deprecation do not change what a replay sends. The engine's
   compare (`same_start_request?/4`) is by definition NAME, not by version, so the first instance is answered.
   The system builder does NOT run the v2-contract check of section 6.4 for a replay: the first start passed C1, and the
   engine answers a replay before the definition lookup and the permission gate.
@@ -180,7 +185,11 @@ own transaction) cannot be lost with the instance, so the admission is never rel
   delete.
 - **Release by instance state.** Instance in `CANCELLED` (and no tenant row): delete. In `ERROR`: keep the cap slot until
   the platform admin retries (G7) or cancels it. In `COMPLETED`: the lifecycle row exists, so the admission no longer
-  counts (the counts exclude an admission that has a lifecycle row) and the Sweep deletes it.
+  counts (the counts exclude an admission that has a lifecycle row), but the Sweep KEEPS it. It is the durable
+  registration record: it holds the `request_fingerprint` (section 7: a replay with changed values stays a 409 after
+  completion) and it is the marker that routes this tenant to the new replay and GET answers (section 9.3, `server_url`
+  and `handover`). It holds only digests and the admitted tier/expiry, no personal value, so keeping it costs nothing.
+  It is deleted only by the tenant purge, in the purge transaction of the same tenant id.
 - **Fail closed in step 4 of the graph.** `record_lifecycle` takes the optional start input `requested_tenant_id`
   (present on routes 3/4 only). Order inside the step: a lifecycle row for `tenant_id` exists -> ok, write nothing.
   Else, if `requested_tenant_id` is set and no admission exists -> `platform_call_lifecycle_failed` (the instance goes
@@ -199,8 +208,9 @@ look up the admission for the id first. If it exists, `insert_tenant_and_lifecyc
 - no cap check and no budget check (the admission is already counted; a different tenant's admissions still count);
 - the lifecycle row is built from the ADMISSION's values (tier, language, expires_at, both key digests), not from the
   request, so the digests and the 14-day expiry are the ones admitted;
-- in the SAME transaction (under the demo-cap xact lock) the lifecycle row is inserted and the admission is deleted, so
-  the count never moves and never double-counts;
+- in the SAME transaction (under the demo-cap xact lock) the lifecycle row is inserted and the admission is KEPT (it no
+  longer counts because a lifecycle row now exists), so the count never moves and never double-counts and the
+  fingerprint survives;
 - the running instance is not stopped. Its step 2 ADOPTS the tenant row (same slug, same name, same id) and its step 4
   finds the lifecycle row and writes nothing (section 4), so the two paths converge on one tenant. If the replay body
   differs from the admission's fingerprint, the old path answers 409 (the same compare as step 1) before adopting.
@@ -374,8 +384,10 @@ outside this repository. Until it is proven against QA, the wait hint keeps the 
 | V9 | INV-4 canary: the e-mail, realm and hostname do not appear in any audit row, event metadata, log line (captured at `:debug` with `LOG_LEVEL=debug`, the T-2704 C finding) or GET answer | `test/letflow/platform_processes/system_start_canary_test.exs` |
 | V10 | Sweep releases a stale admission and keeps an ERRORed instance's slot | extend `test/letflow/tenant_provisioner/sweep_test.exs` |
 | V12 | crash gap: start committed, link update lost (admission `instance_id` null, ledger has the start): the Sweep repairs the link and does NOT delete; with no ledger start and age over 1 h it deletes; the Sweep and a concurrent start of one id are serialised by the session lock; `record_lifecycle` with `requested_tenant_id` and no admission fails closed, without it is a no-op | extend `test/letflow/tenant_provisioner/sweep_test.exs`, `admit_test.exs` |
-| V13 | rollback at the cap: demo count = cap - 1, admit A (no tenant row), flip the setting OFF, replay A on the old path: 201, the lifecycle row carries the ADMITTED expiry and digests, the admission is gone, the count is cap (not cap + 1), a different new id is still refused; the running instance then adopts the tenant (step 2) and step 4 writes nothing | extend `test/letflow/tenant_provisioner/admit_test.exs` |
+| V13 | rollback at the cap: demo count = cap - 1, admit A (no tenant row), flip the setting OFF, replay A on the old path: 201, the lifecycle row carries the ADMITTED expiry and digests, the admission stays but no longer counts, the count is cap (not cap + 1), a different new id is still refused; the running instance then adopts the tenant (step 2) and step 4 writes nothing | extend `test/letflow/tenant_provisioner/admit_test.exs` |
 | V14 | replay across versions: (a) operator request started on v1, v2 activated, the same request replays: 200/202 with the first instance, no 409; (b) system registration started on v2, then rollback to v1 and, separately, v2 deprecated: the same request replays the first instance; a changed value in each case is 409; `expires_at` omitted twice matches, sent once and omitted once differs | extend `test/letflow/platform_processes/register_routes_test.exs`, `system_start_test.exs` |
+| V15 | completed registration survives cleanup: route 3 (setting ON) completes, the Sweep runs, then (a) a replay with a changed `name`/`language`/`tier`/`hostname` answers 409 (not the old path's ignore-body replay), (b) the same body answers 200 with today's body, (c) `GET` answers `active` with `server_url` and `handover`; after the tenant purge the admission is gone and the old path answers | extend `admit_test.exs`, `sweep_test.exs`, `admin_v1_process_test.exs` |
+| V16 | optional-field replay (extends V14): first start without `hostname`, replay with `hostname` -> 409 (absent -> present); first start with `hostname`, replay without -> 409 (present -> absent); same for `admin_email`/`idp_realm_id` on routes 1/2; first start on v1, v2 active, replay with v2 keys absent -> replay, with a v2 key present (e.g. `tenant_type` other than the default) -> 409 only if `C` of the first version declares it, else the key is dropped | extend `register_routes_test.exs`, `system_start_test.exs` |
 | V11 | seed: `:created` over v1, `:already_present`, `:version_taken`, `:newer_version_kept` | extend `test/letflow/platform_processes/seed_test.exs` |
 
 Pins that move and that `lf.sh test` does not map (grep before the first checks run):
