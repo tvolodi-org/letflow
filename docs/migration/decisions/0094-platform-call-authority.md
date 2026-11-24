@@ -2,7 +2,7 @@
 
 Status: accepted. Implements the G2 gap of the "Register a tenant" pilot (the spike of 2026-11-21, decision record
 `docs/decision-record-g2-authority-rule.md` of the team repository, PM ruling D-179 of 2026-11-21: option A of all five
-decisions). The step library that RUNS a platform call (gap G1) is a later change; this record settles who may switch one on,
+decisions). The step library that RUNS a platform call (gap G1) landed later (T-2703, see the amendment of 2026-11-24 at the end of the residual risks); this record settles who may switch one on,
 where it may run, what it may read and who may start the definition that carries it.
 
 ## Problem
@@ -166,6 +166,32 @@ come back.
 | "one path forgotten" (the actor) | a new definition write path writes its audit row without the caller | `test/letflow/definitions/definition_audit_actor_paths_scan_test.exs`: the audit-writing context functions and the router paths that call them are derived from the AST, and every router path carries the actor its context function demands; a router path that reaches a writer which writes NO actor (the system class -- module code, a seed task, the reactivation marker) fails the scan, because a person made that request; the scanned ROOT may not shrink either -- every module of the definitions tree that writes a definition audit row is in it, or the scan says so |
 | the start over the route | the caller's authority never reaches the start gate, and the pilot's process can never be started | `test/letflow/routers/platform_call_start_route_test.exs`: over the real `POST /api/v1/instances`, the platform tenant's PLATFORM_ADMIN starts the definition (201); a platform user without the entry's permission and a company tenant's administrator get the answer for an unknown definition, and nothing is written |
 
+## Amendment 2026-11-24: the system-authority start (design T-2734, build T-2727)
+
+Decision (e) refuses every start that has no person behind it (`StartPermission.check/3`: a nil `auth_context` gets the
+answer for an unknown definition). Two of the four tenant-creating paths of gap G17 have no person behind them: the
+provisioner mount `POST /admin/v1/tenants` (decision 0072, QA only) and the self-service signup. The PM ruled on
+2026-11-24 that they start `platform.register_tenant` through a NARROW system authority, under five conditions:
+
+1. it is bound to this ONE definition name (`platform.register_tenant`), in the platform tenant, and only to a version
+   whose catalogue calls need exactly `:TenantsManage`, which starts no SUB_PROCESS child, and which carries the v2
+   start contract. Any other definition, version or tenant gets the answer for an unknown definition, and nothing is
+   written;
+2. its `instance.create` audit row says `actor_kind: system`, with no actor id, and names the calling route
+   (`started_via`);
+3. no value from a request is trusted as identity or permission: the server builds the authority value after its own
+   authentication (the provisioner credential class, or the signup's verified row), from a closed route list, and no
+   request field can make one;
+4. today's rate and abuse limits stay in front of it: the credential limiter, the body cap, the request validation,
+   and the demo cap with the two daily budgets. The cap and the budgets answer 409 before any instance starts. They are
+   kept race-safe by a reservation row (`tenant_admissions`) that is written under the existing cap lock;
+5. the change runs the security and security_deep gates. Every file it touches is already under a sensitive path.
+
+Decision (e) is otherwise unchanged: a PERSON still needs the entry's permission in the platform tenant. The system
+authority is not a role, holds no permission atom, and cannot be reached from a route that has a user. A source-scan
+pin keeps its constructor and its start function inside `Letflow.TenantProvisioner`. The design, with the step table
+(failure and repeat per step), the start key and the 202 + poll consumer, is `docs/platform-register-tenant-v2.md`.
+
 ## Residual risks, stated plainly
 
 * A stolen `PLATFORM_ADMIN` session can do everything the platform admin can, now also through a definition. The audit actor and the
@@ -173,7 +199,13 @@ come back.
 * A SUB_PROCESS child that calls a platform function is refused outright until the server-side caller is propagated to the child's own
   activation (gap G3/G17). The parent's start already refuses a caller without the entry's permission, so the child is unreachable for
   the wrong caller; what the refusal costs today is that a platform admin cannot use such a child either.
-* A `platform_call` step runs nowhere yet: the step library (gap G1) owns the dispatcher. A definition that carries one starts, and its
-  instance stops at that step with the ordinary "no route" failure -- no platform code is reached.
+* A `platform_call` step ran nowhere when this record was written. Amendment 2026-11-24 (T-2703, gap G1): the engine now runs it. On
+  entering the node the engine arms the `platform_step_dispatches` row inside its own transaction and parks the instance; a worker
+  (default off, env `LETFLOW_START_PLATFORM_STEP_RUNNER`) runs the due rows of the platform schema OUTSIDE every transaction under the
+  fence of this record, re-checked at every attempt; the outputs are cut to the node's declared writes; a failure after the retries
+  puts the instance in ERROR with an EXECUTION_ERROR event and a DLQ entry of type `platform_step`, whose retry resumes it once.
+  A result the engine refuses to apply is landed the same way, and the runner recovers outstanding rows of any age; every state and
+  event of the dispatch is in the state table of `docs/platform-steps.md`. The decision above is unchanged. The residual risk that
+  remains: the tenant-creating routes still call the code directly until gap G17 (T-2704) makes them start the definition.
 * The start permission is DERIVED from the definition's catalogue calls. An explicit per-definition `start_permission` (a column) comes
   with the screen that starts the pilot's process (gap G3); until then the derived rule is the floor.

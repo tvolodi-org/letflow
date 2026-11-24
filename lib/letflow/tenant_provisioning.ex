@@ -1084,7 +1084,18 @@ defmodule Letflow.TenantProvisioning do
     # live in the tenant's own schema, so there is no file-system path at all.
     # The table starts empty: no existing row is altered.
     {20_261_123_100_004, Letflow.Repo.Migrations.CreateNotificationFiles,
-     "20261123100004_create_notification_files.exs"}
+     "20261123100004_create_notification_files.exs"},
+    # T-2604 (pilot gap G16): process_definitions.test_cases -- the DECLARED TEST
+    # CASES of a definition version, the guardrail that runs them before the
+    # version may be activated. NULL for every existing row (a definition that
+    # declares no case activates exactly as it did before).
+    {20_261_124_100_001, Letflow.Repo.Migrations.AddTestCasesToProcessDefinitions,
+     "20261124100001_add_test_cases_to_process_definitions.exs"},
+    # T-2597 (pilot gap G14): the per-tenant OUTBOUND ALLOW-LIST -- the channels a tenant may
+    # use to reach outside itself and the destinations it may reach. The list starts empty for
+    # every tenant (deny by default); no existing row is altered.
+    {20_261_124_100_002, Letflow.Repo.Migrations.CreateOutboundDestinations,
+     "20261124100002_create_outbound_destinations.exs"}
   ]
 
   @doc """

@@ -49,6 +49,7 @@ defmodule Letflow.NotificationSteps.Dispatcher do
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Notifications
   alias Letflow.Notifications.Address
+  alias Letflow.OutboundDestinations
 
   # The byte cap of ONE resolved value. The template renderer walks the value
   # (it counts its codepoints), so the value is bounded in bytes BEFORE it is
@@ -98,6 +99,7 @@ defmodule Letflow.NotificationSteps.Dispatcher do
          {:ok, trigger_ref} <- trigger_ref(opts),
          :ok <- refuse_restricted(declaration, labels),
          {:ok, address} <- recipient(declaration, variables),
+         :ok <- allow_destination(declaration, address, opts),
          {:ok, values} <- values(declaration, variables) do
       deliver(declaration, address, values, trigger_ref, opts)
     end
@@ -190,6 +192,51 @@ defmodule Letflow.NotificationSteps.Dispatcher do
       {:error, :notify_restricted_variable}
     else
       :ok
+    end
+  end
+
+  # The per-tenant OUTBOUND ALLOW-LIST (T-2597, pilot gap G14): the CHANNEL of
+  # the declaration must be on the tenant's list, and so must the DESTINATION
+  # it reaches -- the DOMAIN of the recipient on the mail channel. The file
+  # channel writes into the tenant's own area, so it has no external
+  # destination.
+  #
+  # The list is read HERE, at dispatch, and not only at activation: the list
+  # can shrink after a version was switched on, and a step that would reach a
+  # destination that is no longer allowed must stop (decision record G2 S7).
+  #
+  # ONE code for every refusal: the caller learns that the step cannot run,
+  # not which part of the list it missed.
+  defp allow_destination(declaration, address, opts) do
+    with {:ok, destination} <- destination(declaration, address) do
+      case OutboundDestinations.check(prefix(opts), channel(declaration), destination) do
+        :ok ->
+          :ok
+
+        {:error, :invalid_schema_name} ->
+          # The prefix names no tenant: the same answer the send itself gives.
+          {:error, :notify_invalid_schema}
+
+        {:error, _code} ->
+          {:error, :notify_destination_not_allowed}
+      end
+    else
+      {:error, _code} -> {:error, :notify_destination_not_allowed}
+    end
+  end
+
+  # The channel of the declaration: the ONE function of the allow-list module.
+  defp channel(declaration), do: OutboundDestinations.notify_channel(declaration)
+
+  # The destination the step reaches: the recipient's DOMAIN on the mail
+  # channel, nothing on the file channel. A domain that cannot be read is a
+  # refusal: a send nobody can account for is a send nobody may make.
+  defp destination(%{channel: "file"}, _address), do: {:ok, nil}
+
+  defp destination(_declaration, address) do
+    case Address.domain(address) do
+      {:ok, domain} -> {:ok, domain}
+      :error -> {:error, :notify_destination_not_allowed}
     end
   end
 

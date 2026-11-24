@@ -13,6 +13,10 @@ defmodule Letflow.Engine.VariableMergeCallersTest do
 
   @merge3_callers ["lib/letflow/engine/transition.ex"]
   @merge5_callers [
+    # T-2604: the declared-test-case runner merges the faked step outputs
+    # through the labelled merge, so a reserved key is refused exactly as at
+    # run time.
+    "lib/letflow/definitions/test_cases.ex",
     "lib/letflow/engine.ex",
     "lib/letflow/engine/reconstruction.ex",
     "lib/letflow/engine/sub_process.ex"

@@ -101,6 +101,20 @@ dual_route | script_key:ddl | activation=:conflicting_platform_call_routes dispa
 dual_route | script_key:outbound | activation=:conflicting_platform_call_routes dispatch=true
 dual_route | script_key:read | activation=:conflicting_platform_call_routes dispatch=true
 dual_route | script_key:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
+#
+# The line attributes (T-2703): the platform route plans no entity or module
+# lines, so a platform-call node that declares `entity_writes` or
+# `module_writes` would run its function and then be refused when the result is
+# applied. It is refused before anything runs, with the same code at
+# activation and at dispatch, whatever the side-effect class of the call.
+dual_route | entity_writes:ddl | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | entity_writes:outbound | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | entity_writes:read | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | entity_writes:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | module_writes:ddl | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | module_writes:outbound | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | module_writes:read | activation=:conflicting_platform_call_routes dispatch=true
+dual_route | module_writes:write_tenant_registry | activation=:conflicting_platform_call_routes dispatch=true
 
 # ── the write targets of a catalogue call ──
 # The variable a catalogue call reads from the start variables or from an

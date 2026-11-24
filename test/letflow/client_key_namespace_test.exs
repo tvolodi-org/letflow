@@ -104,6 +104,10 @@ defmodule Letflow.ClientKeyNamespaceTest do
 
   defp tenant_ctx(slug_prefix, roles \\ ["TENANT_ADMIN"]) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
+
+    # T-2597 (pilot gap G14): the local listener this file's dispatch test
+    # reaches -- the tenant's outbound allow-list is empty by default.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["127.0.0.1"])
     {:ok, _seeded} = EventTypes.seed!(tenant.schema_name)
     ctx = caller!(tenant.tenant_id, tenant.schema_name, roles)
     seed_widget!(ctx)

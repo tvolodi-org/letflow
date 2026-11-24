@@ -22,8 +22,10 @@ Authority, rule by rule:
   R12;
 * the per-tenant channel and address allow-list -- decision
   [`0094-platform-call-authority.md`](migration/decisions/0094-platform-call-authority.md)
-  (c), which DEFERS it to gap G14. It is NOT built here; see "The residual
-  risk" below.
+  (c), BUILT by gap G14 (T-2597): the tenant's own list of channels and
+  destinations, changed only by a holder of `:OutboundDestinationsManage` and
+  read at activation AND at dispatch. See
+  [`outbound-destinations.md`](outbound-destinations.md).
 
 ## The four parts
 
@@ -234,6 +236,10 @@ not declare" binds the notification step too
   instance's `:trigger_ref`, or the step refuses itself, and it must call the
   runner OUTSIDE the engine's transaction (the reservation of the cap is
   committed on its own only when the caller holds no transaction);
+* the file channel (gap G12) -- the adapter is built, and the file channel is
+  governed by the SAME per-tenant allow-list (gap G14) as the mail channel: the
+  file channel must be on the list too, and it has no destination (it writes
+  into the tenant's own area);
 * the per-tenant channel and address allow-list (gap G14, the `OutboundDestinationsManage`
   atom);
 * the HTTP route that lists and downloads the files of the file channel (the
@@ -242,14 +248,18 @@ not declare" binds the notification step too
 
 ## The residual risk
 
-The step may currently aim the platform's mail identity at ANY third-party
-address that is a well-formed address: the gate is a shape check, and there is
-no per-tenant destination allow-list yet. Gap G14 builds that list (with the
-`OutboundDestinationsManage` atom, for TENANT_ADMIN and PLATFORM_ADMIN only),
-and the decided rule says it is checked at ACTIVATION **and at DISPATCH** -- so
-G14 must add the check inside the runner, not only inside the activation
-fence. Until then, a definition of ANY tenant (the notify fence has no tenant condition) can send a message to
-any address a tenant's instance variables hold.
+The step may aim the platform's mail identity at a third-party address only
+where the tenant's own allow-list says so (gap G14, T-2597): the list is empty
+by default, only a holder of `:OutboundDestinationsManage` (TENANT_ADMIN and
+PLATFORM_ADMIN, never a PROCESS_DESIGNER) may add a channel or a recipient
+domain, and the list is read at ACTIVATION **and at DISPATCH**, so a domain
+removed after the activation stops the step. The same is true of the inline
+HTTP step: its host is read again at dispatch, so a host removed after the
+activation stops that step too. What is left open: the webhook
+subscriptions, which are not part of a definition's steps, and the
+catalogue-service steps, whose endpoint comes from the tenant's pinned
+catalogue and not from the definition. See
+[`outbound-destinations.md`](outbound-destinations.md).
 
 ## Extension point (owner decision D-180, not built here)
 
@@ -334,6 +344,14 @@ The tests: `web/src/utils/canvas/__tests__/notifyStep.test.ts` (the pure rules),
   scan that keeps every definition-write path on the notify fence;
 * `test/letflow/notifications/delivery_test.exs` -- the closed reason set, now
   with `rate_limited` in it;
+* `test/letflow/outbound_destinations_test.exs` -- the allow-list itself (T-2597):
+  the empty list, the entries, the authority and the audit;
+* `test/letflow/outbound_destination_allow_list_test.exs` -- the activation and
+  the dispatch refusal of what the list does not allow (T-2597, S6);
+* `test/letflow/outbound_destination_recheck_at_dispatch_test.exs` -- the list
+  read again at dispatch (T-2597, S7);
+* `test/letflow/notify_step_declared_values_test.exs` -- the declared values and
+  the refusal of a secret reference (T-2597, S6).
 * `test/letflow/notification_steps/file_channel_test.exs` -- the FILE channel:
   the rendered file in the tenant's area, the server's name, the cap that holds
   the channel, the refusals (a labelled variable, a missing trigger reference,

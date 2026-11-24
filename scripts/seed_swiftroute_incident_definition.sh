@@ -150,7 +150,7 @@ ACTIVATE_RESPONSE=$(curl -sf \
   -X POST \
   -H "${AUTH_HEADER}" \
   "${API}/definitions/${DEFINITION_ID}/activate") || {
-  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed." >&2
+  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed. If the definition reaches an outbound host or channel, the tenant allow-list must list it first (an administrator holding OutboundDestinationsManage adds it; see docs/outbound-destinations.md)." >&2
   echo "       A 422 means the definition failed validation; read the response body." >&2
   exit 1
 }

@@ -39,6 +39,11 @@ defmodule Letflow.NotificationSteps.FileChannelTest do
     # registered first, so it runs LAST (after the tenant fixture's own cleanup)
     on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Repo) end)
     fx = PCF.tenant!("t2596-file")
+
+    # T-2597 (pilot gap G14): the FILE channel is governed by the tenant's own
+    # outbound allow-list like every other channel (the list is empty by
+    # default), so the door is opened for it here.
+    Letflow.TenantFixture.open_outbound_channel!(fx.schema_name, "file")
     S.put_app_env!(@notifier, adapter: Double, timeout_ms: 100, max_concurrent: 5)
     Double.set_owner(self())
     on_exit(&Double.reset/0)

@@ -23,7 +23,7 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   @perm :TasksReassignRouted
 
   test "R1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-9) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-10) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 

@@ -118,6 +118,36 @@ defmodule Letflow.Supervisor.PollersTest do
     refute Letflow.RecordTriggers.Worker in Enum.map(children, & &1.id)
   end
 
+  test "T-2703: the platform step runner defaults OFF and starts only with an explicit true (pure init/1)" do
+    key = :start_platform_step_runner
+    original = Application.fetch_env(:letflow, key)
+
+    on_exit(fn ->
+      case original do
+        {:ok, v} -> Application.put_env(:letflow, key, v)
+        :error -> Application.delete_env(:letflow, key)
+      end
+    end)
+
+    Application.delete_env(:letflow, key)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    refute Letflow.Engine.PlatformStepRunner.Poller in Enum.map(children, & &1.id)
+
+    Application.put_env(:letflow, key, true)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    assert Letflow.Engine.PlatformStepRunner.Poller in Enum.map(children, & &1.id)
+  end
+
+  test "T-2703: only the exact string true turns the runner on (runtime parse)" do
+    alias Letflow.Supervisor.Pollers
+    assert Pollers.parse_platform_step_runner("true") == true
+    assert Pollers.parse_platform_step_runner(nil) == false
+
+    for v <- ["TRUE", "True", "1", "yes", "false", "", " true", "true\n"] do
+      assert Pollers.parse_platform_step_runner(v) == false, inspect(v)
+    end
+  end
+
   test "GH 3292: the provisioner sweep is a fourth, independently gated child (pure init/1)" do
     keys = [
       :start_scheduler,

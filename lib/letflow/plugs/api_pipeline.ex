@@ -196,6 +196,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/ledger-settings", to: Letflow.Routers.LedgerSettings)
   forward("/notification-templates", to: Letflow.Routers.NotificationTemplates)
   forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries)
+  forward("/outbound-destinations", to: Letflow.Routers.OutboundDestinations)
   forward("/number-sequences", to: Letflow.Routers.NumberSequences)
   forward("/entity-type-extensions", to: Letflow.Routers.EntityTypeExtensions)
   forward("/entity-scope-declarations", to: Letflow.Routers.EntityScopeDeclarations)

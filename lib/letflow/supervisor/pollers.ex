@@ -104,6 +104,7 @@ defmodule Letflow.Supervisor.Pollers do
       scheduler_children() ++
         service_task_dispatcher_children() ++
         script_task_dispatcher_children() ++
+        platform_step_runner_children() ++
         record_trigger_worker_children() ++ provisioner_sweep_children()
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 5, max_seconds: 60)
@@ -173,6 +174,27 @@ defmodule Letflow.Supervisor.Pollers do
   defp script_task_dispatcher_children do
     if Application.get_env(:letflow, :start_script_task_dispatcher, true) do
       [{Letflow.Engine.ScriptTaskDispatcher.Poller, []}]
+    else
+      []
+    end
+  end
+
+  @doc """
+  T-2703: parses `LETFLOW_START_PLATFORM_STEP_RUNNER` (read in `config/runtime.exs`). Only the exact
+  string `"true"` turns the platform step runner on; unset or anything else is off.
+  """
+  @spec parse_platform_step_runner(String.t() | nil) :: boolean()
+  def parse_platform_step_runner("true"), do: true
+  def parse_platform_step_runner(_other), do: false
+
+  # T-2703 (pilot gap G1 remainder): the platform step runner, a poller of its own (a platform step
+  # may run for minutes and must not delay the HTTP or script dispatch). Gated by its own key,
+  # :start_platform_step_runner. A new flag defaults OFF; the single switch is the runtime variable
+  # LETFLOW_START_PLATFORM_STEP_RUNNER (exactly "true", config/runtime.exs, dev included)
+  # (config/test.exs keeps it false: the same OwnershipError hazard).
+  defp platform_step_runner_children do
+    if Application.get_env(:letflow, :start_platform_step_runner, false) do
+      [{Letflow.Engine.PlatformStepRunner.Poller, []}]
     else
       []
     end
