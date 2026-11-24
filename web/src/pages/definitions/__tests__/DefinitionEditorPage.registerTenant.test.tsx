@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup, waitFor, render, fireEvent } from '@testing-library/react'
+import { screen, cleanup, waitFor, render, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -214,6 +214,8 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     expect(node).not.toHaveTextContent(/Service task/i)
     fireEvent.click(node)
     expect(await screen.findByTestId('edit-platform-call')).toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.provision')).toBeInTheDocument())
+    expect(await screen.findByTestId('platform-arg-var-tenant_id')).toHaveValue('tenant_id')
   })
 
   it('S5 the notify step in the edit view has the template picker with the registered key', async () => {
@@ -222,6 +224,7 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     expect(node).toHaveTextContent('notify')
     fireEvent.click(node)
     await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
+    expect(screen.getByTestId('notify-step-recipient')).toHaveValue('admin_email')
   })
 
   it('S6 a fresh open of the shipped definition shows no "unsaved local draft" banner (Viewer and Editor views)', async () => {

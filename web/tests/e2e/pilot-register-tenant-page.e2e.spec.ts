@@ -44,8 +44,8 @@ test.describe('the real designer page opens platform.register_tenant', () => {
   })
 
   // T-2742 (pilot gap G9d): the shipped steps are named by their function, the read-only panel names the function
-  // and the template, and a fresh open shows no "unsaved local draft" banner. The same checks run against the real
-  // QA page after the deploy (walk 4).
+  // and the template, and a fresh open shows no "unsaved local draft" banner. The real-QA version is in
+  // pilot-register-tenant-qa.e2e.spec.ts (BP-PLATFORM-01 step A).
   test('the steps carry the function names and a fresh open shows no draft banner', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/__harness/pd-register-tenant-page')
