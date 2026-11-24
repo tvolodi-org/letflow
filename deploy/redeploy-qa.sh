@@ -171,6 +171,21 @@ if ! curl -sf -o /dev/null "https://qa.bizdala.com/"; then
 fi
 echo "Frontend health check passed"
 
+# 9b. Platform definitions (T-2739): seed the shipped platform.register_tenant idempotently through
+#     the RUNNING app (a bare `bin/letflow eval` has no started repo), then a read-only smoke check
+#     that FAILS THE DEPLOY when it is missing or not active in the platform tenant. No secret is used.
+echo "--- Platform definitions: seed + smoke check ---"
+APP_CTR=$($COMPOSE ps -q app)
+if [[ -z "$APP_CTR" ]]; then
+  echo "ERROR: app container not found for the platform definitions step" >&2
+  exit 1
+fi
+docker exec "$APP_CTR" bin/letflow rpc 'IO.inspect(Letflow.PlatformProcesses.BootSeed.run(force: true))' || true
+if ! docker exec "$APP_CTR" bin/letflow rpc 'case Letflow.PlatformProcesses.BootSeed.check() do :ok -> IO.puts("platform.register_tenant: active"); {:error, r} -> IO.puts("platform.register_tenant: " <> inspect(r)); System.halt(1) end'; then
+  echo "ERROR: platform.register_tenant is missing or not active in the platform tenant (smoke check)" >&2
+  exit 1
+fi
+
 # 10. Retention for the web-dist backups made in step 7 (GH 2352). Last on purpose: a deploy
 #     that fails a health check exits before this, so every backup stays available for a
 #     rollback until the next successful deploy. Keep-last-N, N from WEB_DIST_BACKUP_KEEP
