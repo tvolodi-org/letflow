@@ -278,6 +278,43 @@ is the same as for a platform step (see `docs/platform-steps.md`, "The DLQ retry
 it"): an entry of type `notify_step` names the instance and the node, and its retry sends the
 template again -- unless it already did its work.
 
+## The designer (T-2600, pilot gap G5b)
+
+The step is edited in the process designer, without code: the step panel of the definition editor
+(`web/src/components/diagram/NodeEditPanel.tsx`) offers the form
+(`web/src/components/diagram/NotifyStepEditor.tsx`) for a SERVICE step that carries a `notify`
+attribute.
+
+* The **template picker** is fed by the COMPILED catalogue of registered keys:
+  `GET /api/v1/notification-templates/catalogue` publishes the keys and the placeholder allow-list
+  of each (`Letflow.NotificationTemplates.Registry`). The read is platform data -- a key and the
+  NAMES of the placeholders -- and no tenant text: the tenant's own override of a key stays behind
+  `GET /api/v1/notification-templates` (`:NotificationTemplatesManage`). The catalogue's permission
+  is `:DefinitionsRead`: the reader of a definition is the person who may name a template in one.
+* The **channel** is the server's closed set (`email`, `file`). The form is exclusive the way the
+  server is: the mail channel asks for the recipient, the file channel for the file name, and
+  switching drops what the other one carried.
+* The **recipient is a VARIABLE of the process**, never a fixed address: a constant address would
+  sit in the stored definition of the tenant, and the address of a person is personal data the
+  platform does not store (INV-4). The server refuses a constant recipient with
+  `notify_recipient_invalid`, so the form does not offer one. (The per-tenant allow-list of
+  recipient domains of the guardrail G14 is not built; when it is, the form checks it.)
+* Every **value** names a placeholder of the template's allow-list and is filled with a variable of
+  the process or with a fixed value.
+* The form applies the server's own rules before the graph is written: a variable name that is empty,
+  dotted or in the reserved namespace, and a file name that carries a separator, a `..`, a drive
+  letter or a home directory, are refused in the field and never reach the graph.
+
+The rules the form enforces live in one pure module (`web/src/utils/canvas/notifyStep.ts`), the
+graph edits in `web/src/utils/canvas/graphEdit.ts` (`setNotifyStep/2`, `removeNotifyStep/2`), and
+the route kinds of a step stay exclusive: a node carries a notification OR a script OR a platform
+call, never two (the server refuses a node that carries two).
+
+The tests: `web/src/utils/canvas/__tests__/notifyStep.test.ts` (the pure rules),
+`web/src/components/diagram/__tests__/NotifyStepEditor.test.tsx` (the form),
+`web/src/components/diagram/__tests__/NodeEditPanel.notify.test.tsx` (the panel), and
+`test/letflow/routers/notification_templates_catalogue_test.exs` (the catalogue route).
+
 ## The tests
 
 * `test/letflow/notification_steps/dispatcher_test.exs` -- the send, the cap
@@ -311,4 +348,41 @@ template again -- unless it already did its work.
   already did its work is NOT run again (the idempotency), the DLQ retry is
   wired to it (the entry is `resolved` when the step ran), an entry of another
   tenant is invisible, and a notification step that already sent is not sent
-  again.
+  again;
+* `test/letflow/routers/notification_templates_catalogue_test.exs` -- the
+  CATALOGUE the designer picks from (gap G5b): the compiled keys and their
+  placeholder allow-lists, the permission it needs, and the refusals;
+* `web/src/utils/canvas/__tests__/notifyStep.test.ts` -- the RULES of the form:
+  the parse, the channel switch, the variable-name rule, the file-name rule and
+  the problems it refuses;
+* `web/src/components/diagram/__tests__/NotifyStepEditor.test.tsx` -- the FORM:
+  the channel, the template picker, the recipient and the values, and the load
+  states;
+* `web/src/components/diagram/__tests__/NodeEditPanel.notify.test.tsx` -- the
+  PANEL: the step is edited without code, and the route kinds stay exclusive.
+
+## The designer proof in a browser (T-2607, pilot gap G19)
+
+The owner's pilot acceptance item 6 -- "I add an e-mail notification after
+tenant registration by opening the process definition in the designer, not by
+asking for code" -- has a browser proof: the Playwright spec
+`web/tests/e2e/pilot-register-tenant-designer.e2e.spec.ts` opens the pilot's
+registration definition `platform.register_tenant` in the designer and adds the
+notification step to it: a service step through the toolbar, the "Send a
+notification" button of the step panel, the registered template
+`tenant_registered`, the recipient read from the variable `admin_email`, and a
+value of the template mapped to a variable of the process. The version that runs
+becomes a new draft version, and the step is in the graph that version carries.
+
+The spec runs against the SCREEN HARNESS (`/__harness/pd-register-tenant`,
+`web/src/dev/harness/fixtures/registerTenantDesigner.tsx`), which carries the
+DOCUMENT the seed writes into the platform tenant
+(`Letflow.PlatformProcesses.Definition.graph()`): the definition under the test
+is the pilot's one, not an invented graph.
+
+NO CI JOB RUNS THIS SPEC. The job "Stock browser e2e (playwright)" runs a FIXED
+list of the GATE B specs (`gate-b-stock`, `gate-b-stock-print`,
+`gate-b-assets-print` -- `.github/workflows/stock-e2e.yml`), and the team does
+not edit the workflow. The proof is the local run:
+
+    cd web && npx playwright test tests/e2e/pilot-register-tenant-designer.e2e.spec.ts --config=playwright.config.ts
