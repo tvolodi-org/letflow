@@ -86,13 +86,11 @@ defmodule Letflow.PlatformProcesses.BootSeed do
   @spec check() :: :ok | {:error, term()}
   def check do
     with {:ok, prefix} <- platform_prefix(),
-         {:ok, definition} <- Definitions.get_active_by_name(@key, prefix: prefix),
-         true <- definition.status == :active do
+         {:ok, _definition} <- Definitions.get_active_by_name(@key, prefix: prefix) do
       :ok
     else
       {:error, :not_found} -> {:error, :definition_missing}
       {:error, reason} -> {:error, reason}
-      _other -> {:error, :definition_not_active}
     end
   rescue
     _error -> {:error, :check_crashed}

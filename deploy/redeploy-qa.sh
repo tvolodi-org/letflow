@@ -183,9 +183,9 @@ fi
 docker exec "$APP_CTR" bin/letflow rpc 'IO.inspect(Letflow.PlatformProcesses.BootSeed.run(force: true))' || true
 # The check only RETURNS a result (never halts the VM): the deploy fails on the client side.
 SMOKE_OUT=$(docker exec "$APP_CTR" bin/letflow rpc 'IO.puts(case Letflow.PlatformProcesses.BootSeed.check() do :ok -> "SMOKE_OK"; {:error, r} -> "SMOKE_FAIL " <> inspect(r) end)') || SMOKE_OUT=""
-echo "$SMOKE_OUT" | tail -n 1
+echo "$SMOKE_OUT"
 if ! grep -qx 'SMOKE_OK' <<<"$SMOKE_OUT"; then
-  echo "ERROR: platform.register_tenant is missing or not active in the platform tenant (smoke check)" >&2
+  echo "ERROR: platform.register_tenant is missing or not active in the platform tenant (smoke check; see the SMOKE_FAIL line above). If it says platform_tenant_not_configured, set LETFLOW_PLATFORM_TENANT_ID in the host env file." >&2
   exit 1
 fi
 
