@@ -67,6 +67,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib/seed_service_task_base.sh"
 # shellcheck source=lib/seed_token_check.sh
 source "${SCRIPT_DIR}/lib/seed_token_check.sh"
+# shellcheck source=lib/seed_outbound_open.sh
+source "${SCRIPT_DIR}/lib/seed_outbound_open.sh"
 FIXTURE_PATH="${SCRIPT_DIR}/../test/fixtures/qa/swiftroute_process_definition.json"
 
 echo "=== seed_swiftroute_definition.sh ==="
@@ -140,6 +142,8 @@ echo "  Created (DRAFT) — ID: ${DEFINITION_ID}"
 echo "  Status: $(echo "${CREATE_RESPONSE}" | jq -r '.status')"
 
 # --- Step 2: POST /api/v1/definitions/{id}/activate ---
+# G14: demo tenant -- open the http channel and host first (docs/outbound-destinations.md).
+seed_open_outbound_http
 echo "--- Activating definition ---"
 ACTIVATE_RESPONSE=$(curl -sf \
   -X POST \
