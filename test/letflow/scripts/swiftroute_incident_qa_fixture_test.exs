@@ -223,7 +223,9 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
     done
     printf '%s %s\n' "${method}" "${last}" >> "${dir}/calls"
     if [[ "${last}" == */me/access ]]; then
-      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite"]}'
+      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite","OutboundDestinationsManage"]}'
+    elif [[ "${last}" == */outbound-destinations ]]; then
+      if [[ "${method}" == POST ]]; then printf '%s' '{}'; else printf '%s' '{"entries":[]}'; fi
     elif [[ "${last}" == */activate ]]; then
       printf '%s' '{"id":"d1","name":"Driver Incident Report","version":"1.0","status":"ACTIVE"}'
     elif [[ "${method}" == POST ]]; then
@@ -277,7 +279,10 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
 
       calls =
         case File.read(Path.join(dir, "calls")) do
-          {:ok, c} -> c |> String.split(~r/\r?\n/, trim: true)
+          {:ok, c} ->
+            c
+            |> String.split(~r/\r?\n/, trim: true)
+            |> Enum.reject(&(&1 =~ "/outbound-destinations"))
           _ -> []
         end
 
