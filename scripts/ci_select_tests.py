@@ -25,9 +25,11 @@ candidate is deferred to the nightly run when the budget is exceeded, and a defe
 is a scan that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran
 only in the extended run. Every whole-tree reader is a member of that class, including a
 file that also holds database-backed cases: the scan itself is a pure function of the
-tree. A member reads a whole tree either directly (a glob over a backend-source root) or
-through a helper module of lib/ that walks a tree; a scan of a tree outside the backend
-source (the handoff tree, the test tree) is not a member.
+tree. A member reads a whole tree directly (a recursive glob over a backend-source root or
+subtree, however the path is assembled: one literal, or a `**` token plus a root literal of
+the same definition) or through a helper module of lib/ that walks a tree. A fixed-depth
+reader (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) is not recursive and is not a
+member. A scan of the handoff tree is not a member (it is outside the backend source).
 A mandatory check is never omitted, so the file cap and the per-partition target budget
 the optional candidates only; the whole run's budget is the hard bound.
 """
@@ -164,20 +166,31 @@ STANDARD_SECURITY_PROBE_TESTS = [
 # file also uses `Letflow.DataCase`, so a forbidden caller could merge unseen).
 #
 # A member reads a whole tree in one of TWO ways, and both count:
-#   * directly: a glob over a backend-source root ("lib/**", "priv/**/*",
-#     "lib/letflow/modules/**/*");
+#   * directly: a recursive glob over a backend-source root or subtree ("lib/**",
+#     "priv/**/*", "lib/letflow/modules/**/*"), also when the `**` is a token of its own
+#     and the root another literal of the definition (`["lib", "**", "*.ex"]`,
+#     `Path.join([root, dir, "**", "*.ex"])` with `@roots ["lib", "priv"]`);
 #   * through a helper: the test calls a module of lib/ that walks a tree, and the roots
 #     that helper scans lie in the backend source (the review's counterexample:
 #     `Scan.scan(["lib", "priv/modules"])` in the role-scope-grants writer scan, whose
 #     helper reads every file under those roots). A helper-backed scan is a whole-tree
 #     reader exactly like a direct one, so it belongs to the class (T-2691 rework 2).
-# A scan of a tree OUTSIDE the backend source (the handoff tree, the test tree) is not a
-# member: a backend-source diff cannot break its pin.
+# A fixed-depth reader (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) is not
+# recursive and is not a member. A scan of a tree OUTSIDE the backend source (the handoff
+# tree) is not a member: a backend-source diff cannot break its pin. The test tree counts
+# as backend source because it contains `test/support/`.
 # The `/**` marker of a whole-tree glob, and the path characters that may precede it.
 # The root is the path before the marker, so the pattern stays linear: a nested-quantifier
 # pattern over every source file is quadratic and the class derivation reads the tree.
 WHOLE_TREE_GLOB_MARKER_RE = re.compile(r"/\*\*")
 PATH_TAIL_RE = re.compile(r"[A-Za-z0-9_./-]*$")
+# The other spellings of a recursive glob: the `**` is a token of its own in a path chain
+# (`Path.join([root, dir, "**", "*.ex"])`, `["lib", "**", "*.ex"]`, `@lib |> Path.join("**/*.ex")`),
+# so the root is a different literal of the same definition (T-2691 rework 3).
+GLOB_TOKEN_RE = re.compile(r'"(?:[^"\\]*/)?\*\*(?:/[^"]*)?"')
+UNIT_START_RE = re.compile(r"^  (?:defp?|test|describe|setup|@)\b", re.M)
+ATTRIBUTE_REF_RE = re.compile(r"@([a-z_]\w*)")
+STRING_LITERAL_RE = re.compile(r'"([^"\n]*)"')
 # A module alias in a test file: `alias Full.Name` or `alias Full.Name, as: Short`.
 ALIAS_RE = re.compile(
     r"^\s*alias\s+([A-Z][A-Za-z0-9_.]*)(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?", re.M
@@ -639,7 +652,7 @@ def whole_tree_scan_tests(all_tests, root):
         text = read(os.path.join(root, path)) or ""
         if not text:
             continue
-        if whole_tree_glob_roots(text) or indirect_tree_roots(text, root):
+        if whole_tree_glob_roots(text) or chain_glob_roots(text) or indirect_tree_roots(text, root):
             scans.add(path)
     return scans
 
@@ -678,6 +691,44 @@ def whole_tree_glob_roots(text):
         root = source_root(tail.group(0))
         if root:
             roots.add(root)
+    return roots
+
+
+def definition_units(text):
+    """The text split into top-level definitions (a function, a test, an attribute)."""
+    starts = [m.start() for m in UNIT_START_RE.finditer(text)]
+    if not starts:
+        return [text]
+    return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
+
+
+def chain_glob_roots(text):
+    """The backend-source roots of a recursive glob spelled as a chain of tokens.
+
+    A definition that calls `Path.wildcard` and holds a `**` token reads a whole tree; the
+    root is a directory literal of the same definition or of a module attribute it names
+    (`@roots ["lib", "priv"]`, `@lib Path.join(File.cwd!(), "lib")`). The text marker alone
+    left three scans of lib/ and priv/ outside the class (T-2691 rework 3).
+    """
+    if "**" not in text or "wildcard" not in text:
+        return set()
+    units = definition_units(text)
+    attributes = {}
+    for unit in units:
+        m = re.match(r"\s*@([a-z_]\w*)\b", unit)
+        if m:
+            attributes[m.group(1)] = unit
+    roots = set()
+    for unit in units:
+        if "wildcard" not in unit or not GLOB_TOKEN_RE.search(unit):
+            continue
+        literals = STRING_LITERAL_RE.findall(unit)
+        for name in ATTRIBUTE_REF_RE.findall(unit):
+            literals.extend(STRING_LITERAL_RE.findall(attributes.get(name, "")))
+        for literal in literals:
+            root = source_root(literal)
+            if root:
+                roots.add(root)
     return roots
 
 

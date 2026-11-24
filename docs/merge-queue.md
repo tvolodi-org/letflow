@@ -62,13 +62,16 @@ suite, including exam and slow tests. Required check names stay
   also holds database-backed cases: the scan itself is a pure function of the tree, and
   leaving such a file out left a real whole-tree scan
   (`write_handler_registration_surface_test.exs`) deferrable, so a forbidden handler
-  caller could merge unseen. A reader counts whether it reads the tree directly (a glob
-  over a backend-source root) or through a helper: the scan of the role-scope-grants
+  caller could merge unseen. A reader counts whether it reads the tree directly (a recursive glob
+  over a backend-source root or subtree, also when the `**` is a token of its own in a
+  path chain such as `["lib", "**", "*.ex"]` or `Path.join([root, dir, "**", "*.ex"])`
+  with `@roots ["lib", "priv"]`) or through a helper: the scan of the role-scope-grants
   writers calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in the called
   scanner and not in the test source, and a literal-only discovery left that scan
-  outside the class and its pin unverified. A scan of a tree outside the backend source
-  (the handoff tree, the test tree) is not a member: a backend-source diff cannot break
-  its pin. The stamp opener scan is reserved as
+  outside the class and its pin unverified. A fixed-depth reader
+  (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) is not recursive and is not a
+  member. A scan of the handoff tree is not a member: it is outside the backend source
+  (the test tree counts, because it contains `test/support/`). The stamp opener scan is reserved as
   well whenever the diff adds or changes a `Repo.query` / `SQL.query` /
   `Ecto.Adapters.SQL.query` call, or touches a file of that scan's `@dynamic_sql_files`
   list (the list is read from the scan itself, never from a hand list). A scan that is

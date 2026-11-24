@@ -1269,6 +1269,14 @@ defmodule Letflow.CiSelectTestsTest do
       # the writer/start inventory of G-02 reads every source under lib/ and priv/ through
       # its own helper (`for dir <- ["lib", "priv"]`), so it is a helper-backed reader too.
       assert 'test/letflow/security_probe/g02_writer_start_inventory_test.exs' in scans, sorted(scans)
+      # a recursive glob whose `**` is a token of its own is a member too (T-2691 rework 3):
+      # each of these walks lib/ (and priv/) through a chain, not a literal `lib/**`.
+      for chained in ['test/letflow/service_catalog/writers_guard_test.exs',
+                      'test/letflow/entities/field_values_consumers_guard_test.exs',
+                      'test/letflow/identity/last_admin_paths_test.exs']:
+          assert chained in scans, (chained, sorted(scans))
+      # a fixed-depth reader is not recursive: not a member
+      assert 'test/letflow/ledger/read_tenancy_test.exs' not in scans, sorted(scans)
       # a scan of a tree outside the backend source is not a member: a backend-source diff
       # cannot break the pin of the handoff tree (the handoff linter scans handoffs/).
       assert 'test/mix/tasks/letflow.lint_handoffs_test.exs' not in scans, sorted(scans)

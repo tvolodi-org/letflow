@@ -16,6 +16,11 @@ A member reads a whole tree in one of two ways:
   * through a helper: the test calls a module of lib/ (or of test/support/) that walks a
     tree, and the roots that helper scans lie in the backend source.
 
+  * through a chain: `Path.wildcard` over a path whose `**` is a token of its own, the root
+    being another literal of the file (`["lib", "**", "*.ex"]`, `@roots ["lib", "priv"]`).
+Fixed-depth readers (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) are not whole-tree
+readers and are not members; a recursive reader of a SUBTREE of the backend source is.
+
 A scan of a tree outside the backend source (the handoff tree, the web tree) is not a
 member: a backend-source diff cannot break its pin.
 
@@ -61,6 +66,23 @@ def glob_roots(text):
         if tail.start() == 0 or text[tail.start() - 1] not in "\"'":
             continue
         root = source_root(tail.group(0))
+        if root:
+            roots.add(root)
+    return roots
+
+def cooccurrence_roots(text):
+    """A different method from the selector's: no definition boundaries, whole-file facts.
+
+    A file that calls `Path.wildcard`, holds a quoted `**` token and names a backend-source
+    directory in any string literal reads a whole tree however the chain is assembled
+    (attribute, list literal, piped join). It over-approximates on purpose, so it can
+    disagree with the selector in both directions (T-2691 rework 3).
+    """
+    if "Path.wildcard" not in text or not re.search(r'"[^"\n]*\*\*[^"\n]*"', text):
+        return set()
+    roots = set()
+    for literal in LIT_RE.findall(text):
+        root = source_root(literal)
         if root:
             roots.add(root)
     return roots
@@ -141,7 +163,7 @@ def main():
         if not path.endswith("_test.exs"):
             continue
         text = read(os.path.join(root, path))
-        roots = glob_roots(text) | indirect_roots(text, modules)
+        roots = glob_roots(text) | cooccurrence_roots(text) | indirect_roots(text, modules)
         if roots:
             members.append(path)
     for path in sorted(set(members)):

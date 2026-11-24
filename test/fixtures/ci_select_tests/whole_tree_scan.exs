@@ -1,4 +1,4 @@
-defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
+defmodule Letflow.Fixtures.WholeTreeScan do
   @moduledoc false
   # A seeded scan for the CI selection test: it carries its own pinned list and reads the
   # whole tree, so it is a member of the class the selector reserves for a backend-source
