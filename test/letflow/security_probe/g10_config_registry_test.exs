@@ -151,7 +151,29 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert "G10_IMPORT_BESIDE_LOCAL_SETTING" in names,
              "a definition of another module of the file shadowed the import"
 
-      refute "G10_DEFINES_GET_ENV_ITSELF" in names
+      # The fixture module that defines `get_env/1` itself calls it with this name: a call of
+      # its own definition is not a read of the environment, so the name must never appear.
+      refute "G10_OWN_DEFINITION_SETTING" in names
+    end
+
+    test "a read in a form nobody can resolve is reported, never skipped", %{
+      broken_findings: findings,
+      findings: real_findings
+    } do
+      unresolved = Enum.filter(findings, &(&1.code == :unresolved_read_form))
+
+      lines =
+        unresolved
+        |> Enum.map(& &1.name)
+        |> Enum.sort()
+
+      # apply/3 on System, Kernel.apply/3 on Application, a capture, a module held in an
+      # attribute, a module held in a variable and :os.getenv.
+      assert length(lines) == 6, "expected six unresolved forms, got: " <> inspect(lines)
+      assert Enum.all?(lines, &String.starts_with?(&1, "lib/g10_call_forms.ex:"))
+
+      refute Enum.any?(real_findings, &(&1.code == :unresolved_read_form)),
+             "the product tree reads the environment in a form the derivation cannot resolve"
     end
 
     test "the application environment is read through an import and through an alias", %{

@@ -48,6 +48,9 @@ defmodule Letflow.Fixtures.G10DefinesGetEnvItself do
   """
 
   def get_env(_name), do: nil
+
+  # A call of the module's own definition: not a read of the environment.
+  def own, do: get_env("G10_OWN_DEFINITION_SETTING")
 end
 
 defmodule Letflow.Fixtures.G10ImportBesideALocalDefinition do
@@ -63,4 +66,24 @@ defmodule Letflow.Fixtures.G10ImportBesideALocalDefinition do
   import System
 
   def env, do: get_env("G10_IMPORT_BESIDE_LOCAL_SETTING")
+end
+
+defmodule Letflow.Fixtures.G10UnresolvedForms do
+  @moduledoc """
+  The forms the derivation cannot resolve; each must be reported, never skipped.
+  """
+
+  @reader System
+
+  def applied, do: apply(System, :get_env, ["G10_APPLIED_SETTING"])
+
+  def applied_app, do: Kernel.apply(Application, :get_env, [:letflow, :g10_applied_key])
+
+  def captured, do: Enum.map(["G10_CAPTURED_SETTING"], &System.get_env/1)
+
+  def attribute_module, do: @reader.get_env("G10_ATTRIBUTE_MODULE_SETTING")
+
+  def variable_module(reader), do: reader.get_env("G10_VARIABLE_SETTING")
+
+  def erlang_call, do: :os.getenv(~c"G10_ERLANG_SETTING")
 end

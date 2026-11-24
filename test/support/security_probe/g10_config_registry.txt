@@ -84,6 +84,7 @@ env|LETFLOW_REALM_USERS_PROVISIONER_TOKEN|signup|platform|runtime|secret|none|ye
 env|LETFLOW_REALM_USERS_PROVISIONER_URL|signup|platform|runtime|url|none|yes|Letflow.Signup.RealmProvisioner|Address of the realm provisioner the sign-up calls.
 env|LETFLOW_RUNTIME_DEMO_RELEASE|operations|platform|runtime|plain|none|no|none|Release the runtime demo module is bound to.
 env|LETFLOW_SECRETS_MASTER_KEY|platform|platform|runtime|secret|none|yes|none|AES-256-GCM key that wraps every tenant secret, required in every environment and never defaulted.
+env|LETFLOW_SEED_PLATFORM_DEFINITIONS|platform|platform|runtime|flag|false|no|none|Switch that seeds the shipped platform definitions at boot, off in production; exactly the string true enables it.
 env|LETFLOW_SHARED_STOCK_ACCESS_TENANTS|stock|platform|runtime|plain|none|yes|none|Comma separated slugs of the tenants that may read each other's stock.
 env|LETFLOW_SIGNUP_ABANDON_DAYS|signup|platform|runtime|plain|none|no|none|Days after which an unfinished sign-up is abandoned.
 env|LETFLOW_SIGNUP_ALLOW_DOMAINS|signup|platform|runtime|plain|none|no|none|Domains whose sign-ups are always allowed.
@@ -106,6 +107,7 @@ env|LETFLOW_SMTP_PASSWORD|identity|platform|runtime|secret|none|yes|none|Passwor
 env|LETFLOW_SMTP_PORT|identity|platform|runtime|plain|none|yes|none|Port of the relay the mail sender connects to, 1 to 65535.
 env|LETFLOW_SMTP_TLS|identity|platform|runtime|plain|none|no|none|Transport security of the mail sender: starttls unless it says tls or none, and none only for a loopback host and never in a release build.
 env|LETFLOW_SMTP_USERNAME|identity|platform|runtime|secret|none|yes|none|User of the mail sender, read at the point of use and never stored.
+env|LETFLOW_START_PLATFORM_STEP_RUNNER|engine|platform|runtime|flag|false|no|none|Switch that starts the platform step runner, off until a deployment turns it on; exactly the string true enables it.
 env|LETFLOW_TRUSTED_PROXIES|platform|platform|runtime|plain|none|yes|none|CIDR list of the proxies whose forwarded address the client address is taken from.
 env|LETFLOW_VOICE_LLM_API_KEY|voice|module|runtime|secret|none|yes|none|API key of the voice language model provider.
 env|LETFLOW_VOICE_LLM_BASE_URL|voice|module|runtime|url|none|yes|Letflow.Webhooks.UrlValidator|Address of the voice language model provider.
@@ -126,8 +128,10 @@ env|POOL_SIZE|operations|platform|runtime|plain|30|no|none|Number of connections
 env|PORT|operations|platform|runtime|plain|4000|no|none|Port the HTTP listener binds.
 env|RELEASE_NAME|operations|platform|runtime|plain|none|no|none|Name of the release the running build belongs to.
 env|RESERVED_HEADROOM|operations|platform|runtime|plain|2|no|none|Number of database connections kept free for the operator.
+env|TEST_PARALLEL_FILE_MARKER_DIR|testing|test|runtime|plain|none|no|none|Directory a watched test child publishes its running test file to.
 env|TEST_PARALLEL_GROUP|testing|test|runtime|plain|none|no|none|Group of test partitions that may run at the same time.
 env|TEST_POOL_SIZE|testing|test|runtime|plain|none|no|none|Number of connections one test partition may hold.
+env|TEST_TAIL_OUTPUT_TIMEOUT_S|testing|test|runtime|plain|480|no|none|Seconds of silence after which the test runner names the hanging test; zero disables the watch.
 app_env|:letflow:Letflow.LoginDiscovery|identity|platform|runtime|plain|none|no|none|How the login discovery answers, the redirect mode and the size of the body it reads.
 app_env|:letflow:Letflow.LoginDiscovery.Notifier|identity|platform|runtime|plain|none|no|none|Which notifier the login discovery and the sign-up mails are sent with.
 app_env|:letflow:Letflow.LoginDiscovery.Notifier.Smtp|identity|platform|runtime|plain|none|no|none|Settings of the SMTP notifier, the host and the port of the mail sender.
@@ -218,6 +222,7 @@ app_env|:letflow:old_app_count_between|stock|module|runtime|plain|none|no|none|B
 app_env|:letflow:ordering|platform|platform|runtime|plain|none|no|none|Order in which the instances and the tasks are handed out.
 app_env|:letflow:platform_admin_token_max_ttl_days|identity|platform|runtime|plain|none|no|none|Upper bound on the lifetime of a platform administrator token.
 app_env|:letflow:platform_functions|platform|platform|compile_time|plain|none|no|none|The platform function modules the platform steps call, compiled into the catalogue.
+app_env|:letflow:platform_step_runner|engine|platform|runtime|plain|none|no|none|Options of the platform step runner poller, the poll interval.
 app_env|:letflow:plugin_handlers|platform|platform|runtime|plain|none|no|none|Handlers of the plugins the installation holds.
 app_env|:letflow:pollers_init_probe|scheduler|test|runtime|plain|none|no|none|Seam that lets a test observe the start of the pollers.
 app_env|:letflow:problems_base_uri|platform|platform|compile_time|url|none|no|none|Base address the problem documents are published under.
@@ -249,6 +254,7 @@ app_env|:letflow:script_task_runner|scripts|platform|runtime|plain|none|no|none|
 app_env|:letflow:script_task_sweep_fault|scripts|test|runtime|plain|none|no|none|Seam that lets a test make the script task sweep fail.
 app_env|:letflow:scripts_test_hooks|testing|test|runtime|flag|false|yes|none|Switch of the script test hooks, refused in a release build.
 app_env|:letflow:secrets_master_key|platform|platform|runtime|secret|none|yes|none|AES-256-GCM key that wraps every tenant secret, by reference only.
+app_env|:letflow:seed_platform_definitions_on_boot|platform|platform|runtime|flag|false|no|none|Switch that seeds the shipped platform definitions at boot, off by default.
 app_env|:letflow:service_multi_probe|engine|test|runtime|plain|none|no|none|Seam that lets a test observe the service call of a multi step.
 app_env|:letflow:service_task_dispatcher|engine|platform|runtime|plain|none|no|none|Module that dispatches the service tasks of an instance.
 app_env|:letflow:script_task_dispatcher|scripts|platform|runtime|plain|none|no|none|Module that dispatches the script tasks of an instance.
@@ -256,6 +262,7 @@ app_env|:letflow:service_task_ssrf_validation_enabled|engine|platform|runtime|gu
 app_env|:letflow:shared_access_authority|stock|platform|runtime|plain|none|yes|none|Module that decides whether a tenant may read another tenant's stock.
 app_env|:letflow:shared_stock_access_tenants|stock|platform|runtime|plain|none|yes|none|Slugs of the tenants that may read each other's stock.
 app_env|:letflow:start_http|platform|platform|runtime|plain|true|no|none|Switch that starts the HTTP listener of the application.
+app_env|:letflow:start_platform_step_runner|engine|platform|runtime|flag|false|no|none|Switch that starts the platform step runner poller, off by default and always off in tests.
 app_env|:letflow:start_provisioner_sweep|provisioner|platform|runtime|plain|true|no|none|Switch that starts the sweep of the provisioner.
 app_env|:letflow:start_record_trigger_worker|records|platform|runtime|plain|true|no|none|Switch that starts the worker of the record triggers.
 app_env|:letflow:start_scheduler|scheduler|platform|runtime|plain|true|no|none|Switch that starts the scheduler.

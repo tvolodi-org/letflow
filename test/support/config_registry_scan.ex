@@ -69,6 +69,8 @@ defmodule Letflow.Support.ConfigRegistryScan do
   # The functions an import of `System` or of `Application` brings into a scope, with the
   # arities each of them answers. A local call is one of them only when the scope imports the
   # module and the arity of the call is one the module answers.
+  @read_functions [:get_env, :fetch_env, :fetch_env!, :compile_env]
+
   @imported_functions %{
     "System" => %{get_env: [0, 1, 2], fetch_env: [0, 1, 2], fetch_env!: [0, 1, 2]},
     "Application" => %{get_env: [2, 3], fetch_env: [2], compile_env: [2, 3]}
@@ -276,6 +278,7 @@ defmodule Letflow.Support.ConfigRegistryScan do
       "the tree",
       Enum.map_join(inv.unparsable, ", ", &"#{&1.file} (#{&1.reason})")
     )
+    |> add_unresolved(inv)
     |> add_many(
       :unregistered_env,
       MapSet.difference(derived_env, registered_env),
@@ -307,6 +310,23 @@ defmodule Letflow.Support.ConfigRegistryScan do
     |> check_fail_closed(inv, by_name)
     |> check_secrets(inv, by_name, root)
     |> check_urls(inv, by_name, root)
+  end
+
+  # Fail closed: a read in a form the derivation cannot resolve is a finding, because no registry
+  # line can cover a setting nobody can name.
+  defp add_unresolved(acc, inv) do
+    sites = Enum.filter(inv.dynamic, &(&1.form == :unresolved_form))
+
+    acc ++
+      for site <- sites do
+        %{
+          code: :unresolved_read_form,
+          name: "#{site.file}:#{site.line}",
+          detail:
+            "a read of the environment the derivation cannot resolve (apply, capture, a module held " <>
+              "in a variable or attribute, or :os.getenv): write the direct System/Application call"
+        }
+      end
   end
 
   @doc """
@@ -598,6 +618,31 @@ defmodule Letflow.Support.ConfigRegistryScan do
         env_list_sites(left, right, rel, ctx, test?) ++
           walk(left, rel, ctx, test?) ++
           piped(right, left, rel, ctx, test?)
+
+      # A read in a form the derivation cannot resolve (an `apply`, a capture, a module held in a
+      # variable or an attribute, the Erlang `:os` call) fails closed: it is reported, never skipped.
+      {:apply, meta, [mod, fun, _args]} = call ->
+        unresolved_apply(mod, fun, meta, rel, ctx, test?) ++
+          walk_all(children(call), rel, ctx, test?)
+
+      {{:., _, [kernel, :apply]}, meta, [mod, fun, _args]} = call
+      when kernel == :erlang or (is_tuple(kernel) and elem(kernel, 0) == :__aliases__) ->
+        unresolved_apply(mod, fun, meta, rel, ctx, test?) ++
+          walk_all(children(call), rel, ctx, test?)
+
+      {:&, meta, [{:/, _, [{{:., _, [mod, fun]}, _, []}, _arity]}]} = capture ->
+        unresolved_capture(mod, fun, meta, rel, ctx, test?) ++
+          walk_all(children(capture), rel, ctx, test?)
+
+      {{:., _, [mod, fun]}, meta, args} = call
+      when is_list(args) and fun in @read_functions and not is_atom(mod) and
+             not (is_tuple(mod) and elem(mod, 0) == :__aliases__) ->
+        [dynamic_site(rel, line(meta), :unresolved_form, test?)] ++
+          walk_all(children(call), rel, ctx, test?)
+
+      {{:., _, [:os, :getenv]}, meta, args} = call when is_list(args) ->
+        [dynamic_site(rel, line(meta), :unresolved_form, test?)] ++
+          walk_all(children(call), rel, ctx, test?)
 
       {{:., _, [mod, fun]}, meta, args} when is_list(args) ->
         call_sites(resolve_module(alias_name(mod), ctx.aliases), fun, args, meta, rel, ctx, test?) ++
@@ -964,6 +1009,26 @@ defmodule Letflow.Support.ConfigRegistryScan do
       value: value,
       test?: test?
     }
+  end
+
+  # `apply(System, :get_env, [...])` (or a module the scope cannot name with a literal read
+  # function) is an unresolved form. An `apply` whose module AND function are both computed names
+  # nothing about the environment and is not reported: the class table discloses it.
+  defp unresolved_apply(mod, fun, meta, rel, ctx, test?) do
+    module = resolve_module(alias_name(mod), ctx.aliases)
+    reads? = is_atom(fun) and fun in @read_functions
+
+    if reads? and (module in ["System", "Application"] or is_nil(module)),
+      do: [dynamic_site(rel, line(meta), :unresolved_form, test?)],
+      else: []
+  end
+
+  defp unresolved_capture(mod, fun, meta, rel, ctx, test?) do
+    module = resolve_module(alias_name(mod), ctx.aliases)
+
+    if module in ["System", "Application"] and fun in @read_functions,
+      do: [dynamic_site(rel, line(meta), :unresolved_form, test?)],
+      else: []
   end
 
   defp dynamic_site(file, line, form, test?) do
