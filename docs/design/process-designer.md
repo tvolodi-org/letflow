@@ -35,6 +35,8 @@ PARALLEL_GATEWAY, TIMER, SUB_PROCESS. What the picture does with each piece:
 | HUMAN_TASK | `distinct_from` (four-eyes rule) | SUMMARISED: "Must differ from: <step labels>" |
 | HUMAN_TASK / SERVICE_TASK | `module_writes` | SUMMARISED: handler names only (`post_document`, ...); `args` are never shown |
 | SERVICE_TASK | `service_id` | SUMMARISED: "Service: <id>" |
+| SERVICE_TASK | `platform_call` | SUMMARISED: the function name (`tenant.validate`); the node caption is its short name; `args`, `reads` and `writes` are edited in the step panel, never shown here |
+| SERVICE_TASK | `notify` | SUMMARISED: the template key and the recipient VARIABLE name; the node caption is `notify`; values are edited in the step panel |
 | SERVICE_TASK | `endpoint` | SUMMARISED: scheme and host only (a path or query may carry a token); a malformed URL shows "endpoint set" |
 | SERVICE_TASK | `script_key`, `script_version`, `timeout_ms` | SHOWN: `script_key` as the sub-line; version and timeout in details |
 | TIMER | `duration_iso8601` | SHOWN: sub-line, raw (for example `PT15M`) |

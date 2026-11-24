@@ -42,4 +42,21 @@ test.describe('the real designer page opens platform.register_tenant', () => {
     await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)
     expect(errors.filter((m) => /185|Maximum update depth/i.test(m))).toEqual([])
   })
+
+  // T-2742 (pilot gap G9d): the shipped steps are named by their function, the read-only panel names the function
+  // and the template, and a fresh open shows no "unsaved local draft" banner. The same checks run against the real
+  // QA page after the deploy (walk 4).
+  test('the steps carry the function names and a fresh open shows no draft banner', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-register-tenant-page')
+    for (const fn of ['validate', 'create', 'provision', 'bind_realm', 'grant_first_admins', 'notify']) {
+      await expect(page.getByTestId(`rf__node-${fn}`)).toContainText(fn)
+    }
+    await expect(page.getByTestId('rf__node-validate')).not.toContainText('Service task')
+    await page.getByTestId('rf__node-validate').click()
+    await expect(page.getByTestId('details-platform-function')).toContainText('tenant.validate')
+    await page.getByTestId('rf__node-notify').click()
+    await expect(page.getByTestId('details-notify-template')).toContainText('tenant_registered')
+    await expect(page.getByTestId('draft-banner')).toHaveCount(0)
+  })
 })
