@@ -511,11 +511,11 @@ defmodule Letflow.Definitions.PlatformCalls do
 
   defp conflicting_route?(_node), do: false
 
+  # Every caller already holds a map (both sit behind an `is_map/1` guard),
+  # so there is no fallback clause: the compiler reports one as unreachable.
   defp conflicting_route_attributes?(attributes) when is_map(attributes) do
     Enum.any?(@conflicting_route_attributes, &(Map.get(attributes, &1) != nil))
   end
-
-  defp conflicting_route_attributes?(_attributes), do: false
 
   defp platform_call_conflict?(attributes) when is_map(attributes) do
     conflicting_route_attributes?(attributes) or
