@@ -82,6 +82,7 @@ AREAS: dict[str, dict] = {
         "routers": [
             "tenants", "onboarding", "signup", "login_discovery", "admin_v1", "admin_services",
             "platform_migrations", "platform_module_rollouts", "platform_problem_reports", "platform_status",
+            "platform_functions",
             "event_retention", "metrics_exposition", "modules", "router",
         ],
         "web": [

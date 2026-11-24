@@ -927,7 +927,9 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 ## Orphans (docs/bp/orphans-platform.md)
 
-The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-platform.md`).
+| function | file:line | what it does | history | why it exists | proposed action |
+|---|---|---|---|---|---|
+| GET /api/v1/platform-functions | lib/letflow/routers/platform_functions.ex:36 | reads the compiled catalogue of the platform functions a definition may call, for the caller's tenant | T-2599 (pilot gap G5a), commit 4e39e9cc6, 2026-11-22 | the designer's platform-call editor reads it to offer the functions a definition may call; the pilot work is in flight, so no process of this area names the route yet | keep as a platform function |
 
 ## Gaps of the area
 
