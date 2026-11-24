@@ -51,11 +51,22 @@ Not a variable, on purpose: `tier`, `language`, `expires_at`, `source_ip_key`, `
 the front gate into the admission row (section 5) and read from there by `record_lifecycle` by tenant id. So no digest
 and no expiry value travels through the instance variables, and no person can set them.
 
-**Builder rule while v1 may still be active.** v1 does not declare `requested_tenant_id`, `tenant_type` or
-`notify_admin`. The operator builder (`register_tenant_variables/1`) adds those keys ONLY when the active version
-declares them in its `variable_schemas`. This costs one read of the active version before `Engine.create/2`. With v1
-active, routes 1/2 start exactly as T-2704 left them. The system builder refuses (section 6.4) when the active version
-does not declare all three keys.
+**Builder rule while v1 may still be active, and replay (the start contract is the ORIGINAL one).** v1 does not
+declare `requested_tenant_id`, `tenant_type` or `notify_admin`. Both builders first ask the start ledger whether the
+key `register_tenant_start_key(slug)` already has a start: `Letflow.Engine.IdempotentReplay.lookup/3` on the platform
+prefix (the call `Engine.start_replay_check/3` makes).
+
+- **A start exists (a replay).** The builder builds the variables as for a new start, then keeps ONLY the keys that the
+  original `INSTANCE_STARTED` payload's `initial_variables` holds (the key set of the first start, not its values; the
+  values come from the request, so a changed value still differs and the engine answers 409). The active definition is
+  not read, so a v1 -> v2 activation, a rollback to v1 and a deprecation do not change what a replay sends. The engine's
+  compare (`same_start_request?/4`) is by definition NAME, not by version, so the first instance is answered.
+  The system builder does NOT run the v2-contract check of section 6.4 for a replay: the first start passed C1, and the
+  engine answers a replay before the definition lookup and the permission gate.
+- **No start exists (a new start).** The operator builder adds the three v2 keys ONLY when the active version declares
+  them in its `variable_schemas` (one read of the active version before `Engine.create/2`). With v1 active, routes 1/2
+  start exactly as T-2704 left them. The system builder refuses (section 6.4) when the active version does not declare
+  all three keys.
 
 ## 2. Outputs
 
@@ -106,7 +117,7 @@ match it).
 | 1 | `validate` / `tenant.validate` (body from T-2704) | `slug`, `name` (start) | read-only: bounds, reserved slug, slug free or the same registration | `platform_call_arg_invalid`, `platform_call_duplicate_slug`, `platform_call_tenant_purged` | reads again, same answer; no write |
 | 2 | `create` / `tenant.create` CHANGED | `slug`, `name` (start); NEW optional `requested_tenant_id` (start, uuid), NEW optional `tenant_type` (start) | WITHOUT `requested_tenant_id`: today's `Identity.create_tenant/1` (with `tenant_type` when sent). WITH it: `slug` must equal `Request.slug(requested_tenant_id)`, the row is written by `Identity.create_provisioned_tenant/1` with `id: requested_tenant_id` (which forces `tenant_type` to `test`), and a sent `tenant_type` is refused | `platform_call_arg_invalid` (bad uuid, slug not derived from the id, `tenant_type` together with `requested_tenant_id`, `tenant_type` not in the enum), `platform_call_duplicate_slug` (the slug or id belongs to a tenant with other values), `platform_call_tenant_purged`, `platform_call_tenant_create_failed` | ADOPTS the row: the same slug, the same display name and (when given) the same id answer the first `tenant_id` and write nothing. An existing row with the same slug and another name or id is refused. The idempotency key stays `["slug"]`; the slug is a function of the id, so the key is unique for both callers |
 | 3 | `provision` / `tenant.provision` | `tenant_id` (step) | schema, migrations, roles, HMAC key, status `:active` | `platform_call_arg_invalid`, `platform_call_tenant_purged`, the provision failure kinds of the body | changes nothing (the migrator skips applied migrations, the seeding is an upsert, the HMAC key is kept) |
-| 4 | `record_lifecycle` / `tenant.record_lifecycle` NEW (`write_tenant_registry`) | `tenant_id` (step) | reads the ADMISSION row of `tenant_id` (section 5). No admission (routes 1/2): no-op, `{:ok, %{}}`, as today (operator tenants have no lifecycle row). With an admission: inserts the `tenant_lifecycles` row from it (`lifecycle: "active"`, tier, language, expires_at, both key digests, `default_modules_state` = `pending`, or `done` when `Config.default_modules/0` is empty), in one transaction, and then runs the demo-alarm log of today (`alarm_if_reached/1`, counts only) | `platform_call_arg_invalid`, `platform_call_lifecycle_failed` | the row exists: nothing is written, `{:ok, %{}}` |
+| 4 | `record_lifecycle` / `tenant.record_lifecycle` NEW (`write_tenant_registry`) | `tenant_id` (step), optional `requested_tenant_id` (start) | reads the ADMISSION row of `tenant_id` (section 5). No admission and no `requested_tenant_id` (routes 1/2): no-op, `{:ok, %{}}`, as today (operator tenants have no lifecycle row). Order: a lifecycle row exists -> ok, nothing written. Else with `requested_tenant_id` set and no admission -> `platform_call_lifecycle_failed` (fail closed, section 5). With an admission: inserts the `tenant_lifecycles` row from it (`lifecycle: "active"`, tier, language, expires_at, both key digests, `default_modules_state` = `pending`, or `done` when `Config.default_modules/0` is empty), in one transaction, and then runs the demo-alarm log of today (`alarm_if_reached/1`, counts only) | `platform_call_arg_invalid`, `platform_call_lifecycle_failed` | the row exists: nothing is written, `{:ok, %{}}` |
 | 5 | `record_onboarding` / `tenant.record_onboarding` NEW (`write_tenant_registry`) | `tenant_id` (step), optional `hostname` (start) | no `hostname`: no-op. Otherwise it is the moved `ensure_onboarding/2` of `TenantProvisioner`: `Identity.create_onboarding(%{tenant_id, slug, hostname})`. The provisioner and the step then call ONE implementation (`Impl.TenantRecordOnboarding.ensure/2`), as G1b did for the other steps | `platform_call_arg_invalid` (hostname over 253 bytes or not a hostname), `platform_call_hostname_taken` (`:duplicate_hostname`), `platform_call_onboarding_failed` | a record for the tenant exists: the same hostname answers ok and writes nothing; ANOTHER hostname is `platform_call_hostname_mismatch` (the step never moves a tenant's host) |
 | 6 | `bind_realm` / `tenant.bind_realm` CHANGED (`realm_id` becomes optional) | `tenant_id` (step), optional `realm_id` (start) | no `realm_id`: no-op (an operator tenant without a realm, as today's `POST /tenants`). Otherwise today's body: `RealmProbe.verify/1`, then `Identity.bind_provisioned_realm/3` | today's codes (`platform_call_realm_already_bound` for another realm, the probe's `not_found` / `unreachable` kinds) | the same realm: `{:unchanged, tenant}`, nothing written |
 | 7 | `grant_first_admins` / `tenant.grant_first_admins` CHANGED (`admin_email` becomes optional) | `tenant_id` (step), optional `admin_email` (start) | no `admin_email`: no-op. Otherwise today's body (pending grant in the tenant schema through `PendingAdminGrants.create_provisioned/2`). It ALSO sets `tenant_lifecycles.owner_grant_stored = true` when a lifecycle row exists, so the old path's replay (`ensure_grant/4`) does not store it again after a setting flip | today's codes | the grant waits already: stores nothing (`:duplicate` counts as done) |
@@ -151,13 +162,50 @@ per-tenant session lock (`TenantProvisioner.with_lock/2`), so two concurrent cre
    The OLD path's `insert_tenant_and_lifecycle/2` uses the SAME two count functions. So the counts stay right while the
    setting is flipped and while instances are in flight. A refusal is `{:error, {:limit, which, language}}`, the 409 of
    today, byte for byte.
-5. leave the lock and call the system start (section 6). Then store `instance_id` on the admission.
+5. still INSIDE the per-tenant session lock (`with_lock/2`), call the system start (section 6) and then store
+   `instance_id` on the admission. The demo-cap xact lock of step 4 is left before the start (the cap is already
+   reserved by the admission), but the session lock is held to the end of step 5. Every writer or releaser of this
+   admission (the Sweep, the old path's adoption below) takes the SAME session lock, so none can run between the
+   start and the link.
+
+**Durable linkage: the start ledger is the truth, `instance_id` is a cache.** The start (a committed instance) and the
+link update are two commits, so a crash between them leaves an admission with a null `instance_id` and an instance that
+exists. The start ledger (the idempotency key `register-tenant:<slug>`, written by `Engine.create/2` in the instance's
+own transaction) cannot be lost with the instance, so the admission is never released from `instance_id` alone:
+
+- **Reconcile before release.** The Sweep takes the session lock of the tenant id, then looks the key up in the ledger
+  (`IdempotentReplay.lookup/3`). Found: it stores the `instance_id` (repair) and keeps the admission (the instance's own
+  terminal state then decides, next bullet). Not found and the admission is older than 1 h: delete it. Because the
+  start and the link run inside the same session lock (step 5), a start cannot commit between the Sweep's lookup and its
+  delete.
+- **Release by instance state.** Instance in `CANCELLED` (and no tenant row): delete. In `ERROR`: keep the cap slot until
+  the platform admin retries (G7) or cancels it. In `COMPLETED`: the lifecycle row exists, so the admission no longer
+  counts (the counts exclude an admission that has a lifecycle row) and the Sweep deletes it.
+- **Fail closed in step 4 of the graph.** `record_lifecycle` takes the optional start input `requested_tenant_id`
+  (present on routes 3/4 only). Order inside the step: a lifecycle row for `tenant_id` exists -> ok, write nothing.
+  Else, if `requested_tenant_id` is set and no admission exists -> `platform_call_lifecycle_failed` (the instance goes
+  to ERROR; never a silent no-op). Else, no `requested_tenant_id` and no admission (routes 1/2) -> no-op as today. So a
+  lost admission can no longer let a system-started tenant exist without lifecycle and budget accounting.
 
 **A start that fails after the admission committed** (no active v2, platform tenant missing, runner off): the route
-answers (section 9.2) and the admission stays. A replay with the same body passes step 1 and starts again. A stale
-admission is released by `TenantProvisioner.Sweep`, with one bounded query per tick: it deletes an admission that has
-no tenant row and either no `instance_id` and is older than 1 h, or an instance in `CANCELLED`. An admission whose
-instance is in `ERROR` keeps its cap slot until the platform admin retries the instance (G7) or cancels it.
+answers (section 9.2) and the admission stays. A replay with the same body passes step 1 and starts again (the ledger
+has no start, so it is a new start under the same session lock).
+
+**Rollback: the old path adopts its own reservation.** Setting flipped OFF while an admission is pending. Today's
+`do_create/3` sends an absent tenant to `insert_tenant_and_lifecycle/2`, whose cap check would count the tenant's OWN
+admission and refuse at capacity. Rule, in `TenantProvisioner.create/2`'s old path, under the same `with_lock/2`:
+look up the admission for the id first. If it exists, `insert_tenant_and_lifecycle/2` runs in ADOPT mode:
+
+- no cap check and no budget check (the admission is already counted; a different tenant's admissions still count);
+- the lifecycle row is built from the ADMISSION's values (tier, language, expires_at, both key digests), not from the
+  request, so the digests and the 14-day expiry are the ones admitted;
+- in the SAME transaction (under the demo-cap xact lock) the lifecycle row is inserted and the admission is deleted, so
+  the count never moves and never double-counts;
+- the running instance is not stopped. Its step 2 ADOPTS the tenant row (same slug, same name, same id) and its step 4
+  finds the lifecycle row and writes nothing (section 4), so the two paths converge on one tenant. If the replay body
+  differs from the admission's fingerprint, the old path answers 409 (the same compare as step 1) before adopting.
+- the same adoption applies when the old path finds the tenant row WITHOUT a lifecycle row but WITH an admission (the
+  instance created the tenant, then the setting flipped): today's `ensure_lifecycle` path adopts instead of inserting.
 
 ## 6. The system-authority start (the PM's five conditions)
 
@@ -207,7 +255,7 @@ start variables.
 through the front gate, which answers 409 first; the route maps it to 409 anyway), `{:error, :not_found}` (C1 refused,
 or no active definition), `{:error, :platform_tenant_not_configured}`, and
 `{:error, :register_tenant_v2_missing}` (the active version does not carry the v2 contract; it is checked before
-`Engine.create/2`, and the log line names the tag only).
+`Engine.create/2` for a NEW start only. An existing start is answered from the ledger without it, section 1; the log line names the tag only).
 
 ## 7. The start key and replay
 
@@ -223,7 +271,7 @@ or no active definition), `{:error, :platform_tenant_not_configured}`, and
     admission by the fingerprint.
 - `request_fingerprint` = SHA-256 over the canonical, sorted encoding of the parsed request AS SENT: `tenant_id`, `name`,
   `language`, `tier`, `email_key`, `hostname`, `idp_realm_id`, `expires_at` as sent (null when absent, NOT the computed
-  default), `source_ip_key`. A replay that again omits `expires_at` therefore matches. A replay that sends it explicitly
+  default), `source_ip_key`. `Request.parse/2` today returns only the computed `expires_at`, so T-2727 changes it to also return `expires_at_sent` (the raw value or nil) and builds the fingerprint from that field, never from the computed one. A replay that again omits `expires_at` therefore matches. A replay that sends it explicitly
   differs, and gets 409.
 - **Contract change, approved by the PM:** today a replay of a COMPLETE tenant "ignores every body field except
   `tenant_id`" (`TenantProvisioner` moduledoc, D3). With the setting ON, a replay with different values answers 409.
@@ -325,6 +373,9 @@ outside this repository. Until it is proven against QA, the wait hint keeps the 
 | V8 | routes 1/2 on v2: `tenant_type` reaches the row, `hostname` gives the onboarding record, `notify_admin: true` sends the mail; on v1 active, the builder sends no v2 keys | extend `test/letflow/platform_processes/register_routes_test.exs` (T-2704's file) |
 | V9 | INV-4 canary: the e-mail, realm and hostname do not appear in any audit row, event metadata, log line (captured at `:debug` with `LOG_LEVEL=debug`, the T-2704 C finding) or GET answer | `test/letflow/platform_processes/system_start_canary_test.exs` |
 | V10 | Sweep releases a stale admission and keeps an ERRORed instance's slot | extend `test/letflow/tenant_provisioner/sweep_test.exs` |
+| V12 | crash gap: start committed, link update lost (admission `instance_id` null, ledger has the start): the Sweep repairs the link and does NOT delete; with no ledger start and age over 1 h it deletes; the Sweep and a concurrent start of one id are serialised by the session lock; `record_lifecycle` with `requested_tenant_id` and no admission fails closed, without it is a no-op | extend `test/letflow/tenant_provisioner/sweep_test.exs`, `admit_test.exs` |
+| V13 | rollback at the cap: demo count = cap - 1, admit A (no tenant row), flip the setting OFF, replay A on the old path: 201, the lifecycle row carries the ADMITTED expiry and digests, the admission is gone, the count is cap (not cap + 1), a different new id is still refused; the running instance then adopts the tenant (step 2) and step 4 writes nothing | extend `test/letflow/tenant_provisioner/admit_test.exs` |
+| V14 | replay across versions: (a) operator request started on v1, v2 activated, the same request replays: 200/202 with the first instance, no 409; (b) system registration started on v2, then rollback to v1 and, separately, v2 deprecated: the same request replays the first instance; a changed value in each case is 409; `expires_at` omitted twice matches, sent once and omitted once differs | extend `test/letflow/platform_processes/register_routes_test.exs`, `system_start_test.exs` |
 | V11 | seed: `:created` over v1, `:already_present`, `:version_taken`, `:newer_version_kept` | extend `test/letflow/platform_processes/seed_test.exs` |
 
 Pins that move and that `lf.sh test` does not map (grep before the first checks run):
