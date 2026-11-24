@@ -1121,6 +1121,10 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
 
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_reactivate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
   defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
 
@@ -1219,6 +1223,10 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_activate(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_activate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
 
   defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
@@ -1510,6 +1518,10 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_rollback(conn, {:error, {:notify_calls_invalid, violations}}),
     do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_rollback(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
 
   defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)

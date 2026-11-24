@@ -154,6 +154,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
+  alias Letflow.OutboundDestinations
   alias Letflow.Repo
   alias Letflow.SandboxPool
   alias Letflow.SandboxPool.FixtureLoader
@@ -240,6 +241,16 @@ defmodule Letflow.Definitions do
         }
 
   @type notify_call_violation :: %{
+          node_id: String.t(),
+          index: non_neg_integer(),
+          code: atom()
+        }
+
+  @typedoc """
+  One violation of the OUTBOUND ALLOW-LIST (T-2597, pilot gap G14): the node it
+  belongs to and a stable code.
+  """
+  @type outbound_destination_violation :: %{
           node_id: String.t(),
           index: non_neg_integer(),
           code: atom()
@@ -820,6 +831,7 @@ defmodule Letflow.Definitions do
              :ok <- check_start_permission(definition, prefix),
              :ok <- check_step_mappings(definition, prefix),
              :ok <- check_notify_calls(definition, prefix),
+             :ok <- check_outbound_destinations(definition, prefix),
              :ok <- check_test_cases(definition) do
           reactivate_row(definition, prefix, tenant_id, activator)
         else
@@ -2782,6 +2794,7 @@ defmodule Letflow.Definitions do
          :ok <- check_start_permission(definition, prefix),
          :ok <- check_step_mappings(definition, prefix),
          :ok <- check_notify_calls(definition, prefix),
+         :ok <- check_outbound_destinations(definition, prefix),
          :ok <- check_test_cases(definition) do
       check_script_bindings(definition, prefix)
     end
@@ -2956,6 +2969,61 @@ defmodule Letflow.Definitions do
 
       :error ->
         {:error, :graph_structure_invalid}
+    end
+  end
+
+  # T-2597 (pilot gap G14): the OUTBOUND ALLOW-LIST fence -- a step that reaches
+  # outside the tenant is refused unless the tenant's own list allows its
+  # channel and its destination. The list is per tenant and empty by default,
+  # so a definition that sends anything is refused until a holder of
+  # `:OutboundDestinationsManage` opens the door.
+  #
+  # A NOTIFICATION step sends on the channel its declaration names; its
+  # destination (the recipient's domain) is read from a VARIABLE of the running
+  # instance, so it is not known here -- the DISPATCHER checks it
+  # (`Letflow.NotificationSteps.Dispatcher`). An INLINE HTTP step names its
+  # host in the definition, so its destination IS known here.
+  #
+  # Shared by the four activation paths (activate/2, reactivate/2, version
+  # rollback, promotion apply) with the notify fence above.
+  @doc false
+  @spec check_outbound_destinations(ProcessDefinition.t() | map(), String.t()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:outbound_destinations_invalid, [outbound_destination_violation()]}}
+  def check_outbound_destinations(%{graph: graph_map}, prefix) when is_map(graph_map) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        violations =
+          for node <- nodes,
+              code <- outbound_destination_violation(node, prefix),
+              do: %{node_id: node.id, index: 0, code: code}
+
+        if violations == [] do
+          :ok
+        else
+          {:error, {:outbound_destinations_invalid, violations}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
+  # The violation of ONE node: an empty list when the node reaches nothing
+  # outside (or reaches only what the tenant's list allows), one code otherwise.
+  defp outbound_destination_violation(node, prefix) do
+    case OutboundDestinations.node_target(node) do
+      nil ->
+        []
+
+      {channel, destination} ->
+        case OutboundDestinations.check(prefix, channel, destination) do
+          :ok -> []
+          {:error, :channel_not_allowed} -> [:outbound_channel_not_allowed]
+          {:error, :destination_not_allowed} -> [:outbound_destination_not_allowed]
+          {:error, _other} -> [:outbound_allow_list_unavailable]
+        end
     end
   end
 
@@ -3631,6 +3699,10 @@ defmodule Letflow.Definitions do
   defp interpret_activate_result({:error, {:step_mappings_invalid, _violations}} = error),
     do: error
 
+  # T-2597 (pilot gap G14): the outbound allow-list refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:outbound_destinations_invalid, _violations}} = error),
+    do: error
+
   # T-2604 (pilot gap G16): the declared test cases' refusal, a pure pass-through.
   # Without it a failed case would answer 500 instead of a typed 422 with the
   # case's name and its closed reason code.
@@ -3832,6 +3904,7 @@ defmodule Letflow.Definitions do
                  :ok <- check_start_permission(target_row, prefix),
                  :ok <- check_step_mappings(target_row, prefix),
                  :ok <- check_notify_calls(target_row, prefix),
+                 :ok <- check_outbound_destinations(target_row, prefix),
                  :ok <- check_test_cases(target_row),
                  :ok <- check_script_bindings(target_row, prefix) do
               swap_active_pointer(current_active, target_row, prefix, activator)

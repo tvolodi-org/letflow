@@ -1721,6 +1721,9 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
 | GET /api/v1/notification-templates/catalogue | lib/letflow/routers/notification_templates.ex:60 | reads the compiled catalogue of the registered notification template keys and the placeholder allow-list of each | T-2600 (pilot gap G5b), commit c0b6d37ae, 2026-11-23 | the designer's notification-step editor reads it to offer the templates a service step may use; the tenant's own text stays behind the route of BP-TENANT-ADMIN-26, and no designer-area process of that editor exists yet | give a process |
+| GET /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:34 | lists the tenant allow-list of outbound channels and recipient domains | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
+| POST /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:41 | adds a channel or a recipient domain to the allow-list | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
+| DELETE /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:55 | removes an allow-list entry | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
 
 ## Gaps of the area
 
