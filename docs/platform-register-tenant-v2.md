@@ -43,7 +43,7 @@ Schema string unless the table says otherwise. Only the two builders in `Letflow
 | `hostname` | string | form value when sent | `request.hostname` | `record_onboarding` |
 | `realm_id` | string | form value when sent | `request.idp_realm_id` | `bind_realm` |
 | `admin_email` | string | form value when sent | `request.email_key` (already normalised) | `grant_first_admins`, notify recipient |
-| `notify_admin` | boolean | `true` | `false` | the gateway in front of `notify` |
+| `notify_admin` | boolean | `true` ONLY when `admin_email` is supplied, `false` when it is absent (the notify step needs a recipient: `notify_recipient_missing` otherwise) | `false` | the gateway in front of `notify` |
 | `tenant_id` | string (uuid) | (step output) | (step output) | written by `create`, read by every later step |
 | `schema_name` | string | (step output) | (step output) | written by `provision` |
 
@@ -97,7 +97,10 @@ start -> validate -> create -> provision -> record_lifecycle -> record_onboardin
   modules). One difference: `bind_realm` comes before `grant_first_admins`, as in v1. The two steps are independent of
   each other, so the order is free, and v1's order keeps the step ids of the G19 Playwright test.
 - The gateway follows the graph rules (CHK-13..17): the default edge carries no condition. `notify_admin` is ALWAYS set
-  by both builders, because an undefined variable in a condition is an evaluation error (section 0).
+  by both builders, because an undefined variable in a condition is an evaluation error (section 0). The operator
+  builder (routes 1/2) sets it to `true` only when `admin_email` is supplied and to `false` when it is absent, so the
+  gateway never selects `notify` without a recipient (`Dispatcher` returns `notify_recipient_missing` for an absent
+  address, `lib/letflow/notification_steps/dispatcher.ex`); a registration without an address completes at `end`.
 - There is no HUMAN_TASK, no SUB_PROCESS, no inline HTTP and no script node. So the foreign-source rule of 0094 (b)
   holds, and the system start's "no child" condition (section 6.2) holds.
 - Start permission declared on the row: `TenantsManage` (as v1).
@@ -127,7 +130,7 @@ match it).
 | 6 | `bind_realm` / `tenant.bind_realm` CHANGED (`realm_id` becomes optional) | `tenant_id` (step), optional `realm_id` (start) | no `realm_id`: no-op (an operator tenant without a realm, as today's `POST /tenants`). Otherwise today's body: `RealmProbe.verify/1`, then `Identity.bind_provisioned_realm/3` | today's codes (`platform_call_realm_already_bound` for another realm, the probe's `not_found` / `unreachable` kinds) | the same realm: `{:unchanged, tenant}`, nothing written |
 | 7 | `grant_first_admins` / `tenant.grant_first_admins` CHANGED (`admin_email` becomes optional) | `tenant_id` (step), optional `admin_email` (start) | no `admin_email`: no-op. Otherwise today's body (pending grant in the tenant schema through `PendingAdminGrants.create_provisioned/2`). It ALSO sets `tenant_lifecycles.owner_grant_stored = true` when a lifecycle row exists, so the old path's replay (`ensure_grant/4`) does not store it again after a setting flip | today's codes | the grant waits already: stores nothing (`:duplicate` counts as done) |
 | 8 | `install_default_modules` / `tenant.install_default_modules` (body changed, entry unchanged) | `tenant_id` (step) | no lifecycle row, or `default_modules_state` `not_applicable` / `done`: no-op (operator tenants install nothing, as v1). `pending` / `failed`: the moved `ensure_default_modules/2` of `TenantProvisioner`, which records `done`, or `failed` + `"<module_id>:<code>"` | NEVER fails the instance on an install failure (today's rule, decision 0072 D8: a failed install never fails the create); it fails only with `platform_call_arg_invalid` | `already_installed` counts as done; a `failed` state is retried on the next run of the step (G7 retry, or a route-3 replay, section 9.2) |
-| 9 | `notify_gate` (EXCLUSIVE_GATEWAY) | `notify_admin` | routes 1/2 -> `notify`; routes 3/4 -> `end` (the provisioner sends no mail today, and signup sends its own welcome mail after the create, `Signup.Provisioning.send_welcome/2`) | an undefined `notify_admin` is an evaluation error (instance ERROR); both builders always set it | evaluated again, same edge |
+| 9 | `notify_gate` (EXCLUSIVE_GATEWAY) | `notify_admin` | routes 1/2 -> `notify` only when `admin_email` was supplied (`notify_admin == true`), otherwise `end`; routes 3/4 -> `end` (the provisioner sends no mail today, and signup sends its own welcome mail after the create, `Signup.Provisioning.send_welcome/2`) | an undefined `notify_admin` is an evaluation error (instance ERROR); both builders always set it | evaluated again, same edge |
 | 10 | `notify` (v1 node, `tenant_registered` to `admin_email`) | `admin_email`, `name`, `slug` | as v1; the G14 allow-list applies at dispatch | as v1 (`notify_recipient_missing`, the outbound refusals) | one delivery row per attempt (G4) |
 
 New refusal codes join the closed failure-kind vocabulary in `docs/platform-steps.md` ("The closed vocabulary of the
@@ -380,7 +383,7 @@ outside this repository. Until it is proven against QA, the wait hint keeps the 
 | V5 | callers pin of `SystemStart` (with the rogue fixture) | `test/letflow/platform_processes/system_start_callers_test.exs` |
 | V6 | route 3 setting ON: fast finish 201 / replay 200 with today's body; slow -> 202 + poll; ERROR -> `failed` + closed reason; 409 cap before any INSTANCE_STARTED; GET answers per 9.3; setting OFF byte-identical; setting ON + runner off -> old path + warning | `test/letflow/routers/admin_v1_process_test.exs` (T-2728 owns the route half; T-2727 may land 6.x and 9.1 first) |
 | V7 | route 4: pending -> retry, completed -> welcome mail once, failed reasons mapped | `test/letflow/signup/provisioning_process_test.exs` |
-| V8 | routes 1/2 on v2: `tenant_type` reaches the row, `hostname` gives the onboarding record, `notify_admin: true` sends the mail; on v1 active, the builder sends no v2 keys | extend `test/letflow/platform_processes/register_routes_test.exs` (T-2704's file) |
+| V8 | routes 1/2 on v2: `tenant_type` reaches the row, `hostname` gives the onboarding record, `notify_admin: true` sends the mail when `admin_email` is supplied (branch A); route 2 WITHOUT `admin_email` builds `notify_admin: false`, routes `notify_gate` to `end` and the instance COMPLETES, no `notify_recipient_missing`, no ERROR (branch B); on v1 active, the builder sends no v2 keys | extend `test/letflow/platform_processes/register_routes_test.exs` (T-2704's file) |
 | V9 | INV-4 canary: the e-mail, realm and hostname do not appear in any audit row, event metadata, log line (captured at `:debug` with `LOG_LEVEL=debug`, the T-2704 C finding) or GET answer | `test/letflow/platform_processes/system_start_canary_test.exs` |
 | V10 | Sweep releases a stale admission and keeps an ERRORed instance's slot | extend `test/letflow/tenant_provisioner/sweep_test.exs` |
 | V12 | crash gap: start committed, link update lost (admission `instance_id` null, ledger has the start): the Sweep repairs the link and does NOT delete; with no ledger start and age over 1 h it deletes; the Sweep and a concurrent start of one id are serialised by the session lock; `record_lifecycle` with `requested_tenant_id` and no admission fails closed, without it is a no-op | extend `test/letflow/tenant_provisioner/sweep_test.exs`, `admit_test.exs` |
