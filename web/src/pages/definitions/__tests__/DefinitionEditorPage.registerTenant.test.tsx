@@ -194,16 +194,14 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
 
   it('S2 the read-only side panel of a platform_call step names the function; no "other attributes"', async () => {
     await openPage()
-    const user = userEvent.setup()
-    await user.click(await screen.findByTestId('rf__node-validate', {}, { timeout: 8000 }))
+    fireEvent.click(await screen.findByTestId('rf__node-validate', {}, { timeout: 8000 }))
     expect(await screen.findByTestId('details-platform-function')).toHaveTextContent('tenant.validate')
     expect(screen.queryByText(/other attributes/i)).toBeNull()
   })
 
   it('S3 the read-only side panel of the notify step names the template and the recipient variable', async () => {
     await openPage()
-    const user = userEvent.setup()
-    await user.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
+    fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
     expect(await screen.findByTestId('details-notify-template')).toHaveTextContent('tenant_registered')
     expect(screen.getByTestId('diagram-node-details')).toHaveTextContent('admin_email')
     expect(screen.queryByText(/other attributes/i)).toBeNull()
