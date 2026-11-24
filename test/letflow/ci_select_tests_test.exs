@@ -328,6 +328,91 @@ defmodule Letflow.CiSelectTestsTest do
   end
 
   @tag timeout: 120_000
+  @red_list_24_nov ~w(
+    test/letflow/engine/swiftroute_escalation_timer_test.exs
+    test/letflow/simulation/req206_swiftroute_test.exs
+    test/letflow/engine/vortex_escalation_timer_test.exs
+    test/letflow/engine/meridian_loan_escalation_timer_test.exs
+    test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs
+    test/letflow/engine/shipped_definition_variable_schemas_engine_test.exs
+    test/letflow/engine/regulatory_review_timer_path_test.exs
+    test/letflow/scripts/swiftroute_decision_forms_fixture_test.exs
+    test/letflow/engine/req462_meridian_required_outputs_test.exs
+    test/letflow/engine/req462_vortex_release_required_outputs_test.exs
+    test/letflow/engine/req462_vortex_deviation_required_outputs_test.exs
+    test/letflow/engine/req530_incident_required_outputs_test.exs
+    test/letflow/definitions/entity_writes_activator_test.exs
+    test/letflow/simulation/runner_template_and_outcomes_test.exs
+    test/letflow/simulation/seed_idempotency_test.exs
+    test/letflow/simulation/runner_test.exs
+    test/letflow/engine/sub_process_service_task_after_test.exs
+    test/letflow/engine_distinct_from_test.exs
+  )
+
+  describe "T-2737 activation and probe selection" do
+    @describetag timeout: 60_000
+
+    for path <- [
+          "lib/letflow/outbound_destinations.ex",
+          "lib/letflow/definitions.ex",
+          "lib/letflow/definitions/semantic_validation.ex",
+          "lib/letflow/routers/definitions.ex"
+        ] do
+      test "P1 #{path} selects the 18 modules of the 24 Nov red list" do
+        {kv, plan} = select([unquote(path)])
+        assert kv["mode"] == "selective"
+
+        for test <- @red_list_24_nov do
+          assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "missing #{test}"
+        end
+      end
+    end
+
+    test "P2 the red list files exist and the fixture lists exactly them" do
+      listed =
+        Path.join(@root, "test/fixtures/ci_selection/activation_tests.txt")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.reject(&String.starts_with?(&1, "#"))
+
+      assert Enum.sort(listed) == Enum.sort(@red_list_24_nov)
+      for f <- listed, do: assert(File.exists?(Path.join(@root, f)), f)
+    end
+
+    test "P3 every probe file of security_probe/ is selected for router, permission, guard and activation diffs" do
+      probes =
+        Path.wildcard(Path.join(@root, "test/letflow/security_probe/*_test.exs"))
+        |> Enum.map(&Path.relative_to(&1, @root))
+
+      for path <- [
+            "lib/letflow/routers/me.ex",
+            "lib/letflow/api/permission_matrix.ex",
+            "lib/letflow/plugs/api_pipeline.ex",
+            "lib/letflow/outbound_destinations.ex",
+            "lib/letflow/definitions.ex"
+          ] do
+        {_kv, plan} = select([path])
+
+        for probe <- probes do
+          assert Enum.any?(plan, &String.ends_with?(&1, " " <> probe)),
+                 "#{path}: missing #{probe}"
+        end
+      end
+    end
+
+    test "P4 an unrelated lib change does not pull the activation list" do
+      {_kv, plan} = select([@leaf])
+
+      refute Enum.any?(
+               plan,
+               &String.ends_with?(
+                 &1,
+                 " test/letflow/definitions/entity_writes_activator_test.exs"
+               )
+             )
+    end
+  end
+
   test "S3: sensitive paths select bounded high-risk coverage" do
     for p <- [
           "priv/repo/migrations/20261101000000_x.exs",
