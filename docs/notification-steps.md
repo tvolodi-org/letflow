@@ -360,3 +360,29 @@ The tests: `web/src/utils/canvas/__tests__/notifyStep.test.ts` (the pure rules),
   states;
 * `web/src/components/diagram/__tests__/NodeEditPanel.notify.test.tsx` -- the
   PANEL: the step is edited without code, and the route kinds stay exclusive.
+
+## The designer proof in a browser (T-2607, pilot gap G19)
+
+The owner's pilot acceptance item 6 -- "I add an e-mail notification after
+tenant registration by opening the process definition in the designer, not by
+asking for code" -- has a browser proof: the Playwright spec
+`web/tests/e2e/pilot-register-tenant-designer.e2e.spec.ts` opens the pilot's
+registration definition `platform.register_tenant` in the designer and adds the
+notification step to it: a service step through the toolbar, the "Send a
+notification" button of the step panel, the registered template
+`tenant_registered`, the recipient read from the variable `admin_email`, and a
+value of the template mapped to a variable of the process. The version that runs
+becomes a new draft version, and the step is in the graph that version carries.
+
+The spec runs against the SCREEN HARNESS (`/__harness/pd-register-tenant`,
+`web/src/dev/harness/fixtures/registerTenantDesigner.tsx`), which carries the
+DOCUMENT the seed writes into the platform tenant
+(`Letflow.PlatformProcesses.Definition.graph()`): the definition under the test
+is the pilot's one, not an invented graph.
+
+NO CI JOB RUNS THIS SPEC. The job "Stock browser e2e (playwright)" runs a FIXED
+list of the GATE B specs (`gate-b-stock`, `gate-b-stock-print`,
+`gate-b-assets-print` -- `.github/workflows/stock-e2e.yml`), and the team does
+not edit the workflow. The proof is the local run:
+
+    cd web && npx playwright test tests/e2e/pilot-register-tenant-designer.e2e.spec.ts --config=playwright.config.ts
