@@ -43,8 +43,8 @@ one before it relies on it (§9):
   `:multipart`, `CsvBodyParser`, `XlsxBodyParser`, `LogoBodyParser`. There is
   **no `:urlencoded` body parser**.
 - No module in `lib/` reads or sets a cookie:
-  `git grep -nE "fetch_cookies|put_resp_cookie|req_cookies" lib/` hits only
-  `lib/letflow/design/iss0769-crash-log-header-redaction.md`.
+  `git grep -nE "fetch_cookies|put_resp_cookie|req_cookies" -- lib/` hits
+  nothing (exit 1).
 - Base64 reaches the server only as opaque tokens: pagination cursors
   (`Letflow.Api.Pagination`, `Letflow.Entities.Query.CursorSeal`) and JWT
   bearer segments.
@@ -223,13 +223,20 @@ id | type | canary_kind | surface | case | part | reason (one line) | decided by
 - `type` is `legit` (the value may appear there) or `baseline` (a known leak
   awaiting its fix).
 - `case` is a case id or `*`.
-- `decided by` is the task that reviewed the row (T-number).
+- `decided by` is the task that reviewed the row (T-number). The §3.3 rows
+  carry it as their last column; a row withdrawn in §3.3 (E-09) is a gap in
+  the numbering and is NOT copied into the fixture.
 - `part` says WHERE inside the surface the hit sits. It is a closed vocabulary
   per surface, and every collector tags each hit with one `part` value:
-  S1 `body_2xx_authorised` | `body_2xx_other` | `body_error` | `headers`;
+  S1 `body_2xx_authorised` | `body_2xx_other`;
+  S2 `resp_headers`; S3 `detail` | `errors` | `raw_body`;
   S5 `before_after_state` | `action` | `resource_id` | `trace_id` | `other_column`;
+  S7 `request_headers` | `request_body` | `request_path_query`;
   S10 `event_variables` | `event_other` | `read_answer`; every other surface
-  `any`. The case definition declares whether its caller is authorised to read
+  `any`. A row may list several parts, and several surfaces; each listed part
+  must belong to the vocabulary of at least one listed surface (`any` counts
+  as the vocabulary of an `any` surface) and the row matches a hit whose part
+  is in the list. The case definition declares whether its caller is authorised to read
   the record, and that decides `body_2xx_authorised` against `body_2xx_other`.
   A hit whose `part` the collector cannot classify is `other_*`, never `any`.
 - A row matches a hit when `canary_kind`, `surface`, `case` AND `part` match.
@@ -240,10 +247,14 @@ id | type | canary_kind | surface | case | part | reason (one line) | decided by
 - `secret` and `token` canaries **cannot** have a `legit` row. The loader
   refuses such a row, and a test proves the refusal.
 - The loader also refuses (test per rule): a `legit` row for a personal kind
-  (`email`, `name`) on S1, S5 or S10 whose `part` is `any` or an `other_*`
-  value; a row whose `part` is outside the surface's vocabulary; and a row whose
-  reason text contains "never" / "only" / "authorised" (a constraint must be
-  carried by `part`, not by prose). So a canary in `audit_entries.action`, an
+  (`email`, `name`) on any surface with `case = *` unless every listed part is
+  a named part of S1, S5 or S10 (so on every surface whose vocabulary is
+  `any`, a personal-kind row must name case ids); a `legit` row for a
+  personal kind on S1, S5 or S10 whose `part` is `any` or an `other_*` value;
+  and a row whose `part` is outside the vocabularies of its listed surfaces.
+  The reason text is documentation, never a matcher: a constraint is carried
+  by `case` and `part`. Every shipped row of §3.3 (E-09 excepted, which is not copied) passes these rules, and
+  the refusal tests use them as the passing fixture. So a canary in `audit_entries.action`, an
   audit `resource_id`, or a 2xx body of an unauthorised caller is not excused by
   any `*` row, and each of those has a seeded-leak case (§2.3).
 - The cross-tenant and unauthorised-read class (a foreign tenant's or another
@@ -269,19 +280,19 @@ id | type | canary_kind | surface | case | part | reason (one line) | decided by
 
 ### 3.3 The initial rows (reviewed here; T-2628 copies them)
 
-| id | type | canary_kind | surface | case | part | reason |
-|---|---|---|---|---|---|---|
-| E-01 | legit | email, name | S1 | * | body_2xx_authorised | the 2xx read of the record that owns the value, by a caller the case declares authorised |
-| E-02 | legit | email, name | S10 | * | event_variables, read_answer | a start or completion variable is business data stored by design in the instance's events and returned by its own reads |
-| E-03 | legit | email, name | S5 | * | before_after_state | the audit `before_state`/`after_state` of the record whose field it is (the audit records what changed); `action`, `resource_id`, `trace_id` have no row |
-| E-04 | legit | email, name | S7 | C-12 | any | a variable of an event the tenant subscribed to, in the payload sent to the tenant's own webhook endpoint |
-| E-05 | legit | email, name | S9 | C-14, C-15 | any | the recipient address in the adapter's `to`, and a template field rendered for that recipient |
-| E-06 | legit | email, name | S11 | C-20 | any | the tenant's own data export of its own records |
-| E-07 | legit | name | S8 | C-32 | any | the evidence line of the UAT step that created the named record. Never `email`: the T-2606 recipient rule stands |
-| E-08 | legit | header | S1, S5 | C-24 | any | the `User-Agent` stored in the problem report the user filed, and that report's audit row |
-| E-09 | — | — | — | — | — | withdrawn before review (a duplicate of E-10); the id is not reused |
-| E-10 | legit | credential_url, header | S7 | C-10, C-11, C-13 | any | the outbound request to the host the credential or header was configured for (the 127.0.0.1 listener). Only that request, and only its `Authorization`/configured header, not its body |
-| B-01 | baseline | email | S4 | C-01 | any | L4: Ecto `:debug` logs the parameters of the registration insert. The fix (parameter redaction of logged statements, or `log: false` on those statements) is the T-2704/T-2734 finding. T-2628 records the row if that fix has not landed when it builds |
+| id | type | canary_kind | surface | case | part | reason | decided by |
+|---|---|---|---|---|---|---|---|
+| E-01 | legit | email, name | S1 | * | body_2xx_authorised | the 2xx read of the record that owns the value, by a caller the case declares authorised to read it (decides `body_2xx_authorised`) | T-2735 |
+| E-02 | legit | email, name | S10 | * | event_variables, read_answer | a start or completion variable is business data stored by design in the instance's events and returned by its own reads | T-2735 |
+| E-03 | legit | email, name | S5 | * | before_after_state | the audit `before_state`/`after_state` of the record whose field it is (the audit records what changed); `action`, `resource_id`, `trace_id` have no row | T-2735 |
+| E-04 | legit | email, name | S7 | C-12 | request_body | a variable of an event the tenant subscribed to, in the payload sent to the tenant's own webhook endpoint | T-2735 |
+| E-05 | legit | email, name | S9 | C-14, C-15 | any | the recipient address in the adapter's `to`, and a template field rendered for that recipient | T-2735 |
+| E-06 | legit | email, name | S11 | C-20 | any | the tenant's own data export of its own records | T-2735 |
+| E-07 | legit | name | S8 | C-32 | any | the evidence line of the UAT step that created the named record. `email` has no row: the T-2606 recipient rule stands | T-2735 |
+| E-08 | legit | header | S1, S5 | C-24 | body_2xx_authorised, before_after_state | the `User-Agent` stored in the problem report the user filed, and that report's audit row | T-2735 |
+| E-09 | withdrawn | | | | | withdrawn before review (a duplicate of E-10); the id is not reused, the row is not copied to the fixture | |
+| E-10 | legit | credential_url, header | S7 | C-10, C-11, C-13 | request_headers | the outbound request to the host the credential or header was configured for (the 127.0.0.1 listener), in its `Authorization`/configured header; the body and the path/query have no row | T-2735 |
+| B-01 | baseline | email | S4 | C-01 | any | L4: Ecto `:debug` logs the parameters of the registration insert. The fix (parameter redaction of logged statements, or `log: false` on those statements) is the T-2704/T-2734 finding. T-2628 records the row if that fix has not landed when it builds | T-2735 |
 
 T-2628 adds every further `baseline` row it finds on the first run on main,
 one per class, each reported in its findings (as G-05 recorded its baseline).
@@ -298,13 +309,13 @@ them is a hand list:
 
 | id | surface | collector |
 |---|---|---|
-| S1 | HTTP response body (2xx) | every `Plug.Test` response the case received through `Letflow.Router` (the real router, a real token) |
-| S2 | HTTP response headers | the same responses' `resp_headers` (all of them, including `location`, `content-disposition`, `x-request-id`) |
-| S3 | error responses (4xx/5xx) | the same, status ≥ 400. Problem+json `detail`, `errors` and the raw body |
+| S1 | HTTP response body (2xx) | parts `body_2xx_authorised`/`body_2xx_other`; every `Plug.Test` response the case received through `Letflow.Router` (the real router, a real token) |
+| S2 | HTTP response headers | part `resp_headers`; the same responses' `resp_headers` (all of them, including `location`, `content-disposition`, `x-request-id`) |
+| S3 | error responses (4xx/5xx) | parts `detail`, `errors`, `raw_body`; the same, status ≥ 400. Problem+json `detail`, `errors` and the raw body |
 | S4 | application logs, every level, including Ecto SQL debug and Plug/Bandit request logs | a test-attached `:logger` handler (`G04Canary.LogSink`, `level: :all`, added in `setup`, removed in `on_exit`). It receives the event **after** the primary filters (so `LogFilter` has run, as in production) and records the formatted message, `inspect(meta)`, and the output of `Letflow.Obs.Logger.format/2` (the production formatter). The test first asserts `Logger.level() == :debug` and that the SQL seeded leak is caught. A config change that raises the level then fails the probe; it cannot pass quietly |
 | S5 | audit events | every `audit_entries` row of the tenant prefix and of the platform prefix inserted during the case, as `row_to_json` text |
 | S6 | DLQ entries | every `dlq` row of the case, all columns (`reason`, `full_reason`, `error_detail`, `error_chain`, `source_payload`, `context_json`, `retry_history`) |
-| S7 | webhook payloads / outbound requests | a 127.0.0.1 Bandit listener started per test file that records method, path, query, headers and body of each request it receives. The same listener is the target of webhooks and service tasks |
+| S7 | webhook payloads / outbound requests | a 127.0.0.1 Bandit listener started per test file that records method, path, query (part `request_path_query`), headers (`request_headers`) and body (`request_body`) of each request it receives. The same listener is the target of webhooks and service tasks |
 | S8 | UAT/run artifacts | every file under the run directories that the Python fake runs wrote (`run.jsonl`, `summary.md`, `context.json`, issue bodies), read recursively |
 | S9 | notification bodies | every message the notifier double sent to the test pid (subject, body, `to`), plus `user_notifications` rows (title), plus `notification_files` bytes (with the zip step) |
 | S10 | process/instance variables | the tenant's event rows of the case's instances, and the answers of `GET /instances/:id`, `/history` and `/timeline` |
@@ -419,19 +430,34 @@ name is the build's.**
 | C-30 | I2 | UAT runner, mail-wait step, trap unreachable (L1). Python fake, `scripts/uat/tests/test_g04_canary.py` | email | none |
 | C-31 | I7 | UAT runner with a mail trap URL and API base URL carrying userinfo (L2) | credential_url | none |
 | C-32 | I1, I8 | UAT runner, a create step with a canary name, a token env var and a fake API error answer that echoes the request | name, token | E-07 (name only) |
-| C-33 | I7, I9 | shell helpers under `scripts/lib/*.sh` that call `curl`, run with a PATH stub `curl` that exits 22, and env base URL/token canaries (L3) | credential_url, token | none |
+| C-33 | I7, I9 | every tracked shell script that invokes `curl` (derived, below), run with a PATH stub `curl` that exits 22, and env base URL/token canaries (L3) | credential_url, token | none |
 
-C-33's list of scripts is **derived**. It covers every `scripts/lib/*.sh` that
-contains `curl` and reads an env var ending in `_URL` or `_TOKEN`
-(`grep -lE 'curl' scripts/lib/*.sh | xargs grep -lE '\$\{?[A-Z_]*(_URL|_TOKEN)'`).
-Each derived script needs an invocation row in
-`test/fixtures/security_probes/g04/shell_invocations.txt` (`script | function
-or argv | env names`). A derived script with no row fails the probe as
-"unclassified". A row whose script is gone fails as stale. On main today the
-candidates are `seed_service_task_base.sh` and `seed_token_check.sh`.
-`seed_outbound_open.sh` joins automatically when T-2724/T-2730 merge, which is
-when L3's case becomes live. Until then, the L3 regression is the seeded S14
-case plus the rule. The build states which scripts it found.
+C-33's list of scripts is **derived from the leak's shape, not from a
+directory or a variable-name suffix**: every tracked `*.sh` that invokes
+`curl`, anywhere in the tree
+(`git ls-files '*.sh' | xargs grep -lE '(^|[^A-Za-z_])curl[[:space:]]'`; today
+28 files across `scripts/`, `scripts/lib/`, `scripts/e2e/`, `scripts/demo/`
+and `deploy/`, re-derived by the build). Each derived script needs an
+invocation row in `test/fixtures/security_probes/g04/shell_invocations.txt`
+(`script | function or argv | env names`), or an explicit "not runnable"
+row with a reason (e.g. it needs a live stack); a derived script with neither
+fails the probe as "unclassified", and a row whose script is gone fails as
+stale. A script that only *sources* a leaking helper is derived through its
+own `curl` calls or, when it has none, is listed by name. The case table
+names these explicitly, with an invocation row each, whatever env names the
+fixed scripts use: `scripts/lib/seed_outbound_open.sh` (when T-2724/T-2730
+merge; before that the row is absent and its absence is not a failure),
+`scripts/lib/seed_service_task_base.sh` (it reads
+`SERVICE_TASK_MOCK_BASE_URL` and echoes the resolved base; it has no `curl`,
+so it is a by-name row), its four sourcing scripts
+`scripts/seed_swiftroute_definition.sh`,
+`scripts/seed_swiftroute_incident_definition.sh`,
+`scripts/seed_meridian_definition.sh` and `scripts/seed_vortex_definition.sh`
+(each echoes `SERVICE_TASK_EFFECTIVE_BASE_URL`; the planted canary is a
+`credential_url` form in that variable), and `scripts/lib/seed_persona_actors_base.sh`
+(echoes `${QA_URL}`). Env canaries cover every `*_URL`/`*_TOKEN`/`*_BASE_URL`
+name a derived script reads (derived by grep, not listed by hand). The
+build states which scripts it found.
 
 The Python side (C-30..C-32, the seeded S8 case) runs as follows. The ExUnit
 file writes `cases.json` (case id → canary values, from the Elixir generator,
