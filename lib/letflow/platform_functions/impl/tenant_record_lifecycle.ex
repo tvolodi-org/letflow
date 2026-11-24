@@ -24,6 +24,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantRecordLifecycle do
 
   import Ecto.Query, only: [from: 2]
 
+  require Logger
+
   alias Letflow.Repo
   alias Letflow.TenantProvisioner.Admission
   alias Letflow.TenantProvisioner.Config
@@ -77,9 +79,31 @@ defmodule Letflow.PlatformFunctions.Impl.TenantRecordLifecycle do
 
     # `on_conflict: :nothing`: a concurrent repeat of the step writes nothing the second time.
     case Repo.insert(row, on_conflict: :nothing, conflict_target: :tenant_id) do
-      {:ok, _row} -> {:ok, %{}}
-      {:error, _changeset} -> {:error, :platform_call_lifecycle_failed}
+      {:ok, _row} ->
+        alarm_if_reached()
+        {:ok, %{}}
+
+      {:error, _changeset} ->
+        {:error, :platform_call_lifecycle_failed}
     end
+  end
+
+  # The demo-cap alarm of today (`TenantProvisioner.alarm_if_reached/1`): counts only, no tenant
+  # data; one warning per row written that leaves the demo count at or above the threshold.
+  defp alarm_if_reached do
+    count =
+      Repo.aggregate(
+        from(l in Lifecycle, where: l.tier == "demo" and l.lifecycle != "deleted"),
+        :count
+      )
+
+    if count >= Config.demo_alarm_threshold() do
+      Logger.warning(
+        "provisioner: demo tenant count reached the alarm threshold (count=#{count}, cap=#{Config.demo_cap()})"
+      )
+    end
+  rescue
+    _error -> :ok
   end
 
   defp requested?(nil), do: {:ok, false}

@@ -96,7 +96,15 @@ defmodule Letflow.PlatformProcesses.DefinitionV2Test do
     assert Repo.get(Tenant, id) == nil
   end
 
-  test "V2 create refuses an id that belongs to another slug's tenant, and takes tenant_type" do
+  test "V2 create refuses an id of another slug's tenant, refuses a bad tenant_type, takes a good one" do
+    assert {:ok, %{"tenant_id" => other}} =
+             TenantCreate.run(%{inputs: %{"slug" => "v2-other", "name" => "Other"}})
+
+    assert {:error, :platform_call_arg_invalid} =
+             TenantCreate.run(%{
+               inputs: %{"slug" => "v2-typed3", "name" => "T", "requested_tenant_id" => other}
+             })
+
     assert {:ok, %{"tenant_id" => tid}} =
              TenantCreate.run(%{
                inputs: %{"slug" => "v2-typed", "name" => "Typed", "tenant_type" => "production"}
@@ -145,6 +153,39 @@ defmodule Letflow.PlatformProcesses.DefinitionV2Test do
 
     # a repeat writes nothing and does not fail
     assert {:ok, %{}} = TenantRecordLifecycle.run(%{inputs: inputs})
+  end
+
+  test "V2 record_lifecycle logs the demo-cap alarm once the count reaches the threshold" do
+    import ExUnit.CaptureLog
+
+    previous = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+    on_exit(fn -> Application.put_env(:letflow, Letflow.TenantProvisioner, previous) end)
+
+    count = Repo.aggregate(Lifecycle, :count)
+
+    run = fn ->
+      id = provisioned_tenant!()
+      admission!(id)
+      TenantRecordLifecycle.run(%{inputs: %{"tenant_id" => id, "requested_tenant_id" => id}})
+    end
+
+    Application.put_env(
+      :letflow,
+      Letflow.TenantProvisioner,
+      Keyword.put(previous, :demo_alarm_threshold, count + 1000)
+    )
+
+    refute capture_log([level: :warning], fn -> assert {:ok, %{}} = run.() end) =~
+             "alarm threshold"
+
+    Application.put_env(
+      :letflow,
+      Letflow.TenantProvisioner,
+      Keyword.put(previous, :demo_alarm_threshold, 1)
+    )
+
+    assert capture_log([level: :warning], fn -> assert {:ok, %{}} = run.() end) =~
+             "alarm threshold"
   end
 
   test "V2 record_lifecycle: no admission is a no-op for an operator tenant, a refusal for a system one" do

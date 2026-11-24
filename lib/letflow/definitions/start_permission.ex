@@ -200,6 +200,7 @@ defmodule Letflow.Definitions.StartPermission do
         name == "platform.register_tenant" and
         is_binary(prefix) and PlatformTenant.platform_prefix?(prefix) and
         children == [] and
+        not sub_process_node?(definition) and
         required_permission_atoms(definition, children) == [:TenantsManage] and
         declared_atoms(definition, children) == [:TenantsManage] and
         v2_contract?(definition, prefix)
@@ -212,6 +213,22 @@ defmodule Letflow.Definitions.StartPermission do
   end
 
   defp system_check(_system_start, _definition, _children, _opts), do: {:error, :not_found}
+
+  # The resolved `children` skip a child that cannot be resolved, so `children == []` alone holds
+  # for a dangling SUB_PROCESS reference: the graph itself is read too (a system start has no
+  # person behind it, so no node may start another definition).
+  defp sub_process_node?(definition) do
+    graph = Map.get(definition, :graph)
+    nodes = if is_map(graph), do: Map.get(graph, "nodes"), else: nil
+
+    case nodes do
+      list when is_list(list) ->
+        Enum.any?(list, &(is_map(&1) and Map.get(&1, "node_type") == "SUB_PROCESS"))
+
+      _other ->
+        true
+    end
+  end
 
   # The v2 start contract: the definition declares the three variables the system start needs.
   @v2_keys ["requested_tenant_id", "tenant_type", "notify_admin"]

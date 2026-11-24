@@ -284,4 +284,170 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
 
     assert instance_count(ctx.platform.schema_name) == 0
   end
+
+  defp v2_schemas do
+    Enum.map(
+      ~w(slug name requested_tenant_id tenant_type hostname realm_id admin_email tenant_id),
+      &%{variable_key: &1, json_schema: %{"type" => "string"}}
+    ) ++ [%{variable_key: "notify_admin", json_schema: %{"type" => "boolean"}}]
+  end
+
+  defp create_call_graph do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "create",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{
+            "platform_call" =>
+              Fx.call("tenant.create", %{
+                "slug" => %{"var" => "slug"},
+                "name" => %{"var" => "name"}
+              })
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "create"},
+        %{"id" => "e2", "source" => "create", "target" => "end"}
+      ]
+    }
+  end
+
+  defp refused_start(ctx) do
+    Engine.create(
+      %{
+        definition_name: "platform.register_tenant",
+        initial_variables: %{"slug" => "t-x", "name" => "N"},
+        actor_id: Letflow.EventStore.platform_actor_id(),
+        idempotency_key: "register-tenant:t-x"
+      },
+      prefix: ctx.platform.schema_name,
+      system_start: ctx.system_start
+    )
+  end
+
+  test "C1(c): a register_tenant version with a SUB_PROCESS is refused (child exists)", ctx do
+    # the child EXISTS and resolves, so the refusal is the SUB_PROCESS rule, not a vacuous skip
+    activate_other!(ctx, "platform.child_register", create_call_graph(), v2_schemas())
+
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "sp",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => "platform.child_register"}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "sp"},
+        %{"id" => "e2", "source" => "sp", "target" => "end"}
+      ]
+    }
+
+    activate_other!(ctx, "platform.register_tenant", graph, v2_schemas(), "3")
+
+    assert {:error, :definition_not_found} = refused_start(ctx)
+    assert instance_count(ctx.platform.schema_name) == 0
+  end
+
+  test "C1(c): a SUB_PROCESS whose child cannot be resolved is refused, not skipped", ctx do
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "sp",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => "platform.no_such_child"}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "sp"},
+        %{"id" => "e2", "source" => "sp", "target" => "end"}
+      ]
+    }
+
+    with {:ok, _} <-
+           (try do
+              {:ok, activate_other!(ctx, "platform.register_tenant", graph, v2_schemas(), "3")}
+            rescue
+              _error -> {:ok, :not_activatable}
+            catch
+              _kind, _reason -> {:ok, :not_activatable}
+            end) do
+      assert {:error, :definition_not_found} = refused_start(ctx)
+      assert instance_count(ctx.platform.schema_name) == 0
+    end
+  end
+
+  test "C1(d): a version whose required permission set is not exactly TenantsManage is refused",
+       ctx do
+    # every catalogue function needs TenantsManage, so the other-permission case is the version
+    # that calls NO function (required set empty, declared TenantsManage): the set differs.
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [%{"id" => "e1", "source" => "start", "target" => "end"}]
+    }
+
+    activate_other!(ctx, "platform.register_tenant", graph, v2_schemas(), "3")
+
+    assert {:error, :definition_not_found} = refused_start(ctx)
+    assert instance_count(ctx.platform.schema_name) == 0
+  end
+
+  test "C2: a person start keeps actor_kind user with the person's id", ctx do
+    activate_contract_document!(ctx)
+
+    assert {:ok, %{instance_id: instance_id}} =
+             Engine.create(
+               %{
+                 definition_name: "platform.register_tenant",
+                 initial_variables: %{"slug" => "t-person", "name" => "N"},
+                 actor_id: ctx.admin.id,
+                 idempotency_key: "register-tenant:t-person"
+               },
+               prefix: ctx.platform.schema_name,
+               auth_context: %{
+                 user_id: ctx.admin.id,
+                 tenant_id: ctx.platform.tenant_id,
+                 roles: ["PLATFORM_ADMIN"]
+               }
+             )
+
+    audit =
+      Repo.one!(
+        from(e in Entry, where: e.action == "instance.create" and e.resource_id == ^instance_id),
+        prefix: ctx.platform.schema_name
+      )
+
+    assert audit.actor_kind == "user"
+    assert audit.actor_id == ctx.admin.id
+    refute Map.has_key?(audit.after_state || %{}, "started_via")
+  end
+
+  test "C2: the signup route is audited actor_kind system with its own route", ctx do
+    activate_contract_document!(ctx)
+    {:ok, signup} = SystemStart.for_route(:signup_provisioning)
+
+    assert {:ok, %{instance_id: instance_id}} =
+             PlatformProcesses.start_register_tenant_system(request(), signup, [])
+
+    audit =
+      Repo.one!(
+        from(e in Entry, where: e.action == "instance.create" and e.resource_id == ^instance_id),
+        prefix: ctx.platform.schema_name
+      )
+
+    assert audit.actor_kind == "system"
+    assert audit.actor_id == nil
+    assert audit.after_state["started_via"] == "signup_provisioning"
+  end
 end
