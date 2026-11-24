@@ -896,6 +896,13 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.notify_calls_invalid(conn, violations)
 
+  # T-2597 (pilot gap G14): a destination is not on the TARGET tenant's allow-list.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:outbound_destinations_invalid, violations}}}
+       ),
+       do: Response.outbound_destinations_invalid(conn, violations)
+
   # T-2594 (pilot gap G13): the promoted graph's TYPED STEP MAPPING was refused in the
   # TARGET tenant (a declared read or write the target definition does not declare).
   defp render_apply(
@@ -903,6 +910,19 @@ defmodule Letflow.Routers.Promotions do
          {:error, {:promotion_failed, {:step_mappings_invalid, violations}}}
        ),
        do: Response.step_mappings_invalid(conn, violations)
+
+  # T-2604 (pilot gap G16): the declared test cases of the promoted version failed or are malformed.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_failed, failures}}}
+       ),
+       do: Response.test_cases_failed(conn, failures)
+
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_invalid, reason}}}
+       ),
+       do: Response.test_cases_invalid(conn, reason)
 
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)

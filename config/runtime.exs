@@ -289,6 +289,19 @@ module_upgrade_on_boot =
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 
+# T-2739: seed the shipped platform definitions at boot. Default OFF (production); QA and runner
+# hosts set LETFLOW_SEED_PLATFORM_DEFINITIONS=true. Exactly the string "true" turns it on.
+config :letflow,
+       :seed_platform_definitions_on_boot,
+       System.get_env("LETFLOW_SEED_PLATFORM_DEFINITIONS") == "true"
+
+# T-2703: the platform step runner (pilot gap G1). Default off; exactly the string "true" turns it on.
+config :letflow,
+       :start_platform_step_runner,
+       Letflow.Supervisor.Pollers.parse_platform_step_runner(
+         System.get_env("LETFLOW_START_PLATFORM_STEP_RUNNER")
+       )
+
 # T-1641: release of the QA-only demo module (0.1.0, 0.2.0 or 0.3.0). No effect unless the build included the
 # module (LETFLOW_INCLUDE_RUNTIME_DEMO). Recreate the container after changing it.
 config :letflow,

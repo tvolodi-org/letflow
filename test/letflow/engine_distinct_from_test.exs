@@ -923,6 +923,8 @@ defmodule Letflow.EngineDistinctFromTest do
           prefix: tenant.schema_name
         )
 
+      Letflow.OutboundAllowFixture.allow_definition!(tenant.schema_name, definition.id)
+
       {:ok, %{definition: active}} =
         Definitions.activate(definition.id, prefix: tenant.schema_name)
 

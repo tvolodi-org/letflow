@@ -120,10 +120,17 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
   # ---------------------------------------------------------------------------------
 
   defp provisioned_tenant(slug_prefix) do
-    TenantFixture.provisioned_tenant!(
-      slug_prefix: slug_prefix,
-      display_name: "ISS-0974 Join Dispatch Id Map Test Tenant"
-    )
+    tenant =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: slug_prefix,
+        display_name: "ISS-0974 Join Dispatch Id Map Test Tenant"
+      )
+
+    # T-2597 (pilot gap G14): the local listener this file's dispatch tests
+    # reach -- the tenant's outbound allow-list is empty by default.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["127.0.0.1"])
+
+    tenant
   end
 
   defp unique_name(prefix),

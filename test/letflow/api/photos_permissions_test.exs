@@ -14,7 +14,8 @@ defmodule Letflow.Api.PhotosPermissionsTest do
   @atoms [:PhotosAdd, :PhotosDelete]
 
   test "A1 appended core atoms are tenant scope and never route-level" do
-    assert Enum.take(Authorization.core_permissions(), -2) == @atoms
+    assert Enum.take(Authorization.core_permissions(), -3) ==
+             @atoms ++ [:OutboundDestinationsManage]
 
     for permission <- @atoms do
       assert Authorization.permission_scope(permission) == :tenant

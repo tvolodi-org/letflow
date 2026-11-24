@@ -157,7 +157,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   ## What it does NOT do
 
   It does not advance the instance and it does not merge the outputs into the
-  instance variables: the engine picks the result up (gap G1's engine slice).
+  instance variables: `Letflow.Engine.PlatformStepRunner` calls this module and hands
+  the result to `Letflow.Engine.apply_platform_step_result/3` (T-2703).
   It does not write an audit row of its own (gap G6 owns the step log), and it
   never raises: every failure is an error tuple (INV-8).
   """
@@ -167,6 +168,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.PlatformFunctions.Catalog
   alias Letflow.PlatformFunctions.Entry
   alias Letflow.PlatformFunctions.Guard
@@ -240,6 +242,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_step_bad_result
     platform_step_claim_failed
     platform_step_in_flight
+    platform_step_instance_cancelled
     platform_step_lease_lost
     platform_step_max_attempts
     platform_step_not_found
@@ -253,7 +256,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # The options `arm/1` accepts. An option outside this list is REFUSED, not
   # ignored: a caller must not believe that an option the dispatcher does not
   # read (`:tenant_id` above all) is honoured.
-  @arm_options [:prefix, :instance_id, :definition_id, :node_id, :function, :inputs]
+  @arm_options [:prefix, :instance_id, :definition_id, :node_id, :function, :inputs, visit: 0]
 
   defmodule StepDispatch do
     @moduledoc """
@@ -479,14 +482,16 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     node_id = Keyword.get(opts, :node_id)
     function = Keyword.get(opts, :function)
     inputs = Keyword.get(opts, :inputs) || %{}
+    visit = Keyword.get(opts, :visit, 0)
 
     with :ok <- check_node_id(node_id),
+         :ok <- check_visit(visit),
          {:ok, tenant_id} <- derive_tenant_id(prefix),
          :ok <- check_tenant_schema(prefix),
          {:ok, entry} <- fetch_entry(function),
          :ok <- check_inputs(entry, inputs),
          {:ok, _mfa} <- fetch_implementation(function) do
-      call_key = call_key(entry, inputs)
+      call_key = call_key(entry, inputs, visit)
       fingerprint = fingerprint(inputs)
 
       upsert(prefix, %{
@@ -607,6 +612,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
 
       {:ok, {:given_up, _row}} ->
         {:error, :platform_step_max_attempts}
+
+      {:ok, {:cancelled, _row}} ->
+        {:error, :platform_step_instance_cancelled}
 
       {:error, reason} ->
         {:error, reason}
@@ -733,6 +741,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       {:ok, {:given_up, _row}} ->
         {:error, :platform_step_max_attempts}
 
+      {:ok, {:cancelled, _row}} ->
+        {:error, :platform_step_instance_cancelled}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -786,6 +797,33 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     end
   rescue
     _exception -> {:error, :platform_step_raised}
+  end
+
+  @doc false
+  # T-2703: the CANCEL of an instance closes its open calls (`pending`, and `running` whatever its
+  # lease): `given_up` with `platform_step_instance_cancelled`, so the due query never selects them
+  # again and no claim runs them. Called from the engine's cancel transaction BEFORE it locks the
+  # instance projection (the order the apply and the claim take: dispatch row first). A body that
+  # is already in flight cannot be stopped; its outcome write then finds the row no longer
+  # `running` (the claim token) and is dropped.
+  @spec cancel_open_dispatches(module(), Ecto.UUID.t(), DateTime.t(), String.t()) ::
+          {:ok, non_neg_integer()}
+  def cancel_open_dispatches(repo, instance_id, at, prefix) do
+    {count, _} =
+      StepDispatch
+      |> where([d], d.instance_id == ^instance_id and d.status in [:pending, :running])
+      |> repo.update_all(
+        [
+          set: [
+            status: :given_up,
+            last_failure_kind: "platform_step_instance_cancelled",
+            dispatched_at: at
+          ]
+        ],
+        prefix: prefix
+      )
+
+    {:ok, count}
   end
 
   @doc """
@@ -900,14 +938,22 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # a caller passes can overflow the key column (`varchar(255)` under a
   # unique index). A collision is safe -- the fingerprint check below refuses
   # a different call that carries the same key.
-  defp call_key(%Entry{name: name, idempotency_key: key_inputs}, inputs) do
+  #
+  # `visit` is the count of earlier visits of the same node by the same instance (a loop back to a
+  # completed platform_call node): visit 0 keeps the plain key, a later visit is a new call of its
+  # own, so the first visit's replayed result never parks the instance.
+  defp call_key(%Entry{name: name, idempotency_key: key_inputs}, inputs, visit) do
     composition =
       Enum.map_join(key_inputs, "|", fn key ->
         "#{key}=#{Map.get(inputs, key)}"
       end)
 
-    "#{name}|#{sha256_hex(composition)}"
+    base = "#{name}|#{sha256_hex(composition)}"
+    if visit == 0, do: base, else: "#{base}|v#{visit}"
   end
+
+  defp check_visit(visit) when is_integer(visit) and visit >= 0 and visit < 1_000_000, do: :ok
+  defp check_visit(_visit), do: {:error, :platform_call_arg_unknown}
 
   # The FINGERPRINT of the whole argument set: same key + same fingerprint is
   # the same call; same key + a different fingerprint is a key reuse.
@@ -1087,23 +1133,66 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
         %StepDispatch{status: status} = existing when status in [:advanced, :given_up] ->
           {:already_final, existing}
 
-        %StepDispatch{status: :running, next_attempt_at: lease} = existing ->
-          if DateTime.compare(lease, now) == :gt do
-            # The lease has NOT expired: the run that holds the row is still in
-            # flight. A second dispatcher must NOT take the row over -- the
-            # body would run a second time for the same call (S8).
-            Repo.rollback(:platform_step_in_flight)
-          else
-            # The lease has expired: the run that held it is gone (the node
-            # died), so this claim takes the row over.
-            claim_or_give_up(existing, now, prefix, mode)
-          end
-
+        # T-2703: the instance the call belongs to has ENDED (cancelled or completed) since the
+        # row was armed: the call is never run. The engine's cancel marks the instance's open
+        # rows itself (`Letflow.Engine.cancel_instance/3`); this is the claim-time fence for a
+        # row that reaches a claim anyway. The projection is READ, not locked: the cancel takes
+        # this row's lock before the projection's, so a cancel that commits first is seen here.
         %StepDispatch{} = existing ->
-          claim_or_give_up(existing, now, prefix, mode)
+          claim_live(existing, now, prefix, mode)
       end
     end)
   end
+
+  defp claim_live(existing, now, prefix, mode) do
+    if instance_ended?(existing, prefix) do
+      {:cancelled, end_with_instance(existing, now, prefix)}
+    else
+      claim_open(existing, now, prefix, mode)
+    end
+  end
+
+  # A row with no projection is the dispatcher's direct-caller contract (the engine always
+  # writes the projection in the transaction that arms the row): it is not fenced here.
+  defp instance_ended?(%StepDispatch{instance_id: instance_id}, prefix) do
+    InstanceProjection
+    |> where([p], p.instance_id == ^instance_id and p.status in [:cancelled, :completed])
+    |> Repo.exists?(prefix: prefix)
+  end
+
+  defp end_with_instance(row, now, prefix) do
+    row
+    |> StepDispatch.terminal_changeset(%{
+      status: :given_up,
+      last_failure_kind: "platform_step_instance_cancelled",
+      dispatched_at: now
+    })
+    |> Repo.update(prefix: prefix)
+    |> case do
+      {:ok, updated} -> updated
+      {:error, _changeset} -> Repo.rollback(:platform_step_claim_failed)
+    end
+  end
+
+  defp claim_open(
+         %StepDispatch{status: :running, next_attempt_at: lease} = existing,
+         now,
+         prefix,
+         mode
+       ) do
+    if DateTime.compare(lease, now) == :gt do
+      # The lease has NOT expired: the run that holds the row is still in
+      # flight. A second dispatcher must NOT take the row over -- the
+      # body would run a second time for the same call (S8).
+      Repo.rollback(:platform_step_in_flight)
+    else
+      # The lease has expired: the run that held it is gone (the node
+      # died), so this claim takes the row over.
+      claim_or_give_up(existing, now, prefix, mode)
+    end
+  end
+
+  defp claim_open(existing, now, prefix, mode), do: claim_or_give_up(existing, now, prefix, mode)
 
   # The ATTEMPT CAP. It bounds how often the lease of a CRASHED run may be
   # taken over. A MANUAL retry (pilot gap G7) is an operator's deliberate act

@@ -71,7 +71,7 @@ The platform operator creates a tenant record with its schema, lists all tenants
 **Status.**
 
 - implementation: `implemented`
-- UAT: skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16
+- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16
 - security: no
 
 ## BP-PLATFORM-02 -- Suspend, reactivate and purge a tenant
@@ -927,7 +927,9 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 ## Orphans (docs/bp/orphans-platform.md)
 
-The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-platform.md`).
+| function | file:line | what it does | history | why it exists | proposed action |
+|---|---|---|---|---|---|
+| GET /api/v1/platform-functions | lib/letflow/routers/platform_functions.ex:36 | reads the compiled catalogue of the platform functions a definition may call, for the caller's tenant | T-2599 (pilot gap G5a), commit 4e39e9cc6, 2026-11-22 | the designer's platform-call editor reads it to offer the functions a definition may call; the pilot work is in flight, so no process of this area names the route yet | keep as a platform function |
 
 ## Gaps of the area
 

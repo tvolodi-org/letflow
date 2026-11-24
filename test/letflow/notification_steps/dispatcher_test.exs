@@ -30,6 +30,7 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
   alias Letflow.LoginDiscoveryNotifierDouble, as: Double
   alias Letflow.NotificationSteps.Dispatcher
   alias Letflow.Notifications
+  alias Letflow.OutboundDestinations
   alias Letflow.Notifications.Delivery
   alias Letflow.Notifications.OutboundCounter
   alias Letflow.Repo
@@ -43,6 +44,16 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
     # registered first, so it runs LAST (after the tenant fixture's own cleanup)
     on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Repo) end)
     fx = PCF.tenant!("t2592-notify")
+
+    # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST -- the mail channel and the
+    # recipient's domain. The list is empty by default, so without these two entries the
+    # step is refused before it sends (the guardrail task's own test file covers the
+    # refusal).
+    {:ok, _entry} = OutboundDestinations.add(fx.schema_name, nil, "email", nil)
+
+    {:ok, _entry} =
+      OutboundDestinations.add(fx.schema_name, nil, "email", "example.com")
+
     S.put_app_env!(@notifier, adapter: Double, timeout_ms: 100, max_concurrent: 5)
     Double.set_owner(self())
     on_exit(&Double.reset/0)
@@ -152,6 +163,15 @@ defmodule Letflow.NotificationSteps.DispatcherTest do
       :ok = set_settings!(fx, %{"notifications.outbound_cap_per_hour" => 1})
 
       other = PCF.tenant!("t2592-notify-other")
+
+      # T-2597 (pilot gap G14): the OTHER tenant's own allow-list -- the send
+      # below runs in that tenant's schema, and a tenant may reach nothing
+      # outside until its own list says so.
+      {:ok, _entry} =
+        OutboundDestinations.add(other.schema_name, nil, "email", nil)
+
+      {:ok, _entry} =
+        OutboundDestinations.add(other.schema_name, nil, "email", "example.com")
 
       assert {:ok, "sent", nil} =
                Dispatcher.run(

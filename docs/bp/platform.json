@@ -91,15 +91,15 @@
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
-    "uat": "skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16",
     "status": "implemented",
     "acceptance": [
       {
         "n": 1,
         "item": "Definition: the process is an ordinary editable, versioned definition in the platform tenant",
-        "today": "SHIPPED (G9): the definition platform.register_tenant v1 is seeded into the platform tenant as an ordinary, unstamped, editable definition (mix letflow.seed.platform_definitions; the document is lib/letflow/platform_processes/definition.ex, the seed lib/letflow/platform_processes/seed.ex). The seed never replaces a newer version an administrator made. The seed signs the switch-on with a REAL platform administrator: LETFLOW_PLATFORM_ACTIVATOR_USER_ID names that administrator (a user id of the platform tenant) and is OPTIONAL -- without it the first PLATFORM_ADMIN holder of the platform tenant signs (sorted by id, so the choice is the same on every run); a platform tenant with no such administrator is answered no_platform_activator and nothing is written. The process is still ROUTE CODE: the engine does not run the definition's platform steps yet and the routes still call the functions directly",
+        "today": "SHIPPED (G9): the definition platform.register_tenant v1 is seeded into the platform tenant as an ordinary, unstamped, editable definition (mix letflow.seed.platform_definitions; since T-2739 also seeded automatically at boot when LETFLOW_SEED_PLATFORM_DEFINITIONS=true and by the QA deploy, which runs a smoke check that fails the deploy when it is missing; the document is lib/letflow/platform_processes/definition.ex, the seed lib/letflow/platform_processes/seed.ex). The seed never replaces a newer version an administrator made. The seed signs the switch-on with a REAL platform administrator: LETFLOW_PLATFORM_ACTIVATOR_USER_ID names that administrator (a user id of the platform tenant) and is OPTIONAL -- without it the first PLATFORM_ADMIN holder of the platform tenant signs (sorted by id, so the choice is the same on every run); a platform tenant with no such administrator is answered no_platform_activator and nothing is written. The process is still ROUTE CODE: the engine does not run the definition's platform steps yet and the routes still call the functions directly",
         "target": "definition platform.register_tenant exists in the platform tenant, not module-stamped, v1 active after the seed, every edit a new draft",
-        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step: GET definitions on the platform tenant shows the key with its versions (step blocked until G10); source: lib/letflow/routers/definitions.ex:322",
+        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step A1 of BP-PLATFORM-01-register-tenant reads the active platform.register_tenant definition and saves its id; source: lib/letflow/routers/definitions.ex",
         "gap": "G9",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -108,16 +108,16 @@
         "item": "It works: executed by the BPM engine, started from the 'Register tenant' screen and the API, no direct code path",
         "today": "MISSING: the screen posts to the onboarding route and POST /api/v1/tenants; both call Identity.create_tenant and TenantOnboarding.provision_and_migrate directly",
         "target": "both starts create an instance of the active version and answer 202 with the instance id; nodes in order: validate, create tenant, provision schema and migrate, bind realm and administrators, notify by e-mail, end",
-        "proof": "runner steps s1..s6 of the skeleton (instance timeline lists the nodes in order); source-scan test of item 9",
+        "proof": "pending T-2608 later steps B and C (start from the screen and API, then the instance timeline lists the nodes in order); source-scan test of item 9",
         "gap": "G1, G2, G3, G13",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
       {
         "n": 3,
         "item": "A test script for the UAT runner, readable scenario JSON",
-        "today": "PARTIAL: the runner and its readable process files exist; no file for this process and no runner step that reads the mail trap existed before the wait_mail step",
+        "today": "PARTIAL: step A of test/uat/processes/BP-PLATFORM-01-register-tenant.json is runnable and read-only; T-2608 adds the execution, mail, retry, edit and rollback steps B..n",
         "target": "test/uat/processes/BP-PLATFORM-01-register-tenant.json covers items 2, 6, 7 and 8",
-        "proof": "doc: the skeleton file (this task, dry_run blocked_by pilot-not-built); python3 scripts/uat/check_processes.py on it",
+        "proof": "step A of the scenario file plus scripts/uat/tests/test_bp_platform_01.py and python3 scripts/uat/check_processes.py on it; the coverage of items 2, 6, 7 and 8 remains pending T-2608 steps B..n",
         "gap": "G10, G18",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -144,7 +144,7 @@
         "item": "Configurability proof: the runner edits the definition through the designer API (adds the e-mail and 'file' notification steps), starts again, the mail and the file appear, one-step rollback; plus one Playwright test of the designer",
         "today": "PARTIAL: one-step rollback exists (POST /api/v1/definitions/:process_key/rollback); the notify step, its designer fields and the file area are missing; the only Playwright CI job runs a fixed spec list, so a designer spec runs nowhere in CI",
         "target": "start without notify step and see it end; draft with notify (e-mail to a catcher address and file) activated; second start: mail in the trap and file downloadable, first instance stays on v1; rollback; third start sends no mail",
-        "proof": "runner steps s7..s14 of the skeleton (wait_mail step); Playwright test of the designer on this definition (web/tests/e2e, to be added to a listed spec); source: lib/letflow/routers/definitions.ex:344",
+        "proof": "A4 browser check: web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts opens the real QA designer page, selects the edit view, counts eight nodes and opens a node panel; the edit, notification, mail, file and rollback runner coverage is pending T-2608 later steps; source: lib/letflow/routers/definitions.ex",
         "gap": "G4, G5, G8, G12, G19",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -153,7 +153,7 @@
         "item": "Step failures are visible and retryable (DLQ and step log); no secrets in the log",
         "today": "PARTIAL: a failure is visible (DLQ row, instance ERROR, EXECUTION_ERROR event) but a DLQ retry re-dispatches nothing; delivery rows store no address or body (INV-4)",
         "target": "a forced failure of the provision step leaves the instance in ERROR with the step and failure kind in the timeline and a DLQ entry; the platform admin retries it and the instance ends; a retry of a finished step changes nothing; no token, realm credential or mail body in any event, DLQ payload, timeline answer or run.jsonl line",
-        "proof": "runner steps s15..s18 of the skeleton; G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex:99",
+        "proof": "pending T-2608 later step E (forced failure and DLQ retry) and the product-side G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex",
         "gap": "G6, G7",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -162,7 +162,7 @@
         "item": "Security: only the platform admin starts or edits it; company users get the uniform 404/403; the definition calls only catalogue functions it is allowed to",
         "today": "PARTIAL: TenantsManage gates tenant creation and the uniform refusal pattern exists (BP-PLATFORM-16, -17, -20); no catalogue of functions and no allow-list exist",
         "target": "start, create or activate a version, rollback and read the instances need TenantsManage in the platform tenant; company administrator and user get the same refusal, also cross-tenant; activation refuses an unknown function with a fixed code; a company-tenant definition cannot carry a platform step",
-        "proof": "runner steps s19..s22 of the skeleton (expect_refused); route tests test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
+        "proof": "pending T-2608 later step G (expect_refused); current route coverage: test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
         "gap": "G1, G2",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -171,7 +171,7 @@
         "item": "No bypass: the old direct registration paths are not a second way around the process",
         "today": "MISSING: five paths create a tenant (see tenant_creating_paths); each calls the create and provision functions itself",
         "target": "paths 1 to 4 become starts of the one definition; only the seed task keeps a direct call; no other caller of the create and provision functions in lib/",
-        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; runner step s23",
+        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; the runner assertion is pending a T-2608 later step",
         "gap": "G17",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },

@@ -43,6 +43,27 @@ git pull
 CURRENT_REF=$(git rev-parse --short HEAD)
 echo "Git ref: $CURRENT_REF"
 
+# 1b. Gate: the platform step runner must be switched on in BOTH host env files.
+#     The runner (T-2703) is the worker that runs a `platform_call` step; its only
+#     switch is LETFLOW_START_PLATFORM_STEP_RUNNER, read at boot by config/runtime.exs
+#     (exactly "true" turns it on). It has to be in $APP_DIR/qa.env (the file this
+#     script sources) AND in $APP_DIR/deploy/.env (the compose env_file: what the app
+#     container actually boots with) -- qa.env alone does not reach the container.
+#     The gate runs before the build and before the app container is recreated, so a
+#     deploy that would leave the runner off never reaches the running QA. With the
+#     runner off a pilot instance of a platform step STARTS and NEVER RUNS: it waits at
+#     the node with no error and no DLQ entry.
+#     See docs/runbooks/qa-platform-step-runner.md.
+GATE="$APP_DIR/deploy/lib/check_platform_step_runner.sh"
+if [[ ! -r "$GATE" ]]; then
+  echo "ERROR: $GATE is missing: the QA deploy stops before it rebuilds the app." >&2
+  exit 1
+fi
+if ! bash "$GATE" "$APP_DIR"; then
+  echo "ERROR: the QA deploy stops here: the platform step runner would be off on QA." >&2
+  exit 1
+fi
+
 # 2. Tag rollback image (best-effort -- ignore if it doesn't exist yet, e.g. first run)
 docker tag letflow-qa:latest "letflow-qa:rollback-${DATE}" 2>/dev/null || true
 
@@ -149,6 +170,24 @@ if ! curl -sf -o /dev/null "https://qa.bizdala.com/"; then
   exit 1
 fi
 echo "Frontend health check passed"
+
+# 9b. Platform definitions (T-2739): seed the shipped platform.register_tenant idempotently through
+#     the RUNNING app (a bare `bin/letflow eval` has no started repo), then a read-only smoke check
+#     that FAILS THE DEPLOY when it is missing or not active in the platform tenant. No secret is used.
+echo "--- Platform definitions: seed + smoke check ---"
+APP_CTR=$($COMPOSE ps -q app)
+if [[ -z "$APP_CTR" ]]; then
+  echo "ERROR: app container not found for the platform definitions step" >&2
+  exit 1
+fi
+docker exec "$APP_CTR" bin/letflow rpc 'IO.inspect(Letflow.PlatformProcesses.BootSeed.run(force: true))' || true
+# The check only RETURNS a result (never halts the VM): the deploy fails on the client side.
+SMOKE_OUT=$(docker exec "$APP_CTR" bin/letflow rpc 'IO.puts(case Letflow.PlatformProcesses.BootSeed.check() do :ok -> "SMOKE_OK"; {:error, r} -> "SMOKE_FAIL " <> inspect(r) end)') || SMOKE_OUT=""
+echo "$SMOKE_OUT"
+if ! grep -qx 'SMOKE_OK' <<<"$SMOKE_OUT"; then
+  echo "ERROR: platform.register_tenant is missing or not active in the platform tenant (smoke check; see the SMOKE_FAIL line above). If it says platform_tenant_not_configured, set LETFLOW_PLATFORM_TENANT_ID in the host env file." >&2
+  exit 1
+fi
 
 # 10. Retention for the web-dist backups made in step 7 (GH 2352). Last on purpose: a deploy
 #     that fails a health check exits before this, so every backup stays available for a

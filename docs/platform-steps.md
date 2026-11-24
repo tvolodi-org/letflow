@@ -56,6 +56,66 @@ of a realm bind, `created_via: "provisioning"` in the chain of a pending grant. 
 switched a version on is recorded where it belongs, in the definition version's signed
 `activated_by` document.
 
+## The no-bypass rule: who may create a tenant (gap G17)
+
+The pilot's rule is that a business function is a PROCESS and not a code path: every path that
+creates a tenant must START the definition, so there is exactly one way to register a tenant and
+the process is what the audit shows. The functions that write a tenant row
+(`Letflow.Identity.create_tenant/1`, `Letflow.Identity.create_provisioned_tenant/1`) and the
+functions that write a tenant schema (`Letflow.TenantOnboarding.provision_and_migrate/1` and its
+AC9 recovery twin `Letflow.TenantOnboarding.recover_provisioning/1`, a second public name for the
+same write) have therefore a CLOSED set of callers: the catalogue body of the step
+(`tenant.create`, `tenant.provision`), the module they delegate to
+(`Letflow.TenantProvisioner`) and the seed task (`mix letflow.seed`, which creates the platform
+tenant before any definition can exist).
+
+`test/letflow/platform_functions/tenant_create_callers_test.exs` is the scan that pins it: a
+pure AST scan over `lib/**/*.ex`, in the shape of the sibling caller scans
+(`credential_callers_test.exs`, `handler_writes_callers_test.exs`). The scan resolves a literal reference to a guarded module in these
+forms: the plain, renamed (`as: I`), multi and `Elixir.`-prefixed alias; the fully qualified call
+(with or without `Elixir.`); `apply/3`, `Kernel.apply/3` and `:erlang.apply/3` with a literal
+function name; the capture `&Module.fun/1`; `import` (also `only:`/`except:`) with a local call;
+a module attribute that holds the module; `defdelegate ..., to: Module`; and an atom that spells
+the module. It FAILS CLOSED: a reference to a guarded module that none of those forms places (a
+variable bound to the module, the module passed as an argument, `apply/3` with a computed function
+name, `use`, a struct) is reported as unresolved, and the real-tree test pins the unresolved
+references exactly (today: config keys and one catalogue tuple, each with its reason). The forms the
+scan does NOT see are its "Accepted limits", each with a test that shows it is silent: a module name
+built at run time (`Module.concat/1`, `String.to_atom/1`), `Code.eval_*`, a macro defined elsewhere
+that expands into the call, and an `alias`/`import`/`use` written through a macro.
+
+The scan also pins, EXACTLY, the
+callers of the catalogue body's public wrappers (`TenantCreate.create_tenant/1`,
+`TenantProvision.provision_and_migrate/1`) and of the provisioner chain
+(`Letflow.TenantProvisioner.create/1`): the four ROUTES that create a tenant today
+(`POST /tenants`, `POST /onboarding`, `POST /admin/v1/tenants` and the self-service signup).
+That list is the REMAINING BYPASS, and it may only shrink: when the routes start the definition
+instead of calling the code, the scan names the file that changed.
+
+### Gap G17 is PARTIAL
+
+What this change delivers:
+
+* the CLOSED caller set of the four tenant-writing functions: a new caller of any of them
+  anywhere in `lib/` fails the scan when it names the module literally (forms and limits above);
+* the EXACT pin of the four remaining bypass routes: the pinned set may only SHRINK, so the
+  rewiring removes an entry and the scan names the file that changed.
+
+What is NOT delivered (the remainder of gap G17):
+
+* the routes do NOT start the definition yet -- they still call the code, so the old direct
+  registration path is still a way around the process;
+* the "every route starts an instance" test does not exist yet.
+
+The engine slice that RUNS a platform step now exists (T-2703; see "What is not built yet" below);
+the rewiring is the remaining work (T-2704). It stays a separate step because the runner must be
+switched on (`LETFLOW_START_PLATFORM_STEP_RUNNER`) wherever a route starts the definition. The rewiring task removes the four route entries from the scan's pinned list and THEN adds
+the "every route starts an instance" test.
+
+The "Register tenant" path of the screen (gap G3, T-2591) is not one of the four: it starts an
+instance through `Letflow.PlatformProcesses.start_register_tenant/2` and that seam writes no
+tenant, so the scan finds no caller of the write in it.
+
 ## What the chain does to a tenant that already exists
 
 The operator's notes of the chain, in the operator's words. `tenant.create` is keyed on the
@@ -311,14 +371,108 @@ caller must be in the platform tenant AND hold `PLATFORM_ADMIN` there. The route
 `:DlqOperate` permission is wider (it is held by `:PROCESS_OPERATOR` too), so that check is
 what keeps a process operator from running a platform function.
 
+### The engine runs a platform step (T-2703, gap G1 remainder)
+
+A SERVICE_TASK node that carries a `platform_call` is run by the engine:
+
+1. **Arm.** When a token enters the node, the engine resolves the step's arguments from the
+   instance variables (`{"var": name}` or `{"const": value}`; a variable that carries a label
+   never goes into the row) and calls `Dispatcher.arm/1` INSIDE its own transaction
+   (`Letflow.Engine`, `build_service_task_dispatch_multi/5`, the same place every hop chain arms
+   an HTTP or script step). The instance waits on the node. The call key is the catalogue
+   entry's idempotency key, so a re-entry of the same node is the same call; a key that belongs
+   to ANOTHER instance's call is refused and the start writes nothing. A LOOP back to a node that
+   already ran is a new visit: the engine passes the count of earlier visits (`visit:`) and the call key
+   of a later visit carries a `|v<n>` suffix, so it is a call of its own and never the first visit's replay.
+   A node that declares `entity_writes` / `module_writes` is refused at activation and at entry
+   (the platform route plans no entity writes); see the state table below.
+2. **Run.** `Letflow.Engine.PlatformStepRunner` (ticked by `PlatformStepRunner.Poller`, config
+   key `:start_platform_step_runner`, default off in every environment; switched on only by the env variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, exactly `true`, dev included) runs the due rows of the PLATFORM tenant's
+   schema only, OUTSIDE every transaction, through `Dispatcher.attempt_dispatch/2`: the lease
+   and the claim token, and the authority fence of decision 0094 at EVERY attempt.
+3. **Continue.** A row that advanced is handed to `Letflow.Engine.apply_platform_step_result/3`:
+   the declared outputs are merged into the instance variables and the instance continues off
+   the node. The completion key is the dispatch id, so a second apply moves nothing; a result
+   that was written but never applied (a crash between the two commits) is applied by the
+   runner's sweep, whatever the row's age. A result the engine REFUSES to apply is landed as a
+   failure (ERROR + EXECUTION_ERROR + DLQ entry), never left parked. The sweep also lands the failure of a `given_up` row whose instance is still
+   active (a death between the dispatcher's give-up commit and the engine's landing).
+4. **Fail.** A row that gave up (a refusal of the body or of the fence, or the attempt cap after
+   crashes) goes through `Letflow.Engine.fail_platform_step/2`: the instance is in ERROR with an
+   EXECUTION_ERROR event (no variable is copied into it) and a DLQ entry of type
+   `Letflow.Instances.StepRetry.platform_step_entry_type/0` whose `reference_id` is the node.
+5. **Retry.** The DLQ retry (G7) re-runs the step; when it succeeds the engine applies the
+   outputs, lifts the ERROR and continues the instance exactly once.
+
+The dispatcher gives a call up on its first refusal; what is retried by itself is a CRASH (a
+`running` row whose lease expired is taken over, up to the attempt cap).
+
+#### The switch that starts the runner: `LETFLOW_START_PLATFORM_STEP_RUNNER`
+
+The runner is OFF in every environment by default (a new flag defaults off). Its only
+switch is the environment variable `LETFLOW_START_PLATFORM_STEP_RUNNER`, read once at boot
+by `config/runtime.exs`: **exactly `true`** turns the runner on; unset, empty or any other
+word leaves it off. `config/test.exs` keeps it off explicitly; everywhere else (dev
+included) the variable alone decides.
+
+**The trap.** With the runner off, a definition that reaches a `platform_call` node STARTS
+and NEVER RUNS: the engine arms the dispatch row inside its own transaction (the row is
+`pending`) and no worker claims it. The instance waits at the node for ever -- no error,
+no retry, no DLQ entry, nothing in the log that says why. No screen fails; the instance
+simply never leaves the step. A pilot that waits like this looks like a stuck process, not
+like a missing setting.
+
+So the variable belongs to the DEPLOYMENT, not to the build:
+
+| Where | What |
+|---|---|
+| QA host | `LETFLOW_START_PLATFORM_STEP_RUNNER=true` in BOTH host-local files: `$APP_DIR/qa.env` (the file `deploy/redeploy-qa.sh` sources) and `$APP_DIR/deploy/.env` (the compose `env_file` of `deploy/docker-compose.qa.yml`, the file the app container boots with). `qa.env` alone does not reach the container. `deploy/redeploy-qa.sh` refuses to deploy when either file does not carry it exactly `true`; the runbook is `docs/runbooks/qa-platform-step-runner.md`. |
+| Production | Unset means off, and the row in `docs/runbooks/production-readiness.md` §Settings says so, so an install that forgot it does not start with the runner off unnoticed. Turning it on in production is the owner's decision. |
+
 ### What is not built yet
 
-The engine slice that RUNS a platform step (the one that arms the row, polls it and puts the
-instance in ERROR when the step fails) is not built yet: it is the remaining part of gap G1.
-That slice is also the one that LANDS the DLQ entry of a failed step -- this page delivers the
-RETRY side of the entry, and the entry types it listens to are exported
-(`Letflow.Instances.StepRetry.platform_step_entry_type/0` and `notify_step_entry_type/0`) so
-that the landing and the retry cannot drift apart.
+The engine now arms and runs a platform step (T-2703). What remains is the rewiring: the routes
+(`POST /onboarding` and the other four) still call the tenant code directly until gap G17
+(T-2704) makes them START the definition (see "Gap G17 is PARTIAL" above).
+
+### The state machine of a platform_call dispatch (T-2703)
+
+The row's states are the dispatcher's (`pending`, `running`, `advanced`, `given_up`); LANDED is
+the instance's side: an `advanced` row is landed when its completion key
+(`platform_step_dispatch:<row id>`) exists, a `given_up` row when the instance went to ERROR for
+it. A row that is not landed while its instance is ACTIVE and still holds a token on the node is
+OUTSTANDING; the runner's sweeps recover outstanding rows of ANY age (there is no time window),
+oldest first, in keyset pages of the cycle's limit (at most `@sweep_pages` pages per cycle), so a
+row that keeps failing cannot starve the rows behind it. A `platform_call` node may not declare
+`entity_writes` / `module_writes` (the platform route plans no lines): the node is refused at
+activation (`conflicting_platform_call_routes`) and, for a graph that was activated before that
+fence, when the token enters the node (`:conflicting_routes`, nothing is armed or run).
+
+| State \ event | What happens next | What the instance sees | Test |
+|---|---|---|---|
+| (none) + token enters the node | `pending` (armed INSIDE the engine's transaction) | waits on the node | R1/R2 |
+| (none) + node declares `entity_writes`/`module_writes` | refused at activation; at entry `:conflicting_routes`, no row | nothing starts (the start is refused) | R10, R8 |
+| `pending` / `running` / `advanced` not yet applied + duplicate arm (the same visit armed again) | same row: the visit is the number of APPLIED earlier visits, so the key is the same and `ON CONFLICT DO NOTHING` replays it; no second row, no second run | waits on the node | R14a (pending), R14b (running), R14c (advanced not applied): sequential and two concurrent transactions on separate connections; the function body's calls are traced and counted |
+| `given_up` + duplicate arm (the same visit armed again) | same row, left `given_up` (the engine does not re-arm it; only the DLQ retry runs a failed step again) | stays ERROR / the landing runs once | R14d (a real function error, then sequential and concurrent arms) |
+| `pending` + another instance's key | refused (`platform_call_key_in_use`), nothing written | the start/advance is refused | R7 |
+| `pending` + runner claims | `running` (lease + claim token) | waits | R1 |
+| `running` + success | `advanced`, then the apply: LANDED | continues off the node with the declared outputs | R1 |
+| `running` + function or authority-fence refusal | `given_up`, then the landing: LANDED | ERROR + EXECUTION_ERROR + DLQ entry (`platform_step`) | R3 |
+| `advanced` + apply refusal (`:not_planned` lines, a variable merge refusal, a reserved engine variable in the outputs, a hop chain with NO MATCHING EDGE, a downstream node that cannot arm, a graph that cannot be read) | stays `advanced`; the apply rolls back (no SERVICE_TASK_COMPLETED, no completion key) and the refusal is LANDED as the platform failure | ERROR + EXECUTION_ERROR (`failure_kind: apply_refused`, `apply_refusal: <code>`) + DLQ entry (`platform_step`) | R13, R15 |
+| `advanced` + an output names a reserved engine variable, at activation | refused (`step_mapping_reserved_refused`); a graph that slipped past it is the apply refusal above (`reserved_variable_key`) | nothing starts | step_mapping_activation_test.exs |
+| `running` + runner crash BEFORE the result commit | `running` until the lease expires, then taken over (up to the attempt cap, then `given_up`) | waits | R5 |
+| `advanced` + runner crash AFTER the commit, before the apply | outstanding: the sweep applies it, once | continues | R5 (sweep) |
+| `given_up` + runner crash AFTER the commit, before the landing | outstanding: the sweep lands it, once | ERROR + EXECUTION_ERROR + DLQ entry | R9 |
+| outstanding row + runner resumed after ANY age (days) | applied / landed like a fresh one | continues / ERROR + DLQ | R12 |
+| `given_up` (landed) + DLQ retry (G7) | `pending` -> run -> `advanced`, applied with `resume: true` | ERROR lifted, continues exactly once; a second retry moves nothing | R4 |
+| `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13, R15 |
+| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11, R14e (the first arm of the new visit from two concurrent transactions: one new row) |
+| `advanced` being applied + loop STRAIGHT back to the node in the same apply (call -> gateway -> call) | a NEW row: the row whose apply arms the next visit is counted as applied (its completion key is written later in the same transaction), so the next arm gets the next visit | continues on the node: the new visit runs in the next cycle, once | R17 |
+| `pending` / `running` (any lease) + instance cancelled | `given_up` with `platform_step_instance_cancelled`, in the cancel's own transaction (dispatch rows before the projection, the order of the apply and the claim) | cancelled; the function never runs; no EXECUTION_ERROR, no DLQ entry | R16a, R16b |
+| any open row + claim (automatic or the DLQ retry) after the instance ended (cancelled or completed) | `given_up` with `platform_step_instance_cancelled` at the claim; the function is not run | unchanged | R16c, R14e |
+| `running` with a body in flight + instance cancelled | the body cannot be stopped; the row is closed by the cancel, so its outcome write finds it no longer `running` (claim token) and is dropped | cancelled | (the claim-token contract: dispatcher S8) |
+| any + foreign (company) tenant or unlisted function | never runs (`run_due/2` refuses the prefix; unknown function refused at arm) | the company tenant cannot hold the call | R6 |
+| outstanding row + instance no longer active (cancelled, terminated) | left as is: no sweep reads it | unchanged | R13 |
 
 ## Why the body runs outside the engine's transaction
 
@@ -409,6 +563,14 @@ output, a decoded HTTP body, a variable map) is never loaded into the process.
   it); the bind and the grant tests read the audit rows back (no actor, the explicit marker,
   no address in the entry). The registry test also scans the routes and the provisioner: the
   direct calls are gone, the implementation modules carry them.
+* `test/letflow/platform_functions/tenant_create_callers_test.exs` -- the NO BYPASS scan of gap
+  G17: the CLOSED set of callers of the four functions that write a tenant row or a tenant
+  schema (the catalogue body's public wrappers, the module they delegate to and the seed task),
+  the EXACT pin of the four routes that still reach the write (a set that may only shrink), and
+  the non-vacuity of the scan itself (a rogue caller is flagged in every call form -- the plain
+  alias, the renamed alias `as: I`, the multi alias, the fully qualified call, `apply/3`, the
+  capture and the import; an alias to a module of the same last name is not, a doc mention and a
+  definition are not call sites).
 * `test/letflow/platform_functions/failure_vocabulary_test.exs` -- the CLOSED vocabulary of
   the row's failure kind: the set is derived from the tree (every module under
   `lib/letflow/platform_functions/impl/` and its own `@type refusal`), a code nobody can

@@ -282,6 +282,84 @@ defmodule Letflow.Definitions.RollbackTest do
     applied
   end
 
+  # T-2597 (SF-04): the outbound allow-list fence on the version-rollback path.
+  describe "rollback_definition_version/4 -- the outbound allow-list fence (T-2597)" do
+    defp http_graph do
+      %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "step",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{
+              "endpoint" => "https://api.example.com/hook",
+              "method" => "POST",
+              "timeout_ms" => 30_000
+            }
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "step"},
+          %{"id" => "e2", "source" => "step", "target" => "end"}
+        ]
+      }
+    end
+
+    defp rollback_opts(schema_name) do
+      [
+        prefix: schema_name,
+        permission_checker: allow(),
+        event_appender: fn _attrs, _prefix -> {:ok, %{event_id: Ecto.UUID.generate()}} end
+      ]
+    end
+
+    test "OD-RB: a rollback onto a graph reaching a host the list no longer allows is refused, and the pointer stays" do
+      %{schema_name: schema_name} = provisioned_tenant()
+      process_key = unique_process_key()
+
+      assert {:ok, _} = Letflow.OutboundDestinations.add(schema_name, nil, "http", nil)
+
+      assert {:ok, _} =
+               Letflow.OutboundDestinations.add(schema_name, nil, "http", "api.example.com")
+
+      v1 = create!(schema_name, %{name: process_key, version: "1.0.0", graph: http_graph()})
+      activate!(schema_name, v1.id)
+      v2 = create!(schema_name, %{name: process_key, version: "2.0.0"})
+      activate!(schema_name, v2.id)
+
+      # The host leaves the list after v1 was active.
+      assert {:ok, _} =
+               Letflow.OutboundDestinations.remove(schema_name, nil, "http", "api.example.com")
+
+      assert {:error, {:outbound_destinations_invalid, violations}} =
+               Definitions.rollback_definition_version(
+                 process_key,
+                 "1.0.0",
+                 Ecto.UUID.generate(),
+                 rollback_opts(schema_name)
+               )
+
+      assert :outbound_destination_not_allowed in Enum.map(violations, & &1.code)
+      assert reread!(schema_name, v1.id).status == :deprecated
+      assert reread!(schema_name, v2.id).status == :active
+
+      # The same rollback passes once the list allows the host again.
+      assert {:ok, _} =
+               Letflow.OutboundDestinations.add(schema_name, nil, "http", "api.example.com")
+
+      assert {:ok, result} =
+               Definitions.rollback_definition_version(
+                 process_key,
+                 "1.0.0",
+                 Ecto.UUID.generate(),
+                 rollback_opts(schema_name)
+               )
+
+      assert result.definition_id == v1.id
+    end
+  end
+
   # ---------------------------------------------------------------------------------
   # AC1: "rolling back to a version with status SUPERSEDED (that was previously
   # ACTIVE) succeeds and flips the pointer: the target becomes ACTIVE and the

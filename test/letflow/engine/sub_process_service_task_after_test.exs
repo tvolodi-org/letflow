@@ -124,6 +124,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
                prefix: schema
              )
 
+    Letflow.OutboundAllowFixture.allow_definition!(schema, definition.id)
     assert {:ok, %{definition: active}} = Definitions.activate(definition.id, prefix: schema)
     active
   end
@@ -148,6 +149,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
                prefix: schema
              )
 
+    Letflow.OutboundAllowFixture.allow_definition!(schema, definition.id)
     assert {:ok, %{definition: active}} = Definitions.activate(definition.id, prefix: schema)
     active
   end

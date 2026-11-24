@@ -15,7 +15,7 @@ defmodule Letflow.CreateSharedStockAccessTest do
     schema = fx.schema_name
 
     assert {@version, CreateSharedStockAccess} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -10)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -12)
 
     assert {:ok, %{rows: [[0]]}} = q(schema, "SELECT count(*) FROM S.shared_stock_access")
 
