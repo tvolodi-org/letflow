@@ -93,6 +93,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_MODULE_ROLLOUT_HALT_AFTER` | no | default value 3 (range 1 to 1000); an invalid value raises | `config/runtime.exs`, `Letflow.ModuleUpgrade.Settings` |
 | `LETFLOW_MODULE_UPGRADE_ON_BOOT` | no | default value false (exactly true or false) | `config/runtime.exs` (REQ-772) |
 | `LETFLOW_START_PLATFORM_STEP_RUNNER` | no | default false; exactly `true` turns the platform step runner on (T-2703). With it off, an instance that reaches a platform step STARTS and NEVER RUNS: it waits at the node with no error and no DLQ entry (T-2707) | `config/runtime.exs` |
+| `LETFLOW_SEED_PLATFORM_DEFINITIONS` | no | default false; exactly `true` seeds the shipped platform definitions (platform.register_tenant) idempotently at boot (T-2739). Production stays off; the QA deploy seeds through the running app and fails when the definition is missing | `config/runtime.exs` |
 | `LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS` | no | default value 1000; an invalid value raises | `config/runtime.exs`, `Letflow.ModuleUpgrade.Settings` (REQ-773) |
 | `LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS` | no | default value: empty list (off); a name outside the realm alphabet raises | `config/runtime.exs` (ISS-1030) |
 | `LETFLOW_PLATFORM_TENANT_ID` | no for boot; yes for any platform-scope operation | nothing written; a warning goes to standard error and platform-scope operations are denied for every caller; a malformed value raises | `config/runtime.exs`, `Letflow.PlatformTenant` |

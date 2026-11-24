@@ -289,6 +289,12 @@ module_upgrade_on_boot =
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 
+# T-2739: seed the shipped platform definitions at boot. Default OFF (production); QA and runner
+# hosts set LETFLOW_SEED_PLATFORM_DEFINITIONS=true. Exactly the string "true" turns it on.
+config :letflow,
+       :seed_platform_definitions_on_boot,
+       System.get_env("LETFLOW_SEED_PLATFORM_DEFINITIONS") == "true"
+
 # T-2703: the platform step runner (pilot gap G1). Default off; exactly the string "true" turns it on.
 config :letflow,
        :start_platform_step_runner,
