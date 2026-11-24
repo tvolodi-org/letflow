@@ -853,6 +853,22 @@ defmodule Letflow.Routers.Tenants do
   defp render_promote(conn, {:error, {:step_mappings_invalid, violations}}),
     do: Response.step_mappings_invalid(conn, violations)
 
+  # G-14 (the refusal-mapping matrix): the review-free promotion reaches the
+  # same activation checks as the review path, and every one of them may
+  # refuse. The refusals are the tenant's own graph, so they are 422 -- never
+  # the catch-all's 500.
+  defp render_promote(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
+  defp render_promote(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_promote(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
+
+  defp render_promote(conn, {:error, :graph_structure_invalid}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
+
   defp render_promote(conn, {:error, _other}), do: Response.internal_error(conn)
 
   # PROVENANCE (historical, not current decision authority):
