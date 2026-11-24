@@ -16,6 +16,9 @@
 # The sourcing script must set QA_URL, AUTH_HEADER and SERVICE_TASK_EFFECTIVE_BASE_URL.
 
 # seed_open_outbound_http
+# The host is taken from the URL authority with any userinfo (user:pass@, token@) dropped
+# and must be a plain hostname; anything else is refused. Warnings are fixed text and never
+# echo the URL, the request body or a curl error (INV-4: a base URL may carry credentials).
 seed_open_outbound_http() {
   local header="${AUTH_HEADER}"
   if [[ -n "${QA_ADMIN_AUTH_TOKEN:-}" ]]; then
@@ -24,14 +27,21 @@ seed_open_outbound_http() {
 
   local host="${SERVICE_TASK_EFFECTIVE_BASE_URL#*://}"
   host="${host%%/*}"
+  host="${host%%\?*}"
+  host="${host%%#*}"
+  host="${host##*@}"
   host="${host%%:*}"
+  if [[ ! "${host}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+    echo "WARNING: the service host is not a plain hostname; the outbound allow-list was not opened. Activation may be refused by G14." >&2
+    return 0
+  fi
 
   local body
   for body in '{"channel":"http"}' "{\"channel\":\"http\",\"destination\":\"${host}\"}"; do
     if ! printf '%s' "${body}" | curl -sf -X POST \
       -H "${header}" -H "Content-Type: application/json" \
-      --data-binary @- "${QA_URL}/api/v1/outbound-destinations" >/dev/null; then
-      echo "WARNING: could not open the outbound allow-list (${body}); the token needs OutboundDestinationsManage (set QA_ADMIN_AUTH_TOKEN to a TENANT_ADMIN token). Activation may be refused by G14." >&2
+      --data-binary @- "${QA_URL}/api/v1/outbound-destinations" >/dev/null 2>&1; then
+      echo "WARNING: could not open an outbound allow-list entry; the token needs OutboundDestinationsManage (set QA_ADMIN_AUTH_TOKEN to a TENANT_ADMIN token). Activation may be refused by G14." >&2
     fi
   done
 }
