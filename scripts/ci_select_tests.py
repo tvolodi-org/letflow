@@ -24,11 +24,15 @@ import re
 import subprocess
 import sys
 
+# T-2638 (G-11): the security probes are the mechanical half of the security gates. A change to
+# a probe (or to the triage list it reads) therefore gets the high-risk coverage: a gate that
+# guards the gates must not be changed unnoticed.
 SENSITIVE_RE = re.compile(
     # T-2137: priv/modules/<m>/ is excluded here; handled by single-module detection below.
     r"^(priv/(?!modules/)|config/|mix\.exs$|mix\.lock$|\.tool-versions$|\.formatter\.exs$|\.gitattributes$|"
     r"\.env\.example$|deploy/|\.github/|scripts/|handoffs/|test/support/|test/test_helper\.exs$|"
-    r"test/shard_manifest\.txt$|lib/mix/|lib/letflow/(application|repo|repository|ledger|event_store|"
+    r"test/shard_manifest\.txt$|test/letflow/security_probe/|lib/mix/|"
+    r"lib/letflow/(application|repo|repository|ledger|event_store|"
     r"release)(\.ex$|/))"
 )
 # T-1403: module-write authorization and module installs reach record triggers / handlers through the
@@ -100,6 +104,8 @@ STANDARD_BP_DOC_TEST = [
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
+# G-11: the route inventory and the secret scanner must run on the REAL tree, not only on the
+# fake checkouts their own tests use.
 STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_0_test.exs",
     "test/letflow/security_probe/g01_matrix_shard_1_test.exs",
@@ -118,6 +124,8 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g03_source_provenance_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
+    "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
+    "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
 ]
 # G-09: the test files a tenant-migration change must run. The list is the reviewed expectation
 # of the migration impact runner (test/support/migration_impact.ex): the manifest-position pins,
