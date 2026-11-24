@@ -38,7 +38,6 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformTenant
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
-  alias Letflow.TenantProvisioning
 
   @platform_like %{
     "is_platform" => true,
@@ -244,23 +243,6 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
   end
 
   describe "(e) a body id equal to the pin" do
-    defp cleanup_tenant!(tenant_id) do
-      on_exit(fn ->
-        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-        case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-          {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-          {:error, :invalid_tenant_id} -> :ok
-        end
-
-        Repo.delete_all(
-          from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
-        )
-
-        Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
-      end)
-    end
-
     test "POST /tenants with a body id equal to the pin starts the process and leaves the pin unchanged",
          ctx do
       Letflow.Support.RegisterTenantProcessFixture.seed!(ctx.p.schema_name)
