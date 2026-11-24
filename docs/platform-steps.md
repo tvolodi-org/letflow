@@ -430,8 +430,8 @@ fence, when the token enters the node (`:conflicting_routes`, nothing is armed o
 |---|---|---|---|
 | (none) + token enters the node | `pending` (armed INSIDE the engine's transaction) | waits on the node | R1/R2 |
 | (none) + node declares `entity_writes`/`module_writes` | refused at activation; at entry `:conflicting_routes`, no row | nothing starts (the start is refused) | R10, R8 |
-| `pending` / `running` / `advanced` not yet applied + duplicate arm (the same visit armed again) | same row: the visit is the number of APPLIED earlier visits, so the key is the same and `ON CONFLICT DO NOTHING` replays it; no second row, no second run | waits on the node | R14 |
-| `given_up` + duplicate arm (the same visit armed again) | same row, left `given_up` (the engine does not re-arm it; only the DLQ retry runs a failed step again) | stays ERROR / the landing runs once | R14 |
+| `pending` / `running` / `advanced` not yet applied + duplicate arm (the same visit armed again) | same row: the visit is the number of APPLIED earlier visits, so the key is the same and `ON CONFLICT DO NOTHING` replays it; no second row, no second run | waits on the node | R14a (pending), R14b (running), R14c (advanced not applied): sequential and two concurrent transactions on separate connections; the function body's calls are traced and counted |
+| `given_up` + duplicate arm (the same visit armed again) | same row, left `given_up` (the engine does not re-arm it; only the DLQ retry runs a failed step again) | stays ERROR / the landing runs once | R14d (a real function error, then sequential and concurrent arms) |
 | `pending` + another instance's key | refused (`platform_call_key_in_use`), nothing written | the start/advance is refused | R7 |
 | `pending` + runner claims | `running` (lease + claim token) | waits | R1 |
 | `running` + success | `advanced`, then the apply: LANDED | continues off the node with the declared outputs | R1 |
@@ -444,7 +444,7 @@ fence, when the token enters the node (`:conflicting_routes`, nothing is armed o
 | outstanding row + runner resumed after ANY age (days) | applied / landed like a fresh one | continues / ERROR + DLQ | R12 |
 | `given_up` (landed) + DLQ retry (G7) | `pending` -> run -> `advanced`, applied with `resume: true` | ERROR lifted, continues exactly once; a second retry moves nothing | R4 |
 | `advanced` with a landed apply refusal + DLQ retry | not run again (`already_final`); the apply is refused again | stays in ERROR; the retry answers a typed code | R13, R15 |
-| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11 |
+| `advanced` (applied) + loop back to the node | a NEW row (`visit: n`, n = the applied visits, key suffix `\|v<n>`) | runs again, continues | R11, R14e (the first arm of the new visit from two concurrent transactions: one new row; two runs in all) |
 | any + foreign (company) tenant or unlisted function | never runs (`run_due/2` refuses the prefix; unknown function refused at arm) | the company tenant cannot hold the call | R6 |
 | outstanding row + instance no longer active (cancelled, terminated) | left as is: no sweep reads it | unchanged | R13 |
 

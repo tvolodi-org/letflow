@@ -22,7 +22,7 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   | R12 | a result older than a day is still applied / landed by the sweep |
   | R11 | a loop back to a completed platform_call node runs it again and completes |
   | R13 | an apply refusal is LANDED (ERROR + EXECUTION_ERROR + DLQ), its retry runs nothing; an outstanding row of a cancelled instance is left alone; the sweep pages past its limit |
-  | R14 | a duplicate arm of the SAME visit (row pending / running / advanced-not-applied / given_up, also two processes at once) is the same row and the function runs once; the visit counts APPLIED visits, not rows |
+  | R14 | a duplicate arm of the SAME visit (row pending / running / advanced-not-applied / given_up; sequential, and two processes at once, each in its own transaction on its own connection) is the same row and the function body runs once (its calls are traced, not inferred from `attempt_index`); the visit counts APPLIED visits, not rows |
   | R15 | a result whose hop chain has no matching edge is landed as the PLATFORM failure (platform_step DLQ entry), and the G7 retry resumes it |
 
   The state x event table these rows prove is in `docs/platform-steps.md` ("The state machine
@@ -665,6 +665,8 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
 
   # ── R14 ───────────────────────────────────────────────────────────────────
 
+  @function_body {Letflow.PlatformFunctions.Impl.ValidateRegistration, :run, 1}
+
   # The engine's own arming entry point, called again for the node the instance waits on: the
   # shape of a replayed engine transaction or a double entry of the same visit.
   defp arm_again(ctx, row) do
@@ -676,25 +678,133 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
     )
   end
 
-  # The function's executions: every claim of a row is one run of the function (`attempt_index`).
-  defp executions(ctx, instance_id),
-    do: rows(ctx, instance_id) |> Enum.map(& &1.attempt_index) |> Enum.sum()
+  # The REAL runs of the function body: every call of it, in any process (the test process too),
+  # is traced to a counting process (the product has no counter). Calls made for other instances
+  # are not counted for this one.
+  defp trace_function_runs do
+    {module, _function, _arity} = @function_body
+    # A pattern set on a module that is not loaded yet matches nothing (0): load it first.
+    Code.ensure_loaded!(module)
+    counter = spawn_link(fn -> count_runs(%{}) end)
+    Process.put(:function_run_counter, counter)
+    assert :erlang.trace_pattern(@function_body, true, [:global]) == 1
+    :erlang.trace(:all, true, [:call, {:tracer, counter}])
 
-  test "R14: a duplicate arm of the same visit is the same row in every state, run once", ctx do
+    on_exit(fn ->
+      :erlang.trace(:all, false, [:call])
+      :erlang.trace_pattern(@function_body, false, [:global])
+    end)
+  end
+
+  defp count_runs(counts) do
+    receive do
+      {:trace, _pid, :call, {_mod, :run, [%{dispatch: %{instance_id: id}}]}} ->
+        count_runs(Map.update(counts, id, 1, &(&1 + 1)))
+
+      {:count, from, id} ->
+        send(from, {:runs, id, Map.get(counts, id, 0)})
+        count_runs(counts)
+
+      _other ->
+        count_runs(counts)
+    end
+  end
+
+  # How many times the body ran for this instance since the trace started. `trace_delivered`
+  # first: every trace message generated so far is in the counter's mailbox before it is asked.
+  defp function_runs(instance_id) do
+    ref = :erlang.trace_delivered(:all)
+
+    receive do
+      {:trace_delivered, :all, ^ref} -> :ok
+    after
+      5_000 -> flunk("the call trace was not delivered")
+    end
+
+    send(Process.get(:function_run_counter), {:count, self(), instance_id})
+
+    receive do
+      {:runs, ^instance_id, n} -> n
+    after
+      5_000 -> flunk("the run counter did not answer")
+    end
+  end
+
+  # Two arms of the same visit from two processes, each in its OWN transaction on its OWN
+  # connection (the fixtures run the sandbox in `:auto` mode; the backend pids are asserted to
+  # differ). Both transactions are open before either arms; neither commits before one of them
+  # has armed, so the two arms overlap (a second INSERT waits on the first one's row lock).
+  defp concurrent_arms(ctx, row) do
+    parent = self()
+
+    tasks =
+      for _ <- 1..2 do
+        Task.async(fn ->
+          Repo.transaction(fn ->
+            %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+            send(parent, {:in_tx, self(), backend})
+            receive do: (:go -> :ok)
+            armed = arm_again(ctx, row)
+            send(parent, {:armed, self()})
+            receive do: (:commit -> :ok)
+            armed
+          end)
+        end)
+      end
+
+    backends =
+      for _ <- tasks do
+        receive do
+          {:in_tx, _pid, backend} -> backend
+        after
+          5_000 -> flunk("a concurrent arm never opened its transaction")
+        end
+      end
+
+    assert length(Enum.uniq(backends)) == 2
+
+    for task <- tasks, do: send(task.pid, :go)
+
+    receive do
+      {:armed, _pid} -> :ok
+    after
+      5_000 -> flunk("no concurrent arm finished")
+    end
+
+    for task <- tasks, do: send(task.pid, :commit)
+
+    for {:ok, armed} <- Task.await_many(tasks, 10_000), do: armed
+  end
+
+  defp assert_one_row(ctx, instance_id, id, results) do
+    for result <- results, do: assert({:ok, %StepDispatch{id: ^id}} = result)
+    assert [%StepDispatch{id: ^id}] = rows(ctx, instance_id)
+  end
+
+  test "R14a: duplicate arms of a PENDING visit: one row, the function runs once", ctx do
+    trace_function_runs()
     definition = activated(ctx)
-    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup")
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup-pending")
+    [%StepDispatch{id: id, status: :pending} = row] = rows(ctx, instance_id)
+
+    assert_one_row(ctx, instance_id, id, for(_ <- 1..3, do: arm_again(ctx, row)))
+    assert_one_row(ctx, instance_id, id, concurrent_arms(ctx, row))
+    assert function_runs(instance_id) == 0
+
+    assert %{claimed: 1, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert %{claimed: 0, applied: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 1
+    assert projection(ctx, instance_id).status == :completed
+    assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
+  end
+
+  test "R14b: duplicate arms of a RUNNING visit: one row, the function runs once", ctx do
+    trace_function_runs()
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup-running")
     [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
 
-    # pending: N arms, also from two processes at once.
-    for _ <- 1..3, do: assert({:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row))
-
-    for {:ok, armed} <-
-          Task.await_many(for(_ <- 1..2, do: Task.async(fn -> arm_again(ctx, row) end))),
-        do: assert(armed.id == id)
-
-    assert [%StepDispatch{id: ^id, status: :pending}] = rows(ctx, instance_id)
-
-    # running (a claim whose run is in flight): the same row, nothing new is due.
+    # A claim whose run is in flight: `running` with a live lease.
     future = DateTime.add(DateTime.utc_now(), 600, :second)
 
     Repo.update_all(
@@ -703,64 +813,89 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
       prefix: ctx.prefix
     )
 
-    assert {:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row)
+    assert_one_row(ctx, instance_id, id, [arm_again(ctx, row)])
+    assert_one_row(ctx, instance_id, id, concurrent_arms(ctx, row))
     assert %{claimed: 0} = PlatformStepRunner.run_due(ctx.prefix)
-    assert length(rows(ctx, instance_id)) == 1
+    assert function_runs(instance_id) == 0
 
-    # advanced but not yet applied: the same row; the sweep applies it once.
+    # The in-flight claim died: after its lease the row is taken over and runs once.
     Repo.update_all(
       from(d in StepDispatch, where: d.id == ^id),
-      [set: [status: :pending, attempt_index: 0, next_attempt_at: DateTime.utc_now()]],
+      [set: [next_attempt_at: DateTime.add(DateTime.utc_now(), -1, :second)]],
       prefix: ctx.prefix
     )
 
+    assert %{claimed: 1, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert [%StepDispatch{id: ^id}] = rows(ctx, instance_id)
+    assert function_runs(instance_id) == 1
+    assert projection(ctx, instance_id).status == :completed
+  end
+
+  test "R14c: duplicate arms of an ADVANCED, not applied visit: no second run", ctx do
+    trace_function_runs()
+    definition = activated(ctx)
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup-advanced")
+    [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
+
+    # The result committed; the apply never ran (a death between the two transactions).
     assert {:ok, {:advanced, _outputs}} =
              Letflow.PlatformFunctions.Dispatcher.attempt_dispatch(id, ctx.prefix)
 
-    assert {:ok, %StepDispatch{id: ^id, status: :advanced}} = arm_again(ctx, row)
+    assert function_runs(instance_id) == 1
 
-    for {:ok, armed} <-
-          Task.await_many(for(_ <- 1..2, do: Task.async(fn -> arm_again(ctx, row) end))),
-        do: assert(armed.id == id)
+    assert_one_row(ctx, instance_id, id, [arm_again(ctx, row)])
+    assert_one_row(ctx, instance_id, id, concurrent_arms(ctx, row))
+    assert [%StepDispatch{status: :advanced}] = rows(ctx, instance_id)
 
     assert %{claimed: 0, applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
-    assert [%StepDispatch{id: ^id}] = rows(ctx, instance_id)
-    assert executions(ctx, instance_id) == 1
+    assert function_runs(instance_id) == 1
     assert projection(ctx, instance_id).status == :completed
     assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
   end
 
-  test "R14: a duplicate arm of a given_up row is the same row; nothing runs again", ctx do
+  test "R14d: duplicate arms of a FAILED (given_up) visit: no second run", ctx do
+    trace_function_runs()
     definition = activated(ctx)
-    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-dup-failed")
+    # A slug the function refuses: a real function error, the row is given up.
+    assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "X")
     [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
 
-    Repo.update_all(
-      from(d in StepDispatch, where: d.id == ^id),
-      [set: [status: :given_up, attempt_index: 1, last_failure_kind: "function_error"]],
-      prefix: ctx.prefix
-    )
-
-    for _ <- 1..2, do: assert({:ok, %StepDispatch{id: ^id}} = arm_again(ctx, row))
-
-    assert %{claimed: 0, failed: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert %{claimed: 1, failed: 1} = PlatformStepRunner.run_due(ctx.prefix)
     assert [%StepDispatch{id: ^id, status: :given_up}] = rows(ctx, instance_id)
-    assert executions(ctx, instance_id) == 1
+    assert function_runs(instance_id) == 1
+
+    assert_one_row(ctx, instance_id, id, [arm_again(ctx, row)])
+    assert_one_row(ctx, instance_id, id, concurrent_arms(ctx, row))
+    assert [%StepDispatch{status: :given_up}] = rows(ctx, instance_id)
+
+    assert %{claimed: 0, failed: 0} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 1
     assert projection(ctx, instance_id).status == :error
+    assert event_count(ctx, instance_id, "EXECUTION_ERROR") == 1
   end
 
-  test "R14: only an applied visit makes the next arm a new visit", ctx do
+  test "R14e: only an applied visit makes the next arm a new visit", ctx do
+    trace_function_runs()
     definition = activated(ctx)
     assert {:ok, %{instance_id: instance_id}} = start(ctx, definition, "acme-visit")
     [%StepDispatch{id: id} = row] = rows(ctx, instance_id)
 
     assert %{applied: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 1
 
     # The first visit was applied: an arrival at the node now is a genuine loop-back, a new call.
-    assert {:ok, %StepDispatch{id: second}} = arm_again(ctx, row)
+    # Its FIRST arm comes from two processes at once (the real INSERT race on the new call_key):
+    # one new row; arming that visit again keeps it.
+    assert [{:ok, %StepDispatch{id: second}}, {:ok, %StepDispatch{id: second}}] =
+             concurrent_arms(ctx, row)
+
     refute second == id
     assert {:ok, %StepDispatch{id: ^second}} = arm_again(ctx, row)
     assert length(rows(ctx, instance_id)) == 2
+
+    # The new visit runs once more: two runs in all, one per visit.
+    assert %{claimed: 1} = PlatformStepRunner.run_due(ctx.prefix)
+    assert function_runs(instance_id) == 2
   end
 
   # ── R15 ───────────────────────────────────────────────────────────────────
@@ -803,6 +938,7 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
   end
 
   test "R15: no matching edge after the step is the platform failure; the retry resumes", ctx do
+    trace_function_runs()
     step = call()
 
     schemas =
@@ -864,7 +1000,7 @@ defmodule Letflow.Engine.PlatformStepRunnerTest do
     assert {:ok, %{kind: :platform}} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
     assert projection(ctx, instance_id).status == :completed
     assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
-    assert executions(ctx, instance_id) == 1
+    assert function_runs(instance_id) == 1
 
     assert {:ok, %{status: "already_final"}} = StepRetry.retry_entry(entry, prefix: ctx.prefix)
     assert event_count(ctx, instance_id, "SERVICE_TASK_COMPLETED") == 1
