@@ -156,18 +156,6 @@ defmodule Letflow.SecurityProbe.G14RefusalMappingMatrixTest do
                 "(fence #{inspect(shape.fence)}) -- it would answer 500"
             )
 
-          :static ->
-            # A refusal the surface answers with a typed problem document
-            # instead of the stable-code body (the semantic validation and the
-            # graph-shape refusals): the status is read from the clause.
-            clause = Matrix.mapping(surface, shape)
-
-            assert Matrix.clause_status(clause) == 422,
-                   """
-                   #{surface.name} answers #{inspect(shape.name)} with
-                   #{inspect(Matrix.clause_status(clause))}, not 422.
-                   """
-
           {status, body} ->
             assert status == 422,
                    """
@@ -177,11 +165,20 @@ defmodule Letflow.SecurityProbe.G14RefusalMappingMatrixTest do
 
             assert body != %{}, "#{surface.name} answered a detail-free body"
 
-            assert body["error"] == Atom.to_string(shape.name),
-                   """
-                   #{surface.name} answered #{inspect(body["error"])} for
-                   #{inspect(shape.name)}: the stable code must be the refusal's own.
-                   """
+            clause = Matrix.mapping(surface, shape)
+
+            if Matrix.stable_code_helper(clause, shape) do
+              assert body["error"] == Atom.to_string(shape.name),
+                     """
+                     #{surface.name} answered #{inspect(body["error"])} for
+                     #{inspect(shape.name)}: the stable code must be the refusal's own.
+                     """
+            else
+              # A typed problem document: it must carry a stable code or a detail.
+              assert is_binary(body["error"]) or is_binary(body["detail"]) or
+                       is_binary(body["title"]),
+                     "#{surface.name} answered a problem document with no code or detail: #{inspect(body)}"
+            end
 
             case body["violations"] do
               nil ->

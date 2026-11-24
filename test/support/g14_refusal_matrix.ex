@@ -129,16 +129,13 @@ defmodule Letflow.Support.G14RefusalMatrix do
         %{name: tuple, kind: kind, fence: name}
       end
 
-    # The tuple-shaped shapes of the surfaces: a fence that refuses through a
-    # helper keeps its tuple out of the fence's own body, so the surfaces carry
-    # it. The bare atoms are NOT taken from the surfaces: a renderer answers
-    # its own business errors (`:not_found`, `:busy`) under its own names.
+    # The tuple refusals of `Definitions.activate/2` itself that no fence
+    # function owns (the SVC-03 service-scope validator runs inside a `case`
+    # of the activation, not in a fence): read from the `@spec` of `activate`.
     from_surfaces =
-      for surface <- switch_on_surfaces(),
-          {:tuple, tuple} <- surface.shapes,
-          into: [] do
-        %{name: tuple, kind: :tuple, fence: :mapped_by_the_surface}
-      end
+      for {kind, tuple} <- fence_error_shapes(:activate),
+          kind == :tuple,
+          do: %{name: tuple, kind: kind, fence: :precheck_activation}
 
     (from_fences ++ from_surfaces)
     |> Enum.uniq_by(&{&1.name, &1.kind})
@@ -264,7 +261,7 @@ defmodule Letflow.Support.G14RefusalMatrix do
     else
       case stable_code_helper(clause, shape) do
         nil ->
-          :static
+          drive_static(surface, clause, shape)
 
         helper ->
           detail = sample_detail(helper)
@@ -274,6 +271,57 @@ defmodule Letflow.Support.G14RefusalMatrix do
           {answer.status, decode_body(answer.resp_body)}
       end
     end
+  end
+
+  # A clause that answers a problem document (no stable-code helper): drive the
+  # renderer with the shape built from the clause's own pattern and a one-entry
+  # violations list.
+  defp drive_static(surface, clause, shape) do
+    # Every variable of the clause's own pattern is replaced by a one-entry
+    # violations list (a graph or semantic refusal).
+    aliases = module_aliases(module_body(surface.file, surface.router))
+
+    {value, _} =
+      clause.pattern
+      |> Macro.prewalk(fn
+        {:=, _, [left, _bound]} -> left
+        other -> other
+      end)
+      |> Macro.prewalk(fn
+        # A guard-only clause (`{kind, _} when kind in [...]`): the guard
+        # admits the shape's own name.
+        {{kind_name, _, kind_ctx}, detail} when is_atom(kind_name) and is_atom(kind_ctx) ->
+          {shape.name, detail}
+
+        # `struct/2` builds a struct without its enforced keys.
+        {:%, _, [struct_alias, {:%{}, _, []}]} ->
+          {:struct, [], [struct_alias, {:%{}, [], []}]}
+
+        {:__aliases__, meta, [head | rest]} = alias_ast when is_atom(head) ->
+          case Map.get(aliases, Atom.to_string(head)) do
+            nil ->
+              alias_ast
+
+            full ->
+              {:__aliases__, meta, Enum.map(String.split(full, "."), &String.to_atom/1) ++ rest}
+          end
+
+        {name, _, ctx} when is_atom(name) and is_atom(ctx) ->
+          [
+            Macro.escape(%Letflow.Definitions.Graph.Violation{
+              code: :g14_synthetic,
+              message: "g14 synthetic"
+            })
+          ]
+
+        other ->
+          other
+      end)
+      |> Code.eval_quoted()
+
+    conn = Plug.Test.conn(:post, "/switch-on")
+    answer = apply(renderer_copy(surface), surface.name, [conn, value])
+    {answer.status, decode_body(answer.resp_body)}
   end
 
   @doc """
@@ -448,9 +496,9 @@ defmodule Letflow.Support.G14RefusalMatrix do
   defp build_inner({:{}, _, [name, first, second]}, shape, detail) when is_atom(name) do
     if name == shape.name do
       case detail do
-        [one, two] -> {one, two}
-        [one] -> {one, nil}
-        [] -> nil
+        [one, two] -> {name, one, two}
+        [one] -> {name, one, nil}
+        [] -> {name, nil, nil}
       end
     else
       {name, first, second}
@@ -964,9 +1012,20 @@ defmodule Letflow.Support.G14RefusalMatrix do
     |> elem(2)
     |> Enum.flat_map(fn
       {:<-, _, [:ok, call]} -> [call]
+      opts when is_list(opts) -> do_tail(Keyword.get(opts, :do))
       _ -> []
     end)
   end
+
+  # The call a `with` chain ends on (its do-block's last expression) is a fence
+  # candidate as well: `with :ok <- a() do b() end` runs b as the last fence.
+  defp do_tail({:__block__, _, exprs}) when is_list(exprs) and exprs != [],
+    do: do_tail(List.last(exprs))
+
+  defp do_tail({f, _, args} = call) when (is_atom(f) or is_tuple(f)) and is_list(args),
+    do: [call]
+
+  defp do_tail(_), do: []
 
   # `Macro.prewalk/3` walks ONE node; a module body is a LIST of nodes, so each
   # node is walked on its own.

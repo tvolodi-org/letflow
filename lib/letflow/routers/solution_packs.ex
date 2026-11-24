@@ -1173,6 +1173,14 @@ defmodule Letflow.Routers.SolutionPacks do
   defp render_override_activate_error(conn, {:start_permission_invalid, violation}),
     do: Response.start_permission_invalid(conn, violation)
 
+  # The SVC-03 service-scope refusal: the same ONE generic 422 as the plain
+  # activation (no service id, no internal reason in the body).
+  defp render_override_activate_error(
+         conn,
+         {:service_scope_violation, %Letflow.Definitions.ServiceScopeValidator.Violation{}}
+       ),
+       do: Response.unprocessable(conn, "a referenced service is not usable by this tenant")
+
   defp render_override_activate_error(conn, {:definition_test_cases_failed, failures}),
     do: Response.test_cases_failed(conn, failures)
 
