@@ -91,7 +91,7 @@
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
-    "uat": "skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16",
     "status": "implemented",
     "acceptance": [
       {

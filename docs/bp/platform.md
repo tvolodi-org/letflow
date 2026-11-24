@@ -71,7 +71,7 @@ The platform operator creates a tenant record with its schema, lists all tenants
 **Status.**
 
 - implementation: `implemented`
-- UAT: skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16
+- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16
 - security: no
 
 ## BP-PLATFORM-02 -- Suspend, reactivate and purge a tenant
