@@ -545,6 +545,37 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 -- a DECLARED TEST CASE of the version failed (T-2604, pilot gap G16: the
+  automatic test run before an activation).
+
+  The body names the case (the author's own label), the stable reason code and, when the
+  reason is about a variable or a node, its NAME. No variable VALUE, no stack trace and
+  no secret the case carried ever appear (INV-4).
+  """
+  @spec test_cases_failed(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def test_cases_failed(conn, failures) when is_list(failures),
+    do:
+      send_json(conn, 422, %{
+        "error" => "definition_test_cases_failed",
+        "failures" =>
+          Enum.map(failures, fn %{name: name, reason: reason, key: key} ->
+            %{"name" => name, "reason" => Atom.to_string(reason), "key" => key}
+          end)
+      })
+
+  @doc """
+  HTTP 422 -- the DECLARED TEST CASES of the version are malformed (T-2604, pilot gap
+  G16). The body carries a stable reason code only: no case text, no value.
+  """
+  @spec test_cases_invalid(Plug.Conn.t(), atom()) :: Plug.Conn.t()
+  def test_cases_invalid(conn, reason),
+    do:
+      send_json(conn, 422, %{
+        "error" => "definition_test_cases_invalid",
+        "reason" => Atom.to_string(reason)
+      })
+
+  @doc """
   HTTP 422 -- the TYPED STEP MAPPING of a step was refused (T-2594, pilot gap G13: the
   declared reads and writes against the definition's own `variable_schemas`, the reserved
   engine namespace, and the variables a person may write).
