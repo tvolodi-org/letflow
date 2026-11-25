@@ -1170,9 +1170,10 @@ defmodule Letflow.CiSelectTestsTest do
     end
 
     @tag :tmp_dir
-    test "T10: a whole-tree reader whose root is Path.expand(rel, __DIR__) is a member and is planned", %{
-      tmp_dir: dir
-    } do
+    test "T10: a whole-tree reader whose root is Path.expand(rel, __DIR__) is a member and is planned",
+         %{
+           tmp_dir: dir
+         } do
       seed =
         seed_tree(dir, "expand_root", %{
           "test/letflow/demo/expand_scan_test.exs" => """
