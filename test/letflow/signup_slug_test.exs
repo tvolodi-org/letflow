@@ -122,6 +122,55 @@ defmodule Letflow.SignupSlugTest do
       assert Repo.aggregate(Request, :count) == 1
     end
 
+    test "a taken slug answers every address alike, owner or not, in every live state (INV-5)" do
+      for state <- ["pending_verification", "verified", "provisioning"] do
+        slug = "held-" <> String.replace(state, "_", "-")
+        owner = slug <> "@example.test"
+        insert_row!(%{slug: slug, email: owner, state: state, step: state})
+        mine = post_signup(%{"slug" => slug, "email" => String.upcase(owner)})
+        other = post_signup(%{"slug" => slug, "email" => "someone@example.test"})
+        assert mine.status == 422, state
+        assert other.status == 422, state
+        assert mine.resp_body == other.resp_body, state
+      end
+    end
+
+    test "a free slug keeps the neutral 202 for a known and an unknown address" do
+      insert_row!(%{
+        slug: "mine-co",
+        email: "owner@example.test",
+        state: "pending_verification",
+        step: "await_verification"
+      })
+
+      assert post_signup(%{"slug" => "free-co", "email" => "owner@example.test"}).status == 202
+      assert post_signup(%{"slug" => "free-co2", "email" => "new@example.test"}).status == 202
+    end
+
+    test "a visitor password-shaped canary never reaches logs, responses or the read model" do
+      canary = "Cnry-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+          ok = post_signup(%{"slug" => "canary-co", "password" => canary})
+          bad = post_signup(%{"slug" => "www", "password" => canary})
+
+          taken =
+            post_signup(%{
+              "slug" => "canary-co",
+              "password" => canary,
+              "email" => "z@example.test"
+            })
+
+          send(self(), {:bodies, [ok.resp_body, bad.resp_body, taken.resp_body]})
+        end)
+
+      assert_received {:bodies, bodies}
+      refute log =~ canary
+      for b <- bodies, do: refute(b =~ canary)
+      refute inspect(Repo.all(Request), limit: :infinity) =~ canary
+    end
+
     test "an invalid or reserved slug and a bad user name are 422 invalid_request" do
       for params <- [%{"slug" => "www"}, %{"slug" => "x"}, %{"slug" => 5}, %{"user_name" => 7}] do
         conn = post_signup(params)

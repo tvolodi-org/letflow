@@ -325,8 +325,8 @@ defmodule Letflow.Signup do
           cfg.pending_cap ->
         {:error, :unavailable}
 
-      # T-2748: a chosen slug held by a tenant or by another address's live request is refused (422 slug_taken).
-      fields.slug && slug_taken_by_other?(fields.slug, fields.email) ->
+      # T-2748: a chosen slug held by a tenant or by any live request is refused (422 slug_taken), whatever the e-mail (INV-5).
+      fields.slug && slug_taken?(fields.slug) ->
         {:error, :slug_taken}
 
       open = open_request(fields.email) ->
@@ -536,15 +536,6 @@ defmodule Letflow.Signup do
   end
 
   defp slug_check(_other), do: :invalid
-
-  defp slug_taken_by_other?(slug, email) do
-    Repo.exists?(from(t in Tenant, where: t.slug == ^slug)) or
-      Repo.exists?(
-        from(r in Request,
-          where: r.slug == ^slug and r.email != ^email and r.state not in ["failed", "expired"]
-        )
-      )
-  end
 
   defp slug_taken?(slug) do
     Repo.exists?(from(t in Tenant, where: t.slug == ^slug)) or
