@@ -1,14 +1,19 @@
 defmodule Letflow.Obs.QueryLogFilter do
   @moduledoc """
-  A primary Logger filter that keeps bound parameters of WRITE statements out of the
-  log (INV-4, T-2704).
+  A primary Logger filter that keeps bound parameters of every statement out of the
+  log (INV-4, T-2704, T-2740).
 
   With `LOG_LEVEL=debug` Ecto logs every query as `QUERY OK ...\\n<sql> <inspect(params)>`,
   and the parameters of an INSERT/UPDATE/DELETE carry personal values (the registration's
   administrator e-mail and realm travel as instance start variables, event payloads and
   audit rows). The statement text and its header (source, timings) stay; the parameter
-  list is replaced by `[redacted]`. A SELECT is left alone: its parameters are lookup
-  keys, and a read of a value never persists it.
+  list is replaced by `[redacted]`. A SELECT is redacted too (T-2740): its lookup keys
+  can be personal (the recipient domain of a registration e-mail bound in
+  `OutboundDestinations.destination_allowed?/4`), and the parameter values of one
+  query cannot be told apart by column from the log line. Blast radius: every
+  `QUERY ...` line at debug level loses its values; SQL text, source and timings stay.
+  Cost: one binary split per query line, and only when the debug level lets the line
+  through. Debugging a query by its values needs `psql` or a local `IO.inspect`.
 
   Installed once by `Letflow.Application`; it applies before every handler, so the
   production formatter and test captures see the same redacted line.
@@ -39,8 +44,7 @@ defmodule Letflow.Obs.QueryLogFilter do
     text = IO.iodata_to_binary(data)
 
     with "QUERY" <> _ <- text,
-         [header, sql_and_params] <- String.split(text, "\n", parts: 2),
-         true <- write_statement?(sql_and_params) do
+         [header, sql_and_params] <- String.split(text, "\n", parts: 2) do
       sql =
         case :binary.split(sql_and_params, " [") do
           [sql, _params] -> sql
@@ -54,9 +58,5 @@ defmodule Letflow.Obs.QueryLogFilter do
   rescue
     # Not iodata: leave the event alone, never crash the logger.
     ArgumentError -> :keep
-  end
-
-  defp write_statement?(sql) do
-    String.starts_with?(sql, ["INSERT", "UPDATE", "DELETE"])
   end
 end
