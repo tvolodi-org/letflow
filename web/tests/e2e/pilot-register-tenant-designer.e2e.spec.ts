@@ -61,4 +61,15 @@ test.describe('the designer adds the notify step to platform.register_tenant', (
     // The definition is changed: the version may be saved (an ACTIVE definition becomes a NEW version).
     await expect(page.getByTestId('edit-save')).toBeEnabled()
   })
+
+  // T-2805: the Guide entry of the designer page opens the guide inside the product (text from docs/designer-guide.md).
+  test('the Guide entry opens the designer guide in a side panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-register-tenant-page')
+    await page.getByTestId('btn-guide').click()
+    await expect(page.getByTestId('designer-guide-panel')).toBeVisible()
+    await expect(page.getByTestId('guide-sec-notification-step')).toBeAttached()
+    await page.getByTestId('designer-guide-close').click()
+    await expect(page.getByTestId('designer-guide-panel')).toHaveCount(0)
+  })
 })

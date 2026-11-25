@@ -137,6 +137,8 @@ export default defineConfig({
     },
   },
   server: {
+    // T-2805: the designer guide is imported raw from the repo's docs/ folder, a sibling of web/.
+    fs: { allow: [resolve(__dirname, '..', 'docs'), resolve(__dirname)] },
     port: Number(process.env.VITE_PORT) || 5173,
     proxy: {
       '/api': {
