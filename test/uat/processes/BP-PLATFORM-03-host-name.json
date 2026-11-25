@@ -2,15 +2,12 @@
   "id": "BP-PLATFORM-03-host-name",
   "bp_entry": "BP-PLATFORM-03",
   "title": "Give a company its own host name (set and remove) on the fixture tenant; bad, reserved and unknown cases are refused",
-  "description": "The platform administrator starts from a clean state (the host removed), sets the fixture's host name (200, changed true, the onboarding id), repeats it (changed false), is refused a host outside the allowed suffixes, a reserved label and a missing value (422 with the field error), removes it (200) and removes it again (changed false). A set on an unknown slug answers 404; a company administrator's set and remove are refused. The cleanup removes the host. NOT automated: the 409 'hostname already bound' needs a second tenant that holds the host (covered by test/letflow/routers/tenants_hostname_test.exs). The platform fixture tenant uat-tmp-fixture (fixture platform_fixture_tenant) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "description": "The platform administrator starts from a clean state (the host removed), sets the fixture's host name (200, changed true, the onboarding id), repeats it (changed false), is refused a host outside the allowed suffixes, a reserved label and a missing value (422 with the field error), removes it (200) and removes it again (changed false). A set on an unknown slug answers 404; a company administrator's set and remove are refused. The cleanup removes the host. NOT automated: the 409 'hostname already bound' needs a second tenant that holds the host (covered by test/letflow/routers/tenants_hostname_test.exs). The platform fixture tenant uat-tmp-fixture (looked up, or created with --allow-create, by the first four steps f1..f4 of this file) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
   "tenant": "${tenant}",
   "inputs": [],
   "defaults": {
     "hostname_suffix": "letflow.qa.bizdala.com"
   },
-  "fixtures": [
-    "platform_fixture_tenant"
-  ],
   "dry_run": {
     "tenant": "bpm-default",
     "actors": {
@@ -24,6 +21,97 @@
     "inputs": {}
   },
   "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the fixture tenant by its fixed slug (404 is an answer, not a failure).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_slug": "uat-tmp-fixture",
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "platform-admin",
+      "says": "Create it only when absent (the run must be started with --allow-create; without the flag the step is skipped with that reason).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-fixture",
+          "display_name": "UAT platform fixture (never purged)"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_created": "yes"
+      },
+      "skip_if": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "f3",
+      "actor": "platform-admin",
+      "says": "Wait until the tenant exists (the registration process creates it in the background).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_id": "$.id"
+      },
+      "poll": {
+        "within_s": 90,
+        "interval_s": 3
+      },
+      "requires": [
+        "fixture_created"
+      ]
+    },
+    {
+      "id": "f4",
+      "actor": "platform-admin",
+      "says": "Known state: active. Reactivating an active tenant is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
     {
       "id": "s1",
       "actor": "platform-admin",

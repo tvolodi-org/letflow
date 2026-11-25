@@ -2,12 +2,9 @@
   "id": "BP-PLATFORM-02-tenant-lifecycle",
   "bp_entry": "BP-PLATFORM-02",
   "title": "Suspend, reactivate and purge a tenant: the operator deactivates and reactivates the fixture tenant; unknown tenants and company users are refused",
-  "description": "The platform administrator deactivates the fixture tenant (200, status inactive), sees it inactive, deactivates it again (a no-op, still 200), reactivates it (200, active) and again (no-op). A deactivate or reactivate of an unknown slug answers 404 and changes nothing; a company administrator's deactivate and purge are refused. The cleanup reactivates the fixture so it ends active. NOT automated, on purpose: (1) the deactivate of the platform tenant itself (the guard answers 409; a failing guard would take the platform down, the guard is covered by test/letflow/routers/tenants_test.exs); (2) the sign-in refusal of a deactivated tenant's users (tenant_inactive 403) because the fixture has no user; (3) the purge step s10: not runnable on QA, no lifecycle row for uat-tmp tenants (infra 2026-11-21), written blocked_by qa-provisioner-config until the provisioner window. The platform fixture tenant uat-tmp-fixture (fixture platform_fixture_tenant) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "description": "The platform administrator deactivates the fixture tenant (200, status inactive), sees it inactive, deactivates it again (a no-op, still 200), reactivates it (200, active) and again (no-op). A deactivate or reactivate of an unknown slug answers 404 and changes nothing; a company administrator's deactivate and purge are refused. The cleanup reactivates the fixture so it ends active. NOT automated, on purpose: (1) the deactivate of the platform tenant itself (the guard answers 409; a failing guard would take the platform down, the guard is covered by test/letflow/routers/tenants_test.exs); (2) the sign-in refusal of a deactivated tenant's users (tenant_inactive 403) because the fixture has no user; (3) the purge step s10: not runnable on QA, no lifecycle row for uat-tmp tenants (infra 2026-11-21), written blocked_by qa-provisioner-config until the provisioner window. The platform fixture tenant uat-tmp-fixture (looked up, or created with --allow-create, by the first four steps f1..f4 of this file) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
   "tenant": "${tenant}",
   "inputs": [],
-  "fixtures": [
-    "platform_fixture_tenant"
-  ],
   "dry_run": {
     "tenant": "bpm-default",
     "actors": {
@@ -21,6 +18,97 @@
     "inputs": {}
   },
   "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the fixture tenant by its fixed slug (404 is an answer, not a failure).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_slug": "uat-tmp-fixture",
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "platform-admin",
+      "says": "Create it only when absent (the run must be started with --allow-create; without the flag the step is skipped with that reason).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-fixture",
+          "display_name": "UAT platform fixture (never purged)"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_created": "yes"
+      },
+      "skip_if": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "f3",
+      "actor": "platform-admin",
+      "says": "Wait until the tenant exists (the registration process creates it in the background).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_id": "$.id"
+      },
+      "poll": {
+        "within_s": 90,
+        "interval_s": 3
+      },
+      "requires": [
+        "fixture_created"
+      ]
+    },
+    {
+      "id": "f4",
+      "actor": "platform-admin",
+      "says": "Known state: active. Reactivating an active tenant is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
     {
       "id": "s1",
       "actor": "platform-admin",

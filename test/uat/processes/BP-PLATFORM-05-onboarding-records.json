@@ -2,15 +2,12 @@
   "id": "BP-PLATFORM-05-onboarding-records",
   "bp_entry": "BP-PLATFORM-05",
   "title": "Onboard a company: the operator reads the onboarding record and the pending administrators; every bad or foreign request is refused before anything starts",
-  "description": "The registration itself (POST /api/v1/onboarding starts the platform.register_tenant process and creates a tenant) is run by BP-PLATFORM-01 (T-2744, T-2608); this file does not start one (owner order: only the BP-PLATFORM-01 scenario creates a tenant). It covers everything around it without a new tenant: the platform administrator is refused an empty form, a reserved slug and a reserved host (422 field errors, nothing starts), a lookup without a host (400), by an unknown host (404), an unknown onboarding id on read, on the pending administrators and on the realm binding (404, the realm is not probed); with the fixture, the host set in the same run creates the fixture's onboarding record and the operator reads it by id and by host, lists its pending administrators (an empty list) and a company administrator is refused all of it. The cleanup removes the host. The platform fixture tenant uat-tmp-fixture (fixture platform_fixture_tenant) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "description": "The registration itself (POST /api/v1/onboarding starts the platform.register_tenant process and creates a tenant) is run by BP-PLATFORM-01 (T-2744, T-2608); this file does not start one (owner order: only the BP-PLATFORM-01 scenario creates a tenant). It covers everything around it without a new tenant: the platform administrator is refused an empty form, a reserved slug and a reserved host (422 field errors, nothing starts), a lookup without a host (400), by an unknown host (404), an unknown onboarding id on read, on the pending administrators and on the realm binding (404, the realm is not probed); with the fixture, the host set in the same run creates the fixture's onboarding record and the operator reads it by id and by host, lists its pending administrators (an empty list) and a company administrator is refused all of it. The cleanup removes the host. The platform fixture tenant uat-tmp-fixture (looked up, or created with --allow-create, by the first four steps f1..f4 of this file) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
   "tenant": "${tenant}",
   "inputs": [],
   "defaults": {
     "hostname_suffix": "letflow.qa.bizdala.com"
   },
-  "fixtures": [
-    "platform_fixture_tenant"
-  ],
   "dry_run": {
     "tenant": "bpm-default",
     "actors": {
@@ -24,6 +21,97 @@
     "inputs": {}
   },
   "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the fixture tenant by its fixed slug (404 is an answer, not a failure).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_slug": "uat-tmp-fixture",
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "platform-admin",
+      "says": "Create it only when absent (the run must be started with --allow-create; without the flag the step is skipped with that reason).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-fixture",
+          "display_name": "UAT platform fixture (never purged)"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_created": "yes"
+      },
+      "skip_if": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "f3",
+      "actor": "platform-admin",
+      "says": "Wait until the tenant exists (the registration process creates it in the background).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_id": "$.id"
+      },
+      "poll": {
+        "within_s": 90,
+        "interval_s": 3
+      },
+      "requires": [
+        "fixture_created"
+      ]
+    },
+    {
+      "id": "f4",
+      "actor": "platform-admin",
+      "says": "Known state: active. Reactivating an active tenant is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
     {
       "id": "s1",
       "actor": "platform-admin",
