@@ -124,6 +124,16 @@ defmodule Letflow.Scripts.CompanionBootstrapTest do
     assert File.ls!(ctx.scratch) == []
   end
 
+  test "B4b all companion paths missing on disk still reports and fails (no empty cp)", ctx do
+    File.rm!(Path.join(ctx.src, "docs/d.md"))
+    File.rm!(Path.join(ctx.src, "handoffs/h.md"))
+    {out, code} = run(["--root", ctx.src, "--list", ctx.list], ctx.scratch)
+    assert code == 1, out
+    refute out =~ "missing file operand"
+    assert out =~ "RESULT: FAIL"
+    assert File.ls!(ctx.scratch) == []
+  end
+
   test "B5 an unclassified tracked path fails and the temp dir is still removed", ctx do
     File.mkdir_p!(Path.join(ctx.src, "newtop"))
     File.write!(Path.join(ctx.src, "newtop/x"), "x")
