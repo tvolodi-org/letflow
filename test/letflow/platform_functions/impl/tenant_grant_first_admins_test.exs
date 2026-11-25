@@ -31,6 +31,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
   alias Letflow.PlatformFunctions.Registry
   alias Letflow.Support.PlatformTenantFixture, as: PlatformFx
   alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioner.Lifecycle
 
   @email "admin@t2590.example"
 
@@ -120,5 +121,42 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
     # The address is never written to an audit entry (INV-4).
     refute inspect(tenant_entry) =~ @email
     refute inspect(platform_entry) =~ @email
+  end
+
+  defp lifecycle!(tenant_id, stored) do
+    Repo.insert!(
+      struct(Lifecycle, %{
+        tenant_id: tenant_id,
+        lifecycle: "active",
+        tier: "demo",
+        language: "en",
+        owner_grant_stored: stored
+      })
+    )
+  end
+
+  test "G9 (T-2727) with a lifecycle row the marker is set after the grant is stored",
+       %{tenant: tenant} do
+    lifecycle!(tenant.tenant_id, false)
+
+    assert {:ok, %{}} = run(tenant.tenant_id, @email)
+    assert length(grants(tenant.schema_name)) == 1
+    assert %Lifecycle{owner_grant_stored: true} = Repo.get!(Lifecycle, tenant.tenant_id)
+  end
+
+  test "G10 (T-2727) a repeat with the marker set creates NO grant (setting rollback)",
+       %{tenant: tenant} do
+    lifecycle!(tenant.tenant_id, true)
+
+    assert {:ok, %{}} = run(tenant.tenant_id, @email)
+    assert grants(tenant.schema_name) == []
+  end
+
+  test "G11 (T-2727) an operator tenant (no lifecycle row) still stores the grant", %{
+    tenant: tenant
+  } do
+    assert {:ok, %{}} = run(tenant.tenant_id, @email)
+    assert length(grants(tenant.schema_name)) == 1
+    assert Repo.get(Lifecycle, tenant.tenant_id) == nil
   end
 end

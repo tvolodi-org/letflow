@@ -483,17 +483,101 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
            ) == []
   end
 
-  test "POST /tenants with a tenant_type is refused rather than dropped silently", ctx do
+  test "T-2727 V8: POST /tenants tenant_type reaches the persisted row on the v2 definition",
+       ctx do
     seed!(ctx)
+    slug = TenantSlugFixture.unique_slug("t2727-type")
 
     conn =
       post(ctx, "/api/v1/tenants", %{
-        "slug" => TenantSlugFixture.unique_slug("t2704-type"),
+        "slug" => slug,
         "display_name" => "Typed",
         "tenant_type" => "production"
       })
 
-    assert conn.status == 422, conn.resp_body
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["tenant_type"] == "production"
+
+    Enum.each(1..14, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+    tenant = Repo.get_by(Tenant, slug: slug)
+    assert tenant, "the create step must have stored the tenant"
+    drop_on_exit(tenant)
+    assert tenant.tenant_type == "production"
+  end
+
+  test "T-2727 V8: a tenant_type outside the enum is a 422 before anything starts", ctx do
+    seed!(ctx)
+
+    conn =
+      post(ctx, "/api/v1/tenants", %{
+        "slug" => TenantSlugFixture.unique_slug("t2727-bad"),
+        "display_name" => "Bad",
+        "tenant_type" => "gold"
+      })
+
+    assert conn.status in [400, 422], conn.resp_body
+  end
+
+  test "T-2727 V8: route 2 WITH admin_email builds notify_admin true; WITHOUT it false and completes",
+       ctx do
+    seed!(ctx)
+
+    with_mail = Map.put(form("/api/v1/onboarding"), "admin_email", "owner-t2727@example.com")
+    conn = post(ctx, "/api/v1/onboarding", with_mail)
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["notify_admin"] == true
+
+    without_mail = form("/api/v1/onboarding")
+    conn = post(ctx, "/api/v1/onboarding", without_mail)
+    assert conn.status == 202, conn.resp_body
+    instance_id = json(conn)["instance_id"]
+    assert started_variables(ctx, instance_id)["notify_admin"] == false
+
+    Enum.each(1..16, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+
+    projection =
+      Repo.get_by!(InstanceProjection, [instance_id: instance_id],
+        prefix: ctx.platform.schema_name
+      )
+
+    for slug <- [with_mail["slug"], without_mail["slug"]],
+        tenant = Repo.get_by(Tenant, slug: slug),
+        do: drop_on_exit(tenant)
+
+    refute projection.status == :error, inspect(projection.error_detail)
+  end
+
+  defp started_variables(ctx, instance_id) do
+    [event] = started_events(ctx, instance_id)
+    payload = event.payload
+    Map.get(payload, "variables") || Map.get(payload, "initial_variables") || payload
+  end
+
+  defp drop_on_exit(tenant) do
+    on_exit(fn ->
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+      id = Ecto.UUID.dump!(tenant.id)
+
+      %{rows: schemas} =
+        Repo.query!("SELECT schema_name FROM tenant_schemas WHERE tenant_id = $1", [id])
+
+      Repo.query!("DELETE FROM tenant_schemas WHERE tenant_id = $1", [id])
+      for [schema] <- schemas, do: Repo.query!(~s|DROP SCHEMA IF EXISTS "#{schema}" CASCADE|)
+
+      %{rows: referencing} =
+        Repo.query!("""
+        SELECT cl.relname, att.attname
+        FROM pg_constraint con
+        JOIN pg_class cl ON cl.oid = con.conrelid
+        JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+        WHERE con.contype = 'f' AND con.confrelid = 'tenants'::regclass
+        """)
+
+      for [table, column] <- referencing,
+          do: Repo.query!(~s|DELETE FROM "#{table}" WHERE "#{column}" = $1|, [id])
+
+      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
+    end)
   end
 
   test "REQ-442: a login_disclosure_mode in the create body is not a start variable", ctx do
@@ -673,14 +757,14 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
     end
   end
 
-  test "POST /tenants with a tenant_type is refused also for an already started slug", ctx do
+  test "T-2727 V16: a replay that adds a tenant_type to a start without one is a 409", ctx do
     seed!(ctx)
-    slug = TenantSlugFixture.unique_slug("t2704-typed-replay")
+    slug = TenantSlugFixture.unique_slug("t2727-typed-replay")
     body = %{"slug" => slug, "display_name" => "Typed replay"}
 
     assert post(ctx, "/api/v1/tenants", body).status == 202
 
     conn = post(ctx, "/api/v1/tenants", Map.put(body, "tenant_type", "production"))
-    assert conn.status == 422, conn.resp_body
+    assert conn.status == 409, conn.resp_body
   end
 end

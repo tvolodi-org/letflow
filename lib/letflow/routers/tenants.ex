@@ -119,7 +119,7 @@ defmodule Letflow.Routers.Tenants do
   (`Letflow.PlatformProcesses.start_register_tenant/2`) and answer 202 with the instance id. The
   steps of that definition (`tenant.create`, `tenant.provision`, ...) are the one place that writes
   the tenant row and sequences `Letflow.TenantProvisioning.provision_tenant_schema/1`,
-  `replay_migrations/2` and the role seeding. `tenant_type` is not an input of the process yet, so a
+  `replay_migrations/2` and the role seeding. `tenant_type` is an input of the v2 process; on a v1 definition a
   `tenant_type` in the create body is refused with 422 instead of being dropped silently.
 
   ## Deactivation-status statement (AC5)
@@ -405,14 +405,15 @@ defmodule Letflow.Routers.Tenants do
         form = %{
           slug: slug,
           name: Map.fetch!(attrs, "display_name"),
-          realm_id: Map.get(attrs, "idp_realm_id")
+          realm_id: Map.get(attrs, "idp_realm_id"),
+          tenant_type: Map.get(attrs, "tenant_type")
         }
 
         cond do
-          # The registration process has no tenant_type input yet (the tenant is created as
-          # "test"): a value that would be dropped silently is refused instead, before the replay check
-          # (a stateless input rule: the answer does not depend on what already started).
-          Map.has_key?(attrs, "tenant_type") ->
+          # A v1 registration definition has no tenant_type input: a value that would be dropped
+          # silently is refused instead, before the replay check. On v2 it reaches the row.
+          Map.has_key?(attrs, "tenant_type") and
+              not Letflow.PlatformProcesses.register_tenant_accepts_tenant_type?() ->
             Response.unprocessable(
               conn,
               "tenant_type is not supported by the registration process"

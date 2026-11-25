@@ -122,7 +122,8 @@ defmodule Letflow.PlatformProcesses do
          {:ok, platform_prefix} <- PlatformTenant.platform_prefix() do
       attrs = %{
         definition_name: register_tenant_definition_name(),
-        initial_variables: register_tenant_variables(form),
+        initial_variables:
+          operator_variables(form, platform_prefix, register_tenant_start_key(form)),
         actor_id: actor_id,
         idempotency_key: idempotency_key
       }
@@ -134,6 +135,70 @@ defmodule Letflow.PlatformProcesses do
     else
       {:error, reason} -> {:error, reason}
       :error -> {:error, :platform_tenant_not_configured}
+    end
+  end
+
+  # The operator start's variables, version-aware (design section 1). The v2 keys
+  # (`tenant_type`, `notify_admin`) travel only when the definition version the start runs
+  # declares them: the ACTIVE version for a new start, the ORIGINAL start's version for a replay
+  # (the replay must compare equal to the first start's variables). `notify_admin` is true only
+  # when an `admin_email` was supplied.
+  defp operator_variables(form, prefix, key) do
+    base = register_tenant_variables(form)
+
+    v2 =
+      form
+      |> Map.take([:tenant_type])
+      |> Enum.reduce(%{"notify_admin" => present?(Map.get(form, :admin_email))}, fn
+        {:tenant_type, value}, acc when is_binary(value) and value != "" ->
+          Map.put(acc, "tenant_type", value)
+
+        _other, acc ->
+          acc
+      end)
+
+    case declared_keys(prefix, key) do
+      {:ok, keys} -> Map.merge(base, Map.take(v2, keys))
+      :error -> base
+    end
+  end
+
+  @doc """
+  Whether the ACTIVE registration definition declares the `tenant_type` input (v2). A route that
+  receives a `tenant_type` refuses it with 422 when this is false (v1), instead of dropping it.
+  """
+  @spec register_tenant_accepts_tenant_type?() :: boolean()
+  def register_tenant_accepts_tenant_type? do
+    with {:ok, prefix} <- PlatformTenant.platform_prefix(),
+         {:ok, keys} <-
+           declared_keys(prefix, "register-tenant:none-" <> Ecto.UUID.generate()) do
+      "tenant_type" in keys
+    else
+      _other -> false
+    end
+  end
+
+  defp present?(value), do: is_binary(value) and value != ""
+
+  defp declared_keys(prefix, key) do
+    definition_ref =
+      case Letflow.Engine.IdempotentReplay.lookup(key, prefix) do
+        {:ok, original} -> {:id, Map.get(original.payload || %{}, "definition_id")}
+        _none -> {:name, register_tenant_definition_name()}
+      end
+
+    result =
+      case definition_ref do
+        {:id, id} when is_binary(id) -> Definitions.get_by_id(id, prefix: prefix)
+        {:id, _} -> {:error, :not_found}
+        {:name, name} -> Definitions.get_active_by_name(name, prefix: prefix)
+      end
+
+    with {:ok, definition} <- result,
+         {:ok, entries} <- Definitions.variable_schema_entries(definition.id, prefix: prefix) do
+      {:ok, Enum.map(entries, & &1.variable_key)}
+    else
+      _other -> :error
     end
   end
 

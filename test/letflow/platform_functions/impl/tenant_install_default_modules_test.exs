@@ -29,6 +29,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
   alias Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules
   alias Letflow.PlatformFunctions.Registry
   alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioner.Lifecycle
 
   setup do
     previous = Application.get_env(:letflow, Letflow.TenantProvisioner)
@@ -63,6 +64,22 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
     )
   end
 
+  # T-2727 (design section 4 row 8): the step is lifecycle-aware. A `pending` lifecycle row is the
+  # demo case; the row is inside the test's sandbox transaction.
+  defp lifecycle!(tenant_id, state) do
+    Repo.insert!(
+      struct(Lifecycle, %{
+        tenant_id: tenant_id,
+        lifecycle: "active",
+        tier: "demo",
+        language: "en",
+        default_modules_state: state
+      })
+    )
+  end
+
+  defp state_of(tenant_id), do: Repo.get!(Lifecycle, tenant_id)
+
   defp run(tenant_id) do
     TenantInstallDefaultModules.run(%{inputs: %{"tenant_id" => tenant_id}})
   end
@@ -78,15 +95,36 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
     assert entry.platform_tenant_only
   end
 
-  test "I2 the first run installs the module", %{tenant: tenant} do
+  test "I2 the first run installs the module and records done", %{tenant: tenant} do
     put_provisioner(default_modules_install: fake_installer())
+    lifecycle!(tenant.tenant_id, "pending")
 
     assert {:ok, %{}} = run(tenant.tenant_id)
     assert Process.get(:t2590_installed) == %{"org" => 1}
+
+    assert %Lifecycle{default_modules_state: "done", default_modules_failure: nil} =
+             state_of(tenant.tenant_id)
+  end
+
+  test "I2b no lifecycle row (operator routes): nothing is installed", %{tenant: tenant} do
+    put_provisioner(default_modules_install: fake_installer())
+
+    assert {:ok, %{}} = run(tenant.tenant_id)
+    assert Process.get(:t2590_installed) == nil
+  end
+
+  test "I2c a row that is done or not_applicable installs nothing", %{tenant: tenant} do
+    put_provisioner(default_modules_install: fake_installer())
+    lifecycle!(tenant.tenant_id, "not_applicable")
+
+    assert {:ok, %{}} = run(tenant.tenant_id)
+    assert Process.get(:t2590_installed) == nil
+    assert state_of(tenant.tenant_id).default_modules_state == "not_applicable"
   end
 
   test "I3 a second run changes NOTHING", %{tenant: tenant} do
     put_provisioner(default_modules_install: fake_installer())
+    lifecycle!(tenant.tenant_id, "pending")
 
     assert {:ok, %{}} = run(tenant.tenant_id)
     installed_before = Process.get(:t2590_installed)
@@ -99,10 +137,23 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
     assert Process.get(:t2590_installed) == installed_before
   end
 
-  test "I4 a failing install is a typed refusal, never the installer's text", %{tenant: tenant} do
+  test "I4 a failing install is recorded as failed and does NOT fail the step; a retry heals it",
+       %{tenant: tenant} do
     put_provisioner(default_modules_install: fn _module_id, _actor, _opts -> {:error, :boom} end)
+    lifecycle!(tenant.tenant_id, "pending")
 
-    assert {:error, :platform_call_default_modules_failed} = run(tenant.tenant_id)
+    assert {:ok, %{}} = run(tenant.tenant_id)
+
+    assert %Lifecycle{default_modules_state: "failed", default_modules_failure: text} =
+             state_of(tenant.tenant_id)
+
+    assert is_binary(text)
+
+    put_provisioner(default_modules_install: fake_installer())
+    assert {:ok, %{}} = run(tenant.tenant_id)
+
+    assert %Lifecycle{default_modules_state: "done", default_modules_failure: nil} =
+             state_of(tenant.tenant_id)
   end
 
   test "I5 a value that is not a UUID is refused before the database sees it" do
