@@ -799,14 +799,14 @@ class Runner:
     def token_for(self, role: str) -> str:
         return self._token_of(self.actor_spec(role), role)
 
-    def request(self, role, method, path, body=None, headers=None, http_as=None, bearer=None):
+    def request(self, role, method, path, body=None, headers=None, http_as=None, bearer=None, bearer_base=None):
         hdrs = dict(headers or {})
         if bearer:
             value = self.secrets.get(bearer)
             if not value:
                 raise RunnerError(f"bearer {bearer}: no session yet (an earlier login step must make it)")
             hdrs["Authorization"] = "Bearer " + value
-            return http_call(method, self.base_url + path, hdrs, body)
+            return http_call(method, (bearer_base or self.base_url) + path, hdrs, body)
         if http_as:
             value = self.secrets.get(http_as)
             if not value:
@@ -1039,8 +1039,15 @@ class Runner:
                 what = first["what"]
                 label = f"expected {first['expected']} got {first['actual']}" if what == "status" else \
                     f"expected {what} {first['expected']} got {first['actual']}"
-                reason = body.get("error") if isinstance(body, dict) else None
-                if isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]{1,64}", reason):
+                reason = None
+                if isinstance(body, dict):
+                    # the closed reason: a `limit` code (error "conflict" + limit "demo_cap_reached") wins over `error`
+                    for key in ("limit", "error"):
+                        cand = body.get(key)
+                        if isinstance(cand, str) and re.fullmatch(r"[a-z0-9_]{1,64}", cand):
+                            reason = cand
+                            break
+                if reason:
                     label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
@@ -1164,7 +1171,12 @@ class Runner:
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        info = self._call(role, spec, http_as, bearer=step.get("bearer"))
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        info = self._call(role, spec, http_as, bearer=step.get("bearer"), bearer_base=base)
         record.update(method=info["method"], path=info["path"])
         if info["request"] is not None:
             record["request"] = info["request"]
@@ -1211,7 +1223,7 @@ class Runner:
         self.secret_values.add(token)
         return 200, {"signed_in": True}, "{}"
 
-    def _call(self, role, spec, http_as=None, bearer=None):
+    def _call(self, role, spec, http_as=None, bearer=None, bearer_base=None):
         """One HTTP call of a step (thread safe): the substituted request and the answer."""
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
@@ -1221,7 +1233,8 @@ class Runner:
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
-        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer)
+        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
+                              bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
 
     def _repeat(self, role, spec, times, http_as, record):
@@ -2400,6 +2413,9 @@ def validate_step(step, where) -> None:
         raise ConfigError(f"{where}: http_as can only be shared_access")
     if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
         raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
+                                      and step.get("bearer")):
+        raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
     if "http_as" not in step and not step.get("actor"):
         raise ConfigError(f"{where}: every step needs id, actor and do")
     if "expect_refused" in step and "expect" in step:

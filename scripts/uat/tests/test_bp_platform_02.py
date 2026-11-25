@@ -125,7 +125,7 @@ class Signup(unittest.TestCase):
 
     def test_demo_cap_reached_is_a_named_red_of_the_signup_step(self):
         # the cap is never filled on purpose: the closed answer of the provisioner fails S6 and names the reason
-        body = {"error": "demo_cap_reached", "limit": "demo_cap_reached"}
+        body = {"error": "conflict", "limit": "demo_cap_reached"}  # the real answer of POST /admin/v1/tenants
         rows = runner.run_assertions(self.steps["S6"]["expect"], 409, body)
         self.assertFalse(all(r["ok"] for r in rows))
         self.assertIn("demo_cap_reached", self.process["description"])
@@ -194,6 +194,18 @@ class Signup(unittest.TestCase):
             self.assertNotIn("tok-Canary-2", json.dumps(r.ctx))
             r.request("anonymous", "GET", "/api/v1/me/access", bearer="session")
             self.assertEqual("Bearer tok-Canary-2", calls[0][1]["Authorization"])
+            self.assertEqual("http://x/api/v1/me/access", calls[0][0])
+            # S11 goes to the tenant URL S6 saved, not to the run's own base URL
+            self.assertEqual("tenant_url", self.steps["S11"]["bearer_base"])
+            self.assertEqual("$.tenant_url", self.steps["S6"]["save"]["tenant_url"])
+            r.ctx["tenant_url"] = "https://uat-tmp-x.example.test/"
+            r.run_id, r.lines, r.process = "r1", [], self.process
+            r._call("anonymous", {"api": "GET", "path": "/api/v1/me/access"}, bearer="session",
+                    bearer_base="https://uat-tmp-x.example.test")
+            self.assertEqual("https://uat-tmp-x.example.test/api/v1/me/access", calls[1][0])
+            r.ctx["tenant_url"] = ""
+            with self.assertRaises(runner.RunnerError):
+                r._execute(self.steps["S11"], self.steps["S11"]["do"], {})
             with self.assertRaises(runner.RunnerError):
                 self._runner().request("anonymous", "GET", "/x", bearer="session")
         finally:
