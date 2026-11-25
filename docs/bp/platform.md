@@ -47,8 +47,8 @@ The platform operator creates a tenant record with its schema, lists all tenants
 
 1. **PLATFORM_ADMIN**: screen `admin/tenants`, `platform-dashboard`, call `GET /api/v1/tenants`, function `Letflow.Identity.list_tenants`
    Result: the paginated list of all tenants
-2. **PLATFORM_ADMIN**: call `POST /api/v1/tenants`, function `Letflow.Identity.create_tenant`, `Letflow.TenantOnboarding.provision_and_migrate`
-   Result: 201 with the tenant record; 409 slug already exists; 422 validation failed; 500 when provisioning fails (no rollback, see moduledoc OQ-5)
+2. **PLATFORM_ADMIN**: call `POST /api/v1/tenants`, function `Letflow.PlatformProcesses.start_register_tenant`
+   Result: 202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; provisioning runs as steps of the instance, a failed step shows as instance ERROR on the timeline, not as a 5xx
 3. **PLATFORM_ADMIN**: screen `admin/tenants/:slug/edit`, call `GET /api/v1/tenants/:slug`, `PATCH /api/v1/tenants/:slug`, function `Letflow.Identity.patch_tenant`
    Result: 200 with the tenant record; unknown slug 404
 
@@ -195,8 +195,8 @@ The operator registers a company with a slug, display name and host (optionally 
 
 **Steps.**
 
-1. **PLATFORM_ADMIN**: screen `admin/onboarding`, `admin/onboarding/new`, call `POST /api/v1/onboarding`, function `Letflow.Identity.create_tenant`, `Letflow.TenantOnboarding.provision_and_migrate`
-   Result: created record with login state; field errors 422; duplicate host or realm refused
+1. **PLATFORM_ADMIN**: screen `admin/onboarding`, `admin/onboarding/new`, call `POST /api/v1/onboarding`, function `Letflow.PlatformProcesses.start_register_tenant`
+   Result: 202 with the platform.register_tenant instance reference (instance_id, status, slug); the screen then opens the instance timeline; an identical replay answers the same 202; field errors 422; duplicate host, realm or slug with different values 409; provisioning runs as steps of the instance (a failed step shows as instance ERROR, not as a 5xx); the tenant is not yet loginable without a realm
 2. **PLATFORM_ADMIN**: screen `admin/onboarding/:onboardingId/progress`, `admin/onboarding/:onboardingId/result`, call `GET /api/v1/onboarding/:id`
    Result: the onboarding record and its state
 3. **PLATFORM_ADMIN**: screen `admin/onboarding`, call `GET /api/v1/onboarding`
@@ -791,7 +791,7 @@ The platform tenant can never be deactivated (409) or purged (404); a deactivate
 
 **Refusals.**
 
-- 409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:702)
+- 409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:708)
 - 403 tenant_inactive for the tenant's own callers (lib/letflow/plugs/tenant_status.ex:106, lib/letflow/plugs/auth_pipeline.ex:213)
 - 409 after purge
 

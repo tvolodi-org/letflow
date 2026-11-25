@@ -467,91 +467,10 @@ defmodule Letflow.Routers.TenantsTest do
   # ── AC4/AC7: POST /tenants full orchestration ───────────────────────────
 
   describe "AC4/AC7: POST /tenants as PLATFORM_ADMIN" do
-    test "creates a tenant row, provisions a real schema, and replays real migrations" do
-      # Real schema creation (CREATE SCHEMA) + migration replay needs :auto sandbox
-      # mode, same as Letflow.TenantFixture.provisioned_tenant!/1 -- DDL run under
-      # the default per-test :manual/:shared sandbox transaction is not reliably
-      # visible to Ecto.Migrator.run/4's own connection checkout.
-      SandboxAutoMode.provision!(Letflow.Repo, fn ->
-        slug = "req075-create-e2e-#{Ecto.UUID.generate()}"
-
-        resp =
-          build_conn(:post, "/", nil,
-            roles: ["PLATFORM_ADMIN"],
-            body: %{"slug" => slug, "display_name" => "Create E2E"}
-          )
-          |> dispatch()
-
-        assert resp.status == 201
-        body = Jason.decode!(resp.resp_body)
-        assert body["slug"] == slug
-        tenant_id = body["id"]
-
-        on_exit(fn ->
-          SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-          case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-            {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-            {:error, :invalid_tenant_id} -> :ok
-          end
-
-          Repo.delete_all(
-            from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
-          )
-
-          Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
-        end)
-
-        {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(tenant_id)
-
-        # AC4's own wording: "querying information_schema for a table in the new
-        # schema -- not by trusting the 201." `events` is tenant_scoped_migrations/0's
-        # first manifest entry.
-        %{rows: rows} =
-          Repo.query!(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'events'",
-            [schema_name]
-          )
-
-        assert rows != []
-      end)
-    end
-
-    # GH #<issue> / T-2048: idp_realm_id passed at creation must appear in the 201 response.
-    test "idp_realm_id passed in the body is returned in the 201 response" do
-      SandboxAutoMode.provision!(Letflow.Repo, fn ->
-        slug = "req075-realm-resp-#{Ecto.UUID.generate()}"
-        realm = "req075-realm-#{System.unique_integer([:positive])}"
-
-        resp =
-          build_conn(:post, "/", nil,
-            roles: ["PLATFORM_ADMIN"],
-            body: %{"slug" => slug, "display_name" => "Realm Resp", "idp_realm_id" => realm}
-          )
-          |> dispatch()
-
-        assert resp.status == 201
-        body = Jason.decode!(resp.resp_body)
-        tenant_id = body["id"]
-
-        on_exit(fn ->
-          SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-          case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-            {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-            {:error, :invalid_tenant_id} -> :ok
-          end
-
-          Repo.delete_all(
-            from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
-          )
-
-          Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
-        end)
-
-        assert body["idp_realm_id"] == realm
-      end)
-    end
+    # T-2704 (G17b): the route no longer creates a tenant, it starts
+    # platform.register_tenant (202). The create/provision and the echoed
+    # idp_realm_id assertions moved to the process steps; the route-level
+    # proof is test/letflow/platform_processes/register_routes_test.exs.
 
     test "a duplicate slug is rejected 409" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req075-dup")

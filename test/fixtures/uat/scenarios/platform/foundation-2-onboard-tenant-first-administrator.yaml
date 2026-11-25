@@ -103,13 +103,15 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: The customer is created and active, its realm is bound, and the result says the administrator is pending.
+    description: The setup is accepted as a running process (T-2704), the customer becomes active with its realm bound, and the administrator is pending.
     verification:
       method: system_state
       detail: >
-        The result at step 3 shows the customer as active, signing in as possible (realm bound), and
-        the administrator as pending. The e-mail address is not shown as an administrator.
-      evidence: The setup result and a screenshot of the result screen.
+        The setup answer at step 3 is "accepted" with the number of the running registration process
+        (not the finished customer). When that process has finished, the customer is active, signing in
+        is possible (realm bound), and the administrator is pending. The e-mail address is not shown as
+        an administrator.
+      evidence: The setup answer, the finished process and a screenshot of the result screen.
     on_fail:
       severity: BLOCKER
       business_impact: A new customer cannot be set up, so nobody can ever administer it.

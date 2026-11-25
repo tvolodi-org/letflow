@@ -59,12 +59,9 @@ defmodule Letflow.PlatformFunctions.RegistryTest do
     assert {:error, :not_found} = Catalog.fetch("platform.not_in_the_catalogue")
   end
 
-  test "a declared name without a body is refused as not implemented" do
-    # `tenant.validate` is the read-only check of the pilot's tenant family:
-    # it is DECLARED (the authority rule of gap G2 needs the name) and has no
-    # body yet, so the dispatcher refuses it instead of pretending it ran.
-    assert {:ok, _entry} = Catalog.fetch("tenant.validate")
-    assert {:error, :not_implemented} = Registry.fetch("tenant.validate")
+  test "T-2704: tenant.validate has a body, so the shipped definition can start" do
+    assert {:ok, {Letflow.PlatformFunctions.Impl.TenantValidate, :run, 1}} =
+             Registry.fetch("tenant.validate")
   end
 
   test "the registered body of the validation entry is the implementation module" do

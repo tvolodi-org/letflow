@@ -143,44 +143,9 @@ defmodule Letflow.Routers.OnboardingTest do
       assert {:error, :not_found} = Letflow.Identity.get_tenant_by_slug("pwa")
     end
 
-    test "POST /api/v1/onboarding provisions a real, queryable Postgres schema for the new tenant" do
-      {admin_plaintext, admin_slug} = mint_caller!("req076-ac8-caller", ["PLATFORM_ADMIN"])
-
-      slug = unique_onboarding_slug("req076-ac8-new")
-      hostname = unique_hostname("ac8")
-
-      body = %{
-        "slug" => slug,
-        "display_name" => "AC8 New Tenant",
-        "hostname" => hostname
-      }
-
-      conn =
-        authed_request(:post, "/api/v1/onboarding", admin_plaintext, admin_slug, body)
-        |> dispatch()
-
-      assert conn.status == 201
-      resp = Jason.decode!(conn.resp_body)
-      assert resp["hostname"] == hostname
-      assert resp["slug"] == slug
-      assert is_binary(resp["tenant_id"])
-
-      cleanup_onboarded_tenant!(resp["tenant_id"])
-
-      # Proof the schema/migration side effect actually happened via the SAME
-      # shared TenantProvisioning path (not merely that a `tenants` row was
-      # inserted) -- same information_schema proof pattern REQ-075 §7.1 AC4
-      # already established for POST /tenants.
-      assert {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(resp["tenant_id"])
-
-      %{rows: rows} =
-        Repo.query!(
-          "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'users'",
-          [schema_name]
-        )
-
-      assert rows != [], "expected a real users table under #{schema_name}, found none"
-    end
+    # T-2704: the schema is provisioned by the `tenant.provision` step of the process now, not by the
+    # route; the route's own proof (it starts the process and writes no tenant) is in
+    # test/letflow/platform_processes/register_routes_test.exs.
   end
 
   describe "REQ-076 AC7/INV-5: GET /onboarding?hostname= indistinguishability for a caller lacking :TenantsManage" do
@@ -188,7 +153,7 @@ defmodule Letflow.Routers.OnboardingTest do
       {designer_plaintext, designer_slug} =
         mint_caller!("req076-ac7-caller", ["PROCESS_DESIGNER"])
 
-      {admin_plaintext, admin_slug} = mint_caller!("req076-ac7-admin", ["PLATFORM_ADMIN"])
+      _admin = mint_caller!("req076-ac7-admin", ["PLATFORM_ADMIN"])
 
       # A real, bound-elsewhere onboarding record -- created via a genuine
       # admin-authenticated POST /onboarding, not a bypassed direct Identity
@@ -196,16 +161,17 @@ defmodule Letflow.Routers.OnboardingTest do
       # would probe against.
       bound_hostname = unique_hostname("ac7-bound")
 
-      create_conn =
-        authed_request(:post, "/api/v1/onboarding", admin_plaintext, admin_slug, %{
-          "slug" => unique_onboarding_slug("req076-ac7-bound"),
-          "display_name" => "AC7 Bound Elsewhere",
-          "hostname" => bound_hostname
-        })
-        |> dispatch()
-
-      assert create_conn.status == 201
-      bound_resp = Jason.decode!(create_conn.resp_body)
+      # T-2704: POST /onboarding starts a process and creates no tenant, so the bound hostname
+      # is made from the primitives the process steps call.
+      bound_resp =
+        Letflow.Support.OnboardedTenantFixture.onboard!(
+          %{
+            "slug" => unique_onboarding_slug("req076-ac7-bound"),
+            "display_name" => "AC7 Bound Elsewhere",
+            "hostname" => bound_hostname
+          },
+          []
+        )
 
       cleanup_onboarded_tenant!(bound_resp["tenant_id"])
 
