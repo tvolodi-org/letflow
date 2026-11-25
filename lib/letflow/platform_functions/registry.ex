@@ -17,8 +17,7 @@ defmodule Letflow.PlatformFunctions.Registry do
       is the only list of names a definition may call, and
       `Letflow.PlatformFunctions.Guard` refuses an unknown one before the
       dispatcher ever looks here;
-    * a name that IS declared but has no body yet (`tenant.validate`, the
-      read-only check of the pilot's tenant family) is refused with
+    * a name that IS declared but has no body yet is refused with
       `:platform_function_not_implemented`. The catalogue may declare a
       function before the pilot registers its body; the dispatcher never
       pretends such a call succeeded.
@@ -48,6 +47,7 @@ defmodule Letflow.PlatformFunctions.Registry do
   @implementations [
     {"platform.validate_registration",
      {Letflow.PlatformFunctions.Impl.ValidateRegistration, :run, 1}},
+    {"tenant.validate", {Letflow.PlatformFunctions.Impl.TenantValidate, :run, 1}},
     {"tenant.create", {Letflow.PlatformFunctions.Impl.TenantCreate, :run, 1}},
     {"tenant.provision", {Letflow.PlatformFunctions.Impl.TenantProvision, :run, 1}},
     {"tenant.record_lifecycle", {Letflow.PlatformFunctions.Impl.TenantRecordLifecycle, :run, 1}},

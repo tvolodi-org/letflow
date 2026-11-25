@@ -67,11 +67,11 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
 
   alias Letflow.Identity
 
-  # The byte caps of the two values, in bytes. They mirror the routes' own
-  # request schema (`max_length: 255`), so a value the routes accept is a
-  # value the step accepts.
-  @max_slug_bytes 255
-  @max_name_bytes 255
+  # ONE length rule for the routes' schema and the chain (T-2704): at most 255
+  # CHARACTERS (graphemes, the unit of the routes' `max_length: 255`), behind a
+  # byte bound that is checked first so no per-character work runs on a huge value.
+  @max_chars 255
+  @max_bytes 8192
 
   @typedoc "The stable code of a refused create."
   @type refusal ::
@@ -107,8 +107,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
     requested_id = Map.get(inputs, "requested_tenant_id")
     tenant_type = Map.get(inputs, "tenant_type")
 
-    with :ok <- bounded(slug, @max_slug_bytes),
-         :ok <- bounded(name, @max_name_bytes),
+    with :ok <- bounded(slug),
+         :ok <- bounded(name),
          {:ok, tenant_id} <- create_or_replay(slug, name, requested_id, tenant_type) do
       {:ok, %{"tenant_id" => tenant_id}}
     end
@@ -199,12 +199,16 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
   defp write_row(slug, name, id, nil),
     do: Identity.create_provisioned_tenant(%{id: id, slug: slug, display_name: name})
 
-  # The BYTE bound comes first: the value is checked before any comparison
-  # with it (SF-01). A value that is not a string at all is refused the same
-  # way.
-  defp bounded(value, cap) when is_binary(value) do
-    if byte_size(value) <= cap, do: :ok, else: {:error, :platform_call_arg_invalid}
+  @doc """
+  The shared length rule: a non-empty string of at most 255 characters
+  (graphemes), after a byte bound. `tenant.validate` uses the same function.
+  """
+  @spec bounded(term()) :: :ok | {:error, :platform_call_arg_invalid}
+  def bounded(value) when is_binary(value) do
+    if byte_size(value) <= @max_bytes and value != "" and String.length(value) <= @max_chars,
+      do: :ok,
+      else: {:error, :platform_call_arg_invalid}
   end
 
-  defp bounded(_value, _cap), do: {:error, :platform_call_arg_invalid}
+  def bounded(_value), do: {:error, :platform_call_arg_invalid}
 end

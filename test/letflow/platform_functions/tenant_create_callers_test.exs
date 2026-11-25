@@ -135,14 +135,12 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
   # shrink: the rewiring task of gap G17 removes the four route entries from
   # it and THEN adds the "every route starts an instance" test.
   @bypass_rules [
-    {[:Letflow, :PlatformFunctions, :Impl, :TenantCreate], :create_tenant,
-     [@tenants_router, @onboarding_router]},
+    # T-2704 (gap G17b): the two operator routes (`POST /tenants`, `POST /onboarding`)
+    # start the definition now, so nobody calls the public create wrapper any more,
+    # and only the provisioner chain still calls the provision wrapper.
+    {[:Letflow, :PlatformFunctions, :Impl, :TenantCreate], :create_tenant, []},
     {[:Letflow, :PlatformFunctions, :Impl, :TenantProvision], :provision_and_migrate,
-     [
-       @tenants_router,
-       @onboarding_router,
-       @provisioner_file
-     ]},
+     [@provisioner_file]},
     {[:Letflow, :TenantProvisioner], :create, [@admin_router, @signup_provisioning]}
   ]
 

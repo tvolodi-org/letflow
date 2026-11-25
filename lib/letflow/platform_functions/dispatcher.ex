@@ -184,7 +184,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # values (a start variable), so they are bounded BEFORE the dispatcher does
   # any per-character work on them (SF-01): over the cap is a typed refusal,
   # never a write that fails in the database.
-  @max_input_bytes 4096
+  @max_input_bytes 8192
 
   # The byte cap of the NODE ID. The node id is a caller-supplied string that
   # goes into a `varchar(255)` column, and it is NOT one of the entry's
@@ -1332,10 +1332,23 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     declared = MapSet.new(Map.keys(args))
     given = MapSet.new(Map.keys(row.inputs))
 
+    # An argument the node reads from a variable the instance never set is simply absent from
+    # the row (the engine drops it): only a VARIABLE argument may be missing, never a name the
+    # node did not declare and never a constant.
+    absent_ok? =
+      declared
+      |> MapSet.difference(given)
+      |> Enum.all?(fn name -> match?(%{"var" => _}, Map.fetch!(args, name)) end)
+
     cond do
-      declared != given -> {:error, :platform_call_arg_mismatch}
-      not consts_match?(args, row.inputs) -> {:error, :platform_call_arg_mismatch}
-      true -> :ok
+      not MapSet.subset?(given, declared) or not absent_ok? ->
+        {:error, :platform_call_arg_mismatch}
+
+      not consts_match?(args, row.inputs) ->
+        {:error, :platform_call_arg_mismatch}
+
+      true ->
+        :ok
     end
   end
 

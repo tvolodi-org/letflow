@@ -213,7 +213,7 @@ Module `assets` (GH #3892, REQ-750; GH #3893, REQ-749; REQ-816, asset count K1) 
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446
-(`lib/letflow/routers/tenants.ex:451`, `lib/letflow/api/tenant_target.ex:31-39`); the TENANT_ADMIN `yes`
+(`lib/letflow/routers/tenants.ex:457`, `lib/letflow/api/tenant_target.ex:31-39`); the TENANT_ADMIN `yes`
 cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `PromotionsRead` cell is `yes`
 (0046 D6; the stored-tenant check of Q-1011 / ISS-1029 has merged, see the closure note of 0046).
 
