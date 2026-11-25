@@ -22,17 +22,33 @@
 SERVICE_TASK_DEFAULT_BASE_URL="https://httpbin.org/anything"
 
 _st_base="${SERVICE_TASK_MOCK_BASE_URL:-${SERVICE_TASK_DEFAULT_BASE_URL}}"
+# _st_redact <url>: scheme://host only (no userinfo, path, query, fragment), safe to print.
+_st_redact() {
+  # Prints scheme://host[:port] only: userinfo, path, query and fragment (all may
+  # carry credentials, plain or percent-encoded) are dropped. A host that does not
+  # look like a host prints as <redacted>.
+  local u="$1" scheme="" auth
+  if [[ "${u}" == *://* ]]; then scheme="${u%%://*}://"; u="${u#*://}"; fi
+  auth="${u%%[/?#]*}"
+  auth="${auth##*@}"
+  local re='^[][A-Za-z0-9._:-]*$'
+  if [[ ! "${auth}" =~ ${re} ]]; then auth="<redacted>"; fi
+  printf '%s%s' "${scheme}" "${auth}"
+}
+
 if [[ "${_st_base}" =~ [[:space:]] || "${_st_base}" != https://* ]]; then
-  echo "ERROR: SERVICE_TASK_MOCK_BASE_URL must be an https:// URL with no whitespace (got: '${_st_base}')." >&2
+  echo "ERROR: SERVICE_TASK_MOCK_BASE_URL must be an https:// URL with no whitespace (got: '$(_st_redact "${_st_base}")')." >&2
   exit 1
 fi
 # Strip a single trailing slash.
 _st_base="${_st_base%/}"
 if [[ "${_st_base}" != https://?* ]]; then
-  echo "ERROR: SERVICE_TASK_MOCK_BASE_URL has no host (got: '${_st_base}')." >&2
+  echo "ERROR: SERVICE_TASK_MOCK_BASE_URL has no host (got: '$(_st_redact "${_st_base}")')." >&2
   exit 1
 fi
 SERVICE_TASK_EFFECTIVE_BASE_URL="${_st_base}"
+# Printable form: never echo SERVICE_TASK_EFFECTIVE_BASE_URL itself (it may carry userinfo).
+SERVICE_TASK_DISPLAY_BASE_URL="$(_st_redact "${_st_base}")"
 unset _st_base
 
 # rewrite_service_task_base <payload-json>

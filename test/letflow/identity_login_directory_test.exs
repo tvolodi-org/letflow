@@ -856,8 +856,10 @@ defmodule Letflow.IdentityLoginDirectoryTest do
           t =~ lower or t =~ changed or t =~ "jit-logged@example.test"
         end)
 
-      # Non-vacuity: the writes above really did log statements mentioning an address.
-      assert address_entries != []
+      # Since T-2704 the primary logger filter (Letflow.Obs.QueryLogFilter) redacts the bound
+      # parameters of every INSERT/UPDATE/DELETE, so a write no longer logs its address at all.
+      # Non-vacuity moves to the redaction itself: the user write is logged, parameters redacted.
+      assert log =~ "[redacted]"
 
       for %{text: t} <- address_entries do
         assert t =~ ~r/users|audit_entries/,

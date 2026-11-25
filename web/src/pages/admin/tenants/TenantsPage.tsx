@@ -34,6 +34,11 @@ import type { Tenant } from '@/api/tenants'
 
 const PAGE_SIZE = 20
 
+// The API sends status lowercase ('active'/'inactive'); older shapes were uppercase.
+function isActive(row: Tenant): boolean {
+  return String(row.status).toLowerCase() === 'active'
+}
+
 export default function TenantsPage() {
   const access = useAccess()
   const navigate = useNavigate()
@@ -138,15 +143,15 @@ export default function TenantsPage() {
             borderRadius: 'var(--radius-full)',
             fontSize: '.78rem',
             fontWeight: 600,
-            background: row.status === 'ACTIVE' ? 'var(--color-success-light)' : 'var(--color-neutral-100)',
-            color: row.status === 'ACTIVE' ? 'var(--color-success-dark)' : 'var(--text-secondary)',
+            background: isActive(row) ? 'var(--color-success-light)' : 'var(--color-neutral-100)',
+            color: isActive(row) ? 'var(--color-success-dark)' : 'var(--text-secondary)',
           }}
         >
-          {row.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+          {isActive(row) ? 'Active' : 'Inactive'}
         </span>
       ),
     },
-    { id: 'created', header: 'Created', accessor: (row) => formatDate(row.created_at) },
+    { id: 'created', header: 'Created', accessor: (row) => formatDate((row.inserted_at ?? row.created_at) as string) },
     {
       id: 'actions',
       header: 'Actions',
@@ -160,7 +165,7 @@ export default function TenantsPage() {
           >
             Edit
           </Button>
-          {row.status === 'ACTIVE' && (
+          {isActive(row) && (
             <Button
               variant="danger"
               size="sm"
@@ -171,7 +176,7 @@ export default function TenantsPage() {
               Deactivate
             </Button>
           )}
-          {row.status === 'INACTIVE' && (
+          {!isActive(row) && (
             <Button
               variant="primary"
               size="sm"
