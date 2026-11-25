@@ -46,7 +46,7 @@ describe('SignupResultPage', () => {
       'https://my-co.demo.example.test/?realm=t-abc123',
     )
     expect(api.verify).toHaveBeenCalledTimes(1)
-    expect(api.verify).toHaveBeenCalledWith('tok-tok-tok-tok-tok-tok')
+    expect(api.verify).toHaveBeenCalledWith('tok-tok-tok-tok-tok-tok', false)
   })
 
   const reasons = [
@@ -66,6 +66,17 @@ describe('SignupResultPage', () => {
       expect(await screen.findByTestId('signup-tenant-url')).toBeInTheDocument()
     })
   }
+
+  it('Retry after a named failure asks the server to resume (retry flag); a plain load does not', async () => {
+    api.status.mockResolvedValue({ kind: 'failed', reason: 'unavailable' })
+    renderAt('/signup/verify?token=tok-tok-tok-tok-tok-tok')
+    expect(await screen.findByTestId('signup-result-error')).toHaveAttribute('data-reason', 'unavailable')
+    expect(api.verify).toHaveBeenLastCalledWith('tok-tok-tok-tok-tok-tok', false)
+    api.status.mockResolvedValue({ kind: 'ready', host: 'x-co.demo.example.test', realm: 't-1' })
+    fireEvent.click(screen.getByTestId('signup-result-retry'))
+    expect(await screen.findByTestId('signup-tenant-url')).toBeInTheDocument()
+    expect(api.verify).toHaveBeenLastCalledWith('tok-tok-tok-tok-tok-tok', true)
+  })
 
   it('an invalid or missing token is one generic message with a way to start again', async () => {
     api.verify.mockResolvedValue('invalid_link')

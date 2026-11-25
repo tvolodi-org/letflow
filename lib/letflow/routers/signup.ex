@@ -121,7 +121,11 @@ defmodule Letflow.Routers.Signup do
   post "/verify" do
     {conn, params} = read_json(conn)
 
-    case Signup.verify(Map.get(params, "token")) do
+    case Signup.verify(
+           Map.get(params, "token"),
+           DateTime.utc_now(),
+           Map.get(params, "retry") == true
+         ) do
       :ok ->
         emit(:verified)
         respond(conn, 200, %{status: "verified"})

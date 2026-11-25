@@ -158,9 +158,12 @@ export async function fetchSignupStatus(token: string): Promise<SignupStatusOutc
 }
 
 /** Verifies the mailed token (POST /api/signup/verify). */
-export async function verifySignupToken(token: string): Promise<'ok' | 'invalid_link' | 'network_error'> {
+export async function verifySignupToken(
+  token: string,
+  retry = false,
+): Promise<'ok' | 'invalid_link' | 'network_error'> {
   try {
-    const res = await postJson('/api/signup/verify', { token })
+    const res = await postJson('/api/signup/verify', retry ? { token, retry: true } : { token })
     if (res.status === 200) return 'ok'
     return res.status === 400 ? 'invalid_link' : 'network_error'
   } catch {

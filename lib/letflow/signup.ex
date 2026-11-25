@@ -141,10 +141,10 @@ defmodule Letflow.Signup do
   Verifies a token. Idempotent within the token's lifetime. One failure for unknown, expired, closed
   and malformed tokens (INV-5).
   """
-  @spec verify(term(), DateTime.t()) :: :ok | {:error, :invalid}
-  def verify(token, now \\ DateTime.utc_now())
+  @spec verify(term(), DateTime.t(), boolean()) :: :ok | {:error, :invalid}
+  def verify(token, now \\ DateTime.utc_now(), retry? \\ false)
 
-  def verify(token, now) when is_binary(token) and byte_size(token) in 20..100 do
+  def verify(token, now, retry?) when is_binary(token) and byte_size(token) in 20..100 do
     hash = hash_token(token)
 
     {:ok, result} =
@@ -154,7 +154,13 @@ defmodule Letflow.Signup do
             from(r in Request,
               where:
                 r.token_hash == ^hash and
-                  r.state in ["pending_verification", "verified", "provisioning", "completed"],
+                  r.state in [
+                    "pending_verification",
+                    "verified",
+                    "provisioning",
+                    "completed",
+                    "failed"
+                  ],
               lock: "FOR UPDATE"
             )
           )
@@ -162,9 +168,12 @@ defmodule Letflow.Signup do
         cond do
           is_nil(request) -> {:error, :invalid}
           DateTime.compare(request.token_expires_at, now) != :gt -> {:error, :invalid}
+          request.state == "failed" -> {:failed, request}
           true -> verify_row(request, now)
         end
       end)
+
+    result = maybe_retry_failed(result, retry?)
 
     # T-1593: after the commit, off the request path; never changes the answer (INV-8).
     case result do
@@ -177,7 +186,19 @@ defmodule Letflow.Signup do
     end
   end
 
-  def verify(_token, _now), do: {:error, :invalid}
+  def verify(_token, _now, _retry), do: {:error, :invalid}
+
+  # T-2748: a failed row stays a valid link (the result page shows its named failure on reload). Only the
+  # explicit retry of the visitor puts a retryable failure back to work, within the token lifetime.
+  defp maybe_retry_failed({:failed, request}, true) do
+    case Provisioning.retry_failed(request.tenant_id) do
+      :ok -> {:ok, request.tenant_id}
+      :not_retryable -> :ok
+    end
+  end
+
+  defp maybe_retry_failed({:failed, _request}, false), do: :ok
+  defp maybe_retry_failed(other, _retry), do: other
 
   @doc """
   T-2748: the progress of a verified request, for the result page. The mailed token is the credential
@@ -538,11 +559,19 @@ defmodule Letflow.Signup do
   defp slug_check(_other), do: :invalid
 
   defp slug_taken?(slug) do
-    Repo.exists?(from(t in Tenant, where: t.slug == ^slug)) or
+    Repo.exists?(from(t in Tenant, where: t.slug == ^slug)) or host_registered?(slug) or
       Repo.exists?(
         from(r in Request,
           where: r.slug == ^slug and r.state not in ["failed", "expired"]
         )
       )
+  end
+
+  # T-2748: the authoritative host registry; a tenant created outside sign-up may hold `<slug>.<domain>`.
+  defp host_registered?(slug) do
+    case hostname_domain() do
+      nil -> false
+      domain -> Letflow.TenantHosts.taken?(slug <> "." <> String.downcase(domain), nil)
+    end
   end
 end

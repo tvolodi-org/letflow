@@ -27,6 +27,8 @@ function ResultContent({ tokenOverride }: { tokenOverride?: string }) {
   const token = tokenOverride ?? params.get('token') ?? ''
   const [view, setView] = useState<View>({ kind: 'checking' })
   const [attempt, setAttempt] = useState(0)
+  // A Retry after a named failure asks the server to resume provisioning; load and other retries do not.
+  const [retryFailed, setRetryFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -50,7 +52,7 @@ function ResultContent({ tokenOverride }: { tokenOverride?: string }) {
         setView({ kind: 'invalid_link' })
         return
       }
-      const verified = await verifySignupToken(token)
+      const verified = await verifySignupToken(token, retryFailed)
       if (cancelled) return
       if (verified !== 'ok') {
         setView({ kind: verified })
@@ -63,10 +65,13 @@ function ResultContent({ tokenOverride }: { tokenOverride?: string }) {
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [token, attempt])
+  }, [token, attempt, retryFailed])
 
   const retry = (
-    <Button variant="secondary" size="sm" onClick={() => setAttempt(a => a + 1)} data-testid="signup-result-retry">
+    <Button variant="secondary" size="sm" onClick={() => {
+        setRetryFailed(view.kind === 'failed')
+        setAttempt(a => a + 1)
+      }} data-testid="signup-result-retry">
       {intl.formatMessage({ id: 'signup.retry' })}
     </Button>
   )

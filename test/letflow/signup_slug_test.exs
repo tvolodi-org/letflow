@@ -96,6 +96,32 @@ defmodule Letflow.SignupSlugTest do
       assert slug_status("existing-co") == "taken"
     end
 
+    test "taken by a registered tenant host, though no tenant carries the slug (security_deep 2)" do
+      tenant = Letflow.TenantFixture.provisioned_tenant!(slug_prefix: "slughost")
+
+      on_exit(fn ->
+        Repo.delete_all(
+          from(r in Letflow.Identity.OnboardingRecord, where: r.tenant_id == ^tenant.tenant_id)
+        )
+      end)
+
+      Repo.insert!(
+        Letflow.Identity.OnboardingRecord.insert_changeset(
+          %Letflow.Identity.OnboardingRecord{},
+          %{
+            tenant_id: tenant.tenant_id,
+            slug: tenant.tenant.slug,
+            hostname: "host-co.qa.example.test"
+          }
+        )
+      )
+
+      assert slug_status("host-co") == "taken"
+      conn = post_signup(%{"slug" => "host-co"})
+      assert conn.status == 422
+      assert json(conn)["error"] == "slug_taken"
+    end
+
     test "off by default: 404 when the flag is off" do
       Application.put_env(:letflow, Letflow.Signup, enabled: false)
       assert request(:get, "/api/signup/slug?slug=free-one").status == 404

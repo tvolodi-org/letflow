@@ -363,6 +363,38 @@ defmodule Letflow.Signup.Provisioning do
     |> Enum.map(&{&1, run(&1)})
   end
 
+  @doc """
+  T-2748: the visitor's own retry of one `failed` request: a retryable failure goes back to `provisioning`
+  at its resumable step with a fresh attempt budget (same rules as `resume/1`); a permanent one stays.
+  """
+  @spec retry_failed(String.t()) :: :ok | :not_retryable
+  def retry_failed(tenant_id) do
+    row =
+      Repo.one(
+        from(r in Request,
+          where:
+            r.tenant_id == ^tenant_id and r.state == "failed" and r.step == "provisioning_failed"
+        )
+      )
+
+    if row && row.last_error in @retryable do
+      step =
+        cond do
+          row.credential_sent_at -> "credential_sent"
+          row.idp_realm_id -> "realm_created"
+          true -> "ready_for_provisioning"
+        end
+
+      Repo.update_all(from(r in Request, where: r.tenant_id == ^tenant_id),
+        set: [state: "provisioning", step: step, step_attempts: 0, claimed_at: nil]
+      )
+
+      :ok
+    else
+      :not_retryable
+    end
+  end
+
   defp scope(query, nil), do: query
   defp scope(query, tenant_id), do: where(query, [r], r.tenant_id == ^tenant_id)
 end

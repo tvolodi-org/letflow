@@ -9,6 +9,7 @@ defmodule Letflow.SignupProvisioningTest do
   use Letflow.DataCase, async: false
   @moduletag :unit
 
+  import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureLog
   import Letflow.Test.SignupHelpers
 
@@ -227,6 +228,67 @@ defmodule Letflow.SignupProvisioningTest do
       stub = Stub.start!([{409, %{"error" => "other"}}], [{404, %{}}])
       configure!(stub)
       assert Provisioning.run(r.tenant_id) == {:failed, "invalid_request"}
+    end
+  end
+
+  describe "chosen slug and the user's own retry (T-2748)" do
+    test "P20 the chosen slug is the host sent to the realm provisioner" do
+      r = ready_row(slug: "my-co")
+      stub = stub_created(r.tenant_id)
+      configure!(stub)
+
+      assert Provisioning.run(r.tenant_id) == :ok
+      assert [post] = Stub.posts(stub)
+      assert post.body["hostname"] == "my-co.qa.example.test"
+    end
+
+    test "P21 a failed request: verify keeps the link valid; only retry:true resumes a retryable one" do
+      enable!()
+      r = ready_row()
+      token = "retry-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set: [
+          token_hash: :crypto.hash(:sha256, token),
+          token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+          state: "failed",
+          step: "provisioning_failed",
+          last_error: "unavailable"
+        ]
+      )
+
+      assert request(:post, "/api/signup/verify", %{"token" => token}).status == 200
+      assert row(r.tenant_id).state == "failed"
+
+      assert %{"state" => "failed", "reason" => "unavailable"} =
+               request(:post, "/api/signup/status", %{"token" => token}) |> json()
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state in ["provisioning", "verified", "completed", "failed"]
+      refute row(r.tenant_id).last_error == nil and row(r.tenant_id).state == "failed"
+    end
+
+    test "P22 a permanent failure is not resumed by retry" do
+      enable!()
+      r = ready_row()
+      token = "perm-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set: [
+          token_hash: :crypto.hash(:sha256, token),
+          token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+          state: "failed",
+          step: "provisioning_failed",
+          last_error: "demo_cap_reached"
+        ]
+      )
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state == "failed"
     end
   end
 
