@@ -7,6 +7,7 @@ Run: python3 -B -m unittest -v scripts/uat/tests/test_bp_platform_01.py   (from 
 
 import copy
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -68,7 +69,7 @@ class StepA(unittest.TestCase):
         self.assertEqual(["A1", "A2", "A3a", "A3b"], list(self.steps)[:4])
         for sid in ("A1", "A2", "A3a", "A3b"):
             self.assertEqual("GET", self.steps[sid]["do"]["api"])
-        self.assertNotIn("qoimeks-qa\"", FILE.read_text())
+        self.assertIsNone(re.search(r"qoimeks-qa(?!2)", FILE.read_text()))
         self.assertEqual("bpm-default", self.process["dry_run"]["actors"]["admin"]["tenant"])
         self.assertIn("web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts", self.process["description"])
         self.assertNotIn("pilot-register-tenant-designer.e2e.spec.ts", self.process["description"])
@@ -145,7 +146,7 @@ class StepsBToH(unittest.TestCase):
         ids = list(self.steps)
         order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "D1", "E1", "E2",
                  "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
-                 "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5"]
+                 "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
         self.assertLess(ids.index("B0b"), ids.index("B1"))  # the allowed destination comes before the mail step
 
@@ -250,10 +251,20 @@ class StepsBToH(unittest.TestCase):
             runner.validate_step(self.steps[sid], sid)
 
     def test_h_the_company_user_is_refused_everywhere(self):
-        for sid in ("H1", "H2", "H3", "H4", "H5"):
+        for sid in ("H1", "H2", "H3", "H4", "H5", "H6"):
             self.assertEqual("storekeeper", self.steps[sid]["actor"])
             self.assertEqual([403, 404], self.steps[sid]["expect_refused"]["status"])
         self.assertEqual("qoimeks-qa2-storekeeper", self.process["dry_run"]["actors"]["storekeeper"])
+
+    def test_h2_is_played_not_swallowed_by_the_create_gate(self):
+        # the create-gate would record H2 as skipped and the engine verdict would then fail the run
+        self.assertTrue(self.steps["H2"].get("refusal_probe"))
+        self.assertEqual("/api/v1/tenants", self.steps["H2"]["do"]["path"])
+
+    def test_a_non_finite_wait_time_is_refused(self):
+        self.assertFalse(runner.wait_time_ok("1e400"))
+        self.assertFalse(runner.wait_time_ok(float("inf")))
+        self.assertTrue(runner.wait_time_ok("60"))
 
     def test_every_step_passes_the_runner_validation(self):
         for step in self.process["steps"] + self.process["cleanup"]:

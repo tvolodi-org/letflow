@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import secrets
@@ -291,7 +292,7 @@ def wait_time_ok(value) -> bool:
     if isinstance(value, bool):
         return False
     if isinstance(value, (int, float)):
-        return True
+        return math.isfinite(value)
     if not isinstance(value, str):
         return False
     text = value.strip()
@@ -300,10 +301,9 @@ def wait_time_ok(value) -> bool:
     if _PLACEHOLDER.fullmatch(text):
         return bool(_PLACEHOLDER.fullmatch(text).group(1).strip())
     try:
-        float(text)
+        return math.isfinite(float(text))
     except ValueError:
         return False
-    return True
 
 
 # -- JSON path and assertions -------------------------------------------------------------------
@@ -1004,7 +1004,7 @@ class Runner:
             if present:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
-            create = self._tenant_create(step)
+            create = None if step.get("refusal_probe") else self._tenant_create(step)
             if create is not None:
                 reason = self._create_skip_reason(step, create)
                 if reason:
@@ -1335,9 +1335,12 @@ class Runner:
             return float(default)
         value = spec[key]
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             raise RunnerError(f"wait_mail {key} must be a number, got {value!r}") from None
+        if not math.isfinite(number):
+            raise RunnerError(f"wait_mail {key} must be a finite number, got {value!r}")
+        return number
 
     def _find_mail(self, trap, recipient, subject, contains=False):
         """-> (message id, None) when the trap holds a mail to the recipient with the subject; (None, why) otherwise.

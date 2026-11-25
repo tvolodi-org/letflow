@@ -1256,7 +1256,7 @@
     {
       "id": "H2",
       "actor": "storekeeper",
-      "says": "H. Refusal: the tenant route answers the same.",
+      "says": "H. Refusal: the tenant route answers the same (the create-gate is off for this step: the request is meant to be refused, and the run's cleanup deactivates the slug if it were not).",
       "do": {
         "api": "POST",
         "path": "/api/v1/tenants",
@@ -1270,7 +1270,8 @@
           403,
           404
         ]
-      }
+      },
+      "refusal_probe": true
     },
     {
       "id": "H3",
@@ -1312,7 +1313,7 @@
     {
       "id": "H5",
       "actor": "storekeeper",
-      "says": "H. Refusal: the allow-list of the platform tenant is not in a company user's reach (the company's own list is another list).",
+      "says": "H. Refusal: a company user cannot retry a platform DLQ entry.",
       "do": {
         "api": "POST",
         "path": "/api/v1/dlq/${dlq_id}/retry",
@@ -1327,6 +1328,25 @@
       "requires": [
         "dlq_id"
       ]
+    },
+    {
+      "id": "H6",
+      "actor": "storekeeper",
+      "says": "H. Refusal: the allow-list of the platform tenant is not in a company user's reach.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email",
+          "destination": "uat.letflow.internal"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
     }
   ],
   "cleanup": [
