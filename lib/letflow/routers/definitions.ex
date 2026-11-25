@@ -377,7 +377,7 @@ defmodule Letflow.Routers.Definitions do
   defp validate_with_optional_graph(conn, id, graph) when is_map(graph) do
     # T-2811: an optional `variable_schemas` list (the variables declared on the screen, not saved
     # yet) is what the preview checks the graph against; a malformed one is a 422, never a 500.
-    case normalise_variable_schema_entries(Map.get(conn.body_params, "variable_schemas")) do
+    case preview_variable_schema_entries(Map.get(conn.body_params, "variable_schemas")) do
       {:ok, nil} ->
         render_validation(
           conn,
@@ -390,6 +390,12 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      {:error, :variable_schemas_too_large} ->
+        Response.unprocessable(
+          conn,
+          "variable_schemas has too many entries or a variable_key exceeds the maximum length"
+        )
     end
   end
 
@@ -1000,6 +1006,30 @@ defmodule Letflow.Routers.Definitions do
   defp optional_string(nil), do: {:ok, nil}
   defp optional_string(value) when is_binary(value), do: {:ok, value}
   defp optional_string(_invalid), do: {:error, :invalid_optional_string}
+
+  # SF-01 / INV-8 (T-2811): the preview feeds these keys to semantic validation (edit-distance
+  # suggestions) without storing them, so the stored path's 255-byte key cap and an entry-count
+  # cap are applied BEFORE normalising and before any per-character work.
+  @max_preview_variable_keys 200
+  @max_preview_variable_key_bytes 255
+
+  defp preview_variable_schema_entries(entries) when is_list(entries) do
+    cond do
+      length(entries) > @max_preview_variable_keys ->
+        {:error, :variable_schemas_too_large}
+
+      Enum.any?(entries, fn
+        %{"variable_key" => k} when is_binary(k) -> byte_size(k) > @max_preview_variable_key_bytes
+        _ -> false
+      end) ->
+        {:error, :variable_schemas_too_large}
+
+      true ->
+        normalise_variable_schema_entries(entries)
+    end
+  end
+
+  defp preview_variable_schema_entries(other), do: normalise_variable_schema_entries(other)
 
   # Per-element shape (variable_key present+string, json_schema present) has
   # no FieldConstraint vocabulary, so it is checked here -- mirrors

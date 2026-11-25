@@ -247,6 +247,32 @@ defmodule Letflow.Definitions.StepMappingDesignerValidateTest do
       assert conn.status == 422
     end
 
+    test "VD5 an oversized variable_key or too many entries is refused before semantic validation",
+         ctx do
+      graph = %{"nodes" => [], "edges" => []}
+
+      big = [
+        %{"variable_key" => String.duplicate("a", 256), "json_schema" => %{"type" => "string"}}
+      ]
+
+      conn = validate_with(ctx, %{"graph" => graph, "variable_schemas" => big})
+      assert conn.status == 422
+      refute conn.resp_body =~ "undeclared_variable_reference"
+
+      ok = [
+        %{"variable_key" => String.duplicate("a", 255), "json_schema" => %{"type" => "string"}}
+      ]
+
+      refute validate_with(ctx, %{"graph" => graph, "variable_schemas" => ok}).resp_body =~
+               "variable_schemas has too many"
+
+      many =
+        for i <- 1..201, do: %{"variable_key" => "v#{i}", "json_schema" => %{"type" => "string"}}
+
+      conn = validate_with(ctx, %{"graph" => graph, "variable_schemas" => many})
+      assert conn.status == 422
+    end
+
     test "VD4 GET /:id lists the declared variables", ctx do
       assert [%{"variable_key" => "slug", "json_schema" => %{"type" => "string"}}] =
                ctx.created["id"]
