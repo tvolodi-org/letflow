@@ -452,9 +452,8 @@ if Enum.any?([signup_prov_url, signup_prov_token, signup_hostname_domain], signu
             "The value is not echoed."
   end
 
-  if not signup_enabled do
-    raise "LETFLOW_SIGNUP_PROVISIONER_URL is set but LETFLOW_SIGNUP_ENABLED is not true: refusing to boot."
-  end
+  # T-2781: valid on their own. The pilot wiring (platform.register_tenant creates the tenant's realm)
+  # sets these three with public sign-up OFF; the sign-up routes keep their own flag.
 end
 
 config :letflow, Letflow.Signup,

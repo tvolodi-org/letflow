@@ -153,6 +153,12 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `PORT` | no | default value 4000 (prod block) | `config/runtime.exs` (ISS-0015) |
 | `RESERVED_HEADROOM` | no | default value 2 (prod block) | `config/runtime.exs` (ISS-0908) |
 
+### QA deploy wiring
+
+| Wiring | What | Why | Owner | Rollback |
+|---|---|---|---|---|
+| Network join (T-2780) | `deploy/docker-compose.qa.yml`: service `app` is on `default` and `provisioner_callers`, the external network `tenant-provisioner-qa_callers` | `platform.register_tenant` must reach the tenant-provisioner (`http://10.203.118.2:8080`); inside the app container 127.0.0.1 is the container itself. No port is published, no host network; sign-up stays off | the external network belongs to infra (tenant-provisioner-qa); the compose lines belong to the product | remove the `networks:` lines of `app` and the top-level `provisioner_callers` block, then redeploy (`deploy/redeploy-qa.sh`) |
+
 ## Open owner questions
 
 No number is given here; each is the owner's to answer.

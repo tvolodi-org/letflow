@@ -39,7 +39,10 @@ defmodule Letflow.CiSelectTestsTest do
     test "I1 #{rule}: inventory checks survive bounded admission" do
       {kv, plan} = select([unquote(path)])
       assert kv["mode"] == "selective"
-      assert length(plan) <= 160
+
+      # The plan holds at most 160 optional files plus the reserved checks (T-2691: the
+      # fixed pins and the whole-tree scans are reserved and are never deferred).
+      assert length(plan) <= 160 + String.to_integer(kv["reserved_count"])
 
       for test <- @inventory_tests do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)),
@@ -107,16 +110,26 @@ defmodule Letflow.CiSelectTestsTest do
     changed = ['lib/letflow/routers/me.ex']
     args = types.SimpleNamespace(root='.', shards=8, per_shard=4, target_ms=120000, standard_max_tests=160)
     weights, _ = s.read_manifest('test/shard_manifest.txt')
-    lines, _, deferred = s.bounded_plan(files, changed, weights, args, files)
-    required = s.inventory_tests(changed, files, '.')
+    lines, _, deferred, reserved = s.bounded_plan(files, changed, weights, args, files)
+    required = s.safety_tests(files) | s.inventory_tests(changed, files, '.')
     assert required <= {line.split()[1] for line in lines}
     assert required.isdisjoint(deferred)
-    assert deferred and len(lines) <= 160
+    # T-2691: the plan holds at most 160 optional files plus the reserved checks.
+    assert deferred and len(lines) <= 160 + len(required)
     totals = {}
+    optional = {}
     for line in lines:
         part, test = line.split()
-        totals[part] = totals.get(part, 0) + max(1000, weights.get(test) or 15000)
-    assert max(totals.values()) <= args.target_ms
+        weight = max(1000, weights.get(test) or 15000)
+        totals[part] = totals.get(part, 0) + weight
+        if test not in required:
+            optional[part] = optional.get(part, 0) + weight
+    # T-2691: the per-partition target budgets the optional candidates. A reserved check may
+    # overrun its own partition's target (the whole-tree scans include files slower than the
+    # target); the whole run's budget is the hard bound.
+    assert max(optional.values(), default=0) <= args.target_ms
+    reserved_weight = sum(max(1000, weights.get(t) or 15000) for t in required)
+    assert reserved_weight <= args.shards * args.per_shard * args.target_ms
     args.target_ms = 1
     try:
         s.bounded_plan(files, changed, weights, args, files)
@@ -163,7 +176,9 @@ defmodule Letflow.CiSelectTestsTest do
       {kv, plan} = select(files, ["--event", event])
       assert kv["mode"] == "selective", "#{event} #{inspect(files)}: #{inspect(kv)}"
       assert plan != []
-      assert length(plan) <= 160
+
+      # At most 160 optional files plus the reserved checks (T-2691).
+      assert length(plan) <= 160 + String.to_integer(kv["reserved_count"])
 
       assert Enum.any?(
                plan,
@@ -309,6 +324,81 @@ defmodule Letflow.CiSelectTestsTest do
     File.rm(plan)
     {kv, plan_lines}
   end
+
+  # The selector against the real tree, with the deferred list: a deferred whole-tree scan
+  # is a scan that does not run until the nightly job.
+  defp select_with_deferred(files) do
+    plan = Path.join(System.tmp_dir!(), "sel_plan_#{System.unique_integer([:positive])}.txt")
+
+    deferred =
+      Path.join(System.tmp_dir!(), "sel_deferred_#{System.unique_integer([:positive])}.txt")
+
+    input = Enum.join(files, "\n") <> "\n"
+
+    {out, 0} =
+      System.cmd(
+        "bash",
+        [
+          "-c",
+          "printf '%s' \"$IN\" | python3 -I #{@script} \"$@\"",
+          "_",
+          "--event",
+          "merge_group",
+          "--plan-out",
+          plan,
+          "--deferred-out",
+          deferred
+        ],
+        cd: @root,
+        env: [{"IN", input}]
+      )
+
+    kv =
+      out
+      |> String.split("\n", trim: true)
+      |> Map.new(fn l ->
+        [k, v] = String.split(l, "=", parts: 2)
+        {k, v}
+      end)
+
+    plan_lines =
+      if File.exists?(plan), do: File.read!(plan) |> String.split("\n", trim: true), else: []
+
+    deferred_lines =
+      if File.exists?(deferred),
+        do: File.read!(deferred) |> String.split("\n", trim: true),
+        else: []
+
+    File.rm(plan)
+    File.rm(deferred)
+    {kv, plan_lines, deferred_lines}
+  end
+
+  # The whole-tree readers of the real tree, derived by the ORACLE of the class
+  # (`test/fixtures/ci_select_tests/whole_tree_class.py`), NOT by the selector: the test
+  # does not take the selector's word for the class it reserves.
+  #
+  # The oracle derives the class from the tree on its own: a test that reads a whole tree
+  # of the backend source, directly (a glob over a backend-source root) or through a
+  # helper module of lib/ that walks a tree (the scan of the role-scope-grants writers
+  # calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in the called
+  # scanner and not in the test source). A scan of a tree outside the backend source
+  # (the handoff tree, the test tree) is not a member: a backend-source diff cannot
+  # break its pin.
+  @whole_tree_class_oracle "test/fixtures/ci_select_tests/whole_tree_class.py"
+
+  defp whole_tree_readers do
+    {out, 0} =
+      System.cmd("python3", ["-I", "-B", @whole_tree_class_oracle, "."],
+        cd: @root,
+        stderr_to_stdout: true
+      )
+
+    out |> String.split("\n", trim: true)
+  end
+
+  # The test path of a plan line ("<partition> <path>").
+  defp plan_path(line), do: line |> String.split(" ", parts: 2) |> List.last()
 
   test "S1: a leaf lib change selects its related tests and only some shards" do
     {kv, plan} = select([@leaf])
@@ -531,7 +621,7 @@ defmodule Letflow.CiSelectTestsTest do
     files = ['test/letflow/example/case%d_test.exs' % i for i in range(200)]
     args = types.SimpleNamespace(root='.', shards=2, per_shard=4, target_ms=10000, standard_max_tests=160)
     weights = dict.fromkeys(files, 3000)
-    lines, skip, deferred = s.bounded_plan(files, [files[-1]], weights, args, files)
+    lines, skip, deferred, reserved = s.bounded_plan(files, [files[-1]], weights, args, files)
     chosen = [line.split()[1] for line in lines]
     totals = {}
     for line in lines:
@@ -807,8 +897,16 @@ defmodule Letflow.CiSelectTestsTest do
       assert kv["mode"] == "selective", inspect(kv)
       assert kv["reason"] =~ "single module stock", inspect(kv)
 
-      refute Enum.any?(plan, &String.contains?(&1, "test/letflow/modules/exam/")),
-             "exam tests appeared in plan for stock-only diff"
+      # No exam FEATURE test is planned for a stock-only diff. The exam whole-tree scan
+      # (it pins that only the SMTP transport touches the mail libraries) is a member of
+      # the reserved class of T-2691 and is planned for every backend diff, because a
+      # change anywhere in `lib/` can break its pin.
+      readers = whole_tree_readers()
+
+      for line <- plan, String.contains?(line, "test/letflow/modules/exam/") do
+        test = plan_path(line)
+        assert test in readers, "exam test appeared in plan for stock-only diff: #{test}"
+      end
     end
 
     test "M2: a stock-only diff selects the global pin tests (permission matrix, ledger reg, engine floor)" do
@@ -878,5 +976,461 @@ defmodule Letflow.CiSelectTestsTest do
              &String.ends_with?(&1, " test/letflow/api/permission_matrix_test.exs")
            ),
            "permission_matrix_test not in plan"
+  end
+
+  # T-2691: the whole-tree source scans (the "real tree" scans: a test that reads the whole
+  # `lib/` tree and pins it) are MANDATORY for a diff that touches the backend source. As a
+  # mere candidate a scan is deferred to the nightly run when the budget is exceeded, and a
+  # deferred scan is a scan that does not run: main went red on 0d2bbf8b5 because the stamp
+  # opener scan ran only in the extended run, so ~21 non-literal SQL sites merged unseen
+  # (T-2689 fixes the sites; this task fixes the selection).
+  #
+  # The class is every whole-tree reader, including a file that also holds database-backed
+  # cases (T-2691 rework): the scan itself is a pure function of the tree, and excluding
+  # such a file left a real whole-tree scan (write_handler_registration_surface_test.exs)
+  # deferrable, so a forbidden handler caller could merge unseen.
+  #
+  # A HELPER-BACKED reader is a member too (T-2691 rework 2): its wildcard lives in the
+  # scanner it calls and not in the test source, so a literal-only discovery left the scan
+  # of the role-scope-grants writers outside the class and its pin unverified.
+  @stamp_scan "test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
+  @lua_scan "test/letflow/engine/lua_host_no_handler_access_test.exs"
+  @scope_scan "test/letflow/entities/scope_all_scan_test.exs"
+  @handler_scan "test/letflow/modules/write_handler_registration_surface_test.exs"
+  @indirect_scan "test/mix/tasks/letflow.check_role_scope_grants_writers_test.exs"
+  @indirect_scan2 "test/mix/tasks/letflow.check_scope_node_paths_writers_test.exs"
+
+  describe "whole-tree source scans (T-2691)" do
+    @tag :tmp_dir
+    test "T1: a seeded diff that adds a query call site selects the stamp opener scan", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "dynamic_sql", %{
+          # The scan under test: it carries its own pinned list and does NOT read the whole
+          # tree, so only the dynamic-SQL trigger can select it here.
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" => """
+          defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
+            @moduledoc false
+            use ExUnit.Case, async: true
+
+            @dynamic_sql_files [
+              "lib/letflow/demo/pinned.ex"
+            ]
+          end
+          """,
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          # The seeded diff: a NEW file with a query call site, the shape that merged unseen.
+          "lib/letflow/demo/querier.ex" => """
+          defmodule Letflow.Demo.Querier do
+            def run(sql), do: Repo.query!(sql, [])
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/querier.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T2: a seeded diff that touches a pinned file selects the stamp opener scan", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "pinned", %{
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" => """
+          defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
+            @moduledoc false
+            use ExUnit.Case, async: true
+
+            @dynamic_sql_files [
+              "lib/letflow/demo/pinned.ex"
+            ]
+          end
+          """,
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          "lib/letflow/demo/pinned.ex" => """
+          defmodule Letflow.Demo.Pinned do
+            def value, do: 1
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/pinned.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T3: a seeded backend-source diff selects every whole-tree source scan", %{tmp_dir: dir} do
+      seed =
+        seed_tree(dir, "whole_tree", %{
+          # The scan under test reads the whole tree: it is a member of the class, so a
+          # backend-source diff reserves it even when the diff touches no query call site.
+          # The source lives in a fixture, so that THIS file does not read the whole tree
+          # (a test file that does is a member of the class itself).
+          "test/letflow/entities/managed_types/stamp_opener_scan_test.exs" =>
+            File.read!(
+              Path.join([@root, "test", "fixtures", "ci_select_tests", "whole_tree_scan.exs"])
+            ),
+          "test/letflow/entities/other_test.exs" => """
+          defmodule Letflow.Entities.OtherTest do
+            use ExUnit.Case, async: true
+          end
+          """,
+          "lib/letflow/demo/plain.ex" => """
+          defmodule Letflow.Demo.Plain do
+            def value, do: 1
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/plain.ex"])
+      assert Enum.any?(plan, &String.ends_with?(&1, " " <> @stamp_scan)), inspect(plan)
+    end
+
+    @tag timeout: 300_000
+    test "T4: every whole-tree reader is planned and none is deferred, for a backend-source diff" do
+      {kv, plan, deferred} = select_with_deferred(["lib/letflow/instances/step_log.ex"])
+      assert kv["mode"] == "selective", inspect(kv)
+
+      readers = whole_tree_readers()
+
+      # The class is the whole set of whole-tree readers of the tree, not a spot check.
+      assert length(readers) >= 90, "the class is suspiciously small: #{length(readers)} readers"
+      assert @handler_scan in readers, "the handler scan is a whole-tree reader"
+      assert @stamp_scan in readers, "the stamp opener scan is a whole-tree reader"
+
+      # A helper-backed reader is a member: its wildcard lives in the scanner it calls and
+      # not in the test source, so a literal-only discovery left these two out of the
+      # class and their pins unverified (T-2691 rework 2).
+      assert @indirect_scan in readers, "the role-scope-grants writer scan is not a reader"
+      assert @indirect_scan2 in readers, "the scope-node-paths writer scan is not a reader"
+
+      planned = MapSet.new(plan, &plan_path/1)
+      deferred_tests = MapSet.new(deferred)
+
+      for test <- readers do
+        assert MapSet.member?(planned, test), "#{test} is not in the plan"
+        refute MapSet.member?(deferred_tests, test), "#{test} is deferred to the nightly run"
+      end
+    end
+
+    @tag :tmp_dir
+    test "T9: a helper-backed whole-tree reader is a member of the class and is planned", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "indirect", %{
+          # The helper: a module of lib/ that walks a tree and declares the roots it scans.
+          "lib/mix/tasks/letflow.demo_tree_scan.ex" => """
+          defmodule Mix.Tasks.Letflow.DemoTreeScan do
+            @default_roots ["lib"]
+
+            def scan(roots) do
+              Enum.flat_map(roots, fn root ->
+                root |> Path.join("**") |> Path.wildcard(match_dot: true)
+              end)
+            end
+          end
+          """,
+          # The scan under test: its wildcard lives in the helper it calls, not in the test
+          # source, so a literal-only discovery does not see it.
+          "test/letflow/demo/indirect_scan_test.exs" => """
+          defmodule Letflow.Demo.IndirectScanTest do
+            use ExUnit.Case, async: true
+
+            alias Mix.Tasks.Letflow.DemoTreeScan, as: Scan
+
+            @default_roots ["lib"]
+
+            test "the tree scans clean" do
+              assert Scan.scan(@default_roots) == []
+            end
+          end
+          """,
+          "lib/letflow/demo/plain.ex" => """
+          defmodule Letflow.Demo.Plain do
+            def value, do: 1
+          end
+          """
+        })
+
+      plan = select_in(seed, ["lib/letflow/demo/plain.ex"])
+
+      assert Enum.any?(plan, &String.ends_with?(&1, " test/letflow/demo/indirect_scan_test.exs")),
+             inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T10: a whole-tree reader whose root is Path.expand(rel, __DIR__) is a member and is planned",
+         %{
+           tmp_dir: dir
+         } do
+      seed =
+        seed_tree(dir, "expand_root", %{
+          "test/letflow/demo/expand_scan_test.exs" => """
+          defmodule Letflow.Demo.ExpandScanTest do
+            use ExUnit.Case, async: true
+
+            test "no router calls create_token" do
+              root = Path.expand("../../../lib/letflow/demo", __DIR__)
+              files = Path.wildcard(Path.join(root, "**/*.{ex,exs}"))
+              assert files != []
+            end
+          end
+          """,
+          # The same relative form without a recursive glob reads one file: not a member.
+          "test/letflow/demo/expand_single_test.exs" => """
+          defmodule Letflow.Demo.ExpandSingleTest do
+            use ExUnit.Case, async: true
+
+            test "one file" do
+              assert File.read!(Path.expand("../../../lib/letflow/demo/plain.ex", __DIR__)) =~ "Plain"
+            end
+          end
+          """,
+          "lib/letflow/demo/plain.ex" => """
+          defmodule Letflow.Demo.Plain do
+            def value, do: 1
+          end
+          """
+        })
+
+      code = """
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      files = ['test/letflow/demo/expand_scan_test.exs', 'test/letflow/demo/expand_single_test.exs']
+      members = s.whole_tree_scan_tests(files, sys.argv[1])
+      assert members == {'test/letflow/demo/expand_scan_test.exs'}, members
+      print('expand PASS')
+      """
+
+      assert {"expand PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code, seed],
+                 cd: @root,
+                 stderr_to_stdout: true
+               )
+    end
+
+    test "T11: the reserved weight is not charged against the optional per-partition target" do
+      code = """
+      import importlib.util, os, tempfile, types
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      with tempfile.TemporaryDirectory() as tmp:
+          scan = os.path.join(tmp, 'test/letflow/demo/scan_test.exs')
+          os.makedirs(os.path.dirname(scan))
+          open(scan, 'w').write(open('test/fixtures/ci_select_tests/whole_tree_scan.exs').read())
+          heavy = os.path.join(tmp, 'test/letflow/demo/x_test.exs')
+          open(heavy, 'w').write('defmodule Demo.XTest do\\nend\\n')
+          files = ['test/letflow/demo/scan_test.exs', 'test/letflow/demo/x_test.exs']
+          # Two partitions of 1000 ms: the reserved scan weighs 900, the optional test 900.
+          # Charged against one account the optional test (900 + 900 > 1000) is deferred.
+          args = types.SimpleNamespace(root=tmp, shards=2, per_shard=1, target_ms=1000, standard_max_tests=160)
+          weights = {'test/letflow/demo/scan_test.exs': 900.0, 'test/letflow/demo/x_test.exs': 900.0}
+          lines, _, deferred, _ = s.bounded_plan(files, ['lib/letflow/demo/x.ex'], weights, args, files)
+          chosen = [line.split()[1] for line in lines]
+          assert 'test/letflow/demo/x_test.exs' in chosen, (chosen, deferred)
+          # the whole run's bound still applies to the combined set: a third optional test
+          # that would push reserved + optional past 2000 ms is deferred
+          extra = os.path.join(tmp, 'test/letflow/demo/y_test.exs')
+          open(extra, 'w').write('defmodule Demo.YTest do\\nend\\n')
+          files.append('test/letflow/demo/y_test.exs')
+          weights['test/letflow/demo/y_test.exs'] = 900.0
+          lines, _, deferred, _ = s.bounded_plan(files, ['lib/letflow/demo/x.ex', 'lib/letflow/demo/y.ex'], weights, args, files)
+          chosen = [line.split()[1] for line in lines]
+          assert sum(weights[t] for t in chosen) <= args.shards * args.target_ms, chosen
+      print('optional account PASS')
+      """
+
+      assert {"optional account PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+
+    test "T8: a reserved check is admitted even when it does not fit its partition's budget" do
+      code = """
+      import importlib.util, os, tempfile, types
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      with tempfile.TemporaryDirectory() as tmp:
+          # A whole-tree reader: a member of the reserved class, and the only reserved file.
+          # The source is the fixture: THIS file must not carry the whole-tree read itself,
+          # or it would be a member of the class and its runtime would land in every
+          # bounded run.
+          scan = os.path.join(tmp, 'test/letflow/demo/scan_test.exs')
+          os.makedirs(os.path.dirname(scan))
+          open(scan, 'w').write(open('test/fixtures/ci_select_tests/whole_tree_scan.exs').read())
+          plain = os.path.join(tmp, 'test/letflow/demo/plain_test.exs')
+          open(plain, 'w').write('defmodule Demo.PlainTest do\\nend\\n')
+          files = ['test/letflow/demo/scan_test.exs', 'test/letflow/demo/plain_test.exs']
+          # Two partitions of 1000 ms each: the reserved file is slower than one partition
+          # but fits the whole run's budget.
+          args = types.SimpleNamespace(root=tmp, shards=2, per_shard=1, target_ms=1000, standard_max_tests=160)
+          weights = {'test/letflow/demo/scan_test.exs': 1500.0, 'test/letflow/demo/plain_test.exs': 500.0}
+          lines, _, deferred, reserved = s.bounded_plan(files, ['lib/letflow/demo/x.ex'], weights, args, files)
+          chosen = [line.split()[1] for line in lines]
+          assert 'test/letflow/demo/scan_test.exs' in chosen, (chosen, deferred)
+          assert 'test/letflow/demo/scan_test.exs' not in deferred, deferred
+          totals = {}
+          for line in lines:
+              part, test = line.split()
+              totals[part] = totals.get(part, 0) + weights[test]
+          # the reserved file overran its partition's target: it was admitted anyway
+          assert max(totals.values()) > args.target_ms, totals
+          # a reserved set that does not fit the whole run's budget fails the selection
+          args.shards, args.per_shard, args.target_ms = 1, 1, 1000
+          try:
+              s.bounded_plan(files, ['lib/letflow/demo/x.ex'], weights, args, files)
+          except ValueError as error:
+              assert 'mandatory global check does not fit' in str(error)
+          else:
+              raise AssertionError('a reserved set over the whole budget must fail the selection')
+      print('reserved budget PASS')
+      """
+
+      assert {"reserved budget PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+
+    test "T5: a web-only diff reserves no whole-tree source scan" do
+      {_, plan} = select(["web/src/x.tsx"])
+
+      for test <- [@stamp_scan, @lua_scan, @scope_scan, @handler_scan] do
+        refute Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "unexpected #{test}"
+      end
+    end
+
+    test "T6: the dynamic-SQL trigger reads the scan's own pinned list" do
+      code = """
+      import importlib.util
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      pinned = s.dynamic_sql_files('.')
+      assert 'lib/letflow/entities/managed_types/stamp.ex' in pinned, sorted(pinned)
+      assert 'lib/letflow/tenant_purge.ex' in pinned, sorted(pinned)
+      assert s.dynamic_sql_trigger(['lib/letflow/tenant_purge.ex'], '.'), 'a pinned file triggers'
+      assert s.dynamic_sql_trigger(['lib/letflow/instances/step_log.ex'], '.'), 'a query call triggers'
+      assert not s.dynamic_sql_trigger(['lib/letflow/routers/me.ex'], '.'), 'a plain file does not'
+      print('dynamic SQL trigger PASS')
+      """
+
+      assert {"dynamic SQL trigger PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+
+    test "T7: the class is derived from the tree, so a whole-tree scan is a member of it" do
+      code = """
+      import importlib.util, os, tempfile
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      files = [p for p in s.tracked('.') if p.startswith('test/') and p.endswith('_test.exs')]
+      scans = s.whole_tree_scan_tests(files, '.')
+      for expected in ['test/letflow/entities/managed_types/stamp_opener_scan_test.exs',
+                       'test/letflow/engine/lua_host_no_handler_access_test.exs',
+                       'test/letflow/entities/scope_all_scan_test.exs',
+                       'test/letflow/entities/records_scope_all_scan_test.exs']:
+          assert expected in scans, (expected, sorted(scans))
+      # a whole-tree reader that also holds database-backed cases is a member of the class:
+      # the scan itself is a pure function of the tree, and excluding such a file left a
+      # real whole-tree scan deferrable (T-2691 rework).
+      assert 'test/letflow/modules/write_handler_registration_surface_test.exs' in scans, sorted(scans)
+      assert 'test/letflow/record_triggers_test.exs' in scans, sorted(scans)
+      # a HELPER-BACKED reader is a member too (T-2691 rework 2): its wildcard lives in the
+      # scanner it calls (`Scan.scan(["lib", "priv/modules"])`), not in the test source, so a
+      # literal-only discovery left the scan of the role-scope-grants writers outside the
+      # class and its pin unverified.
+      assert 'test/mix/tasks/letflow.check_role_scope_grants_writers_test.exs' in scans, sorted(scans)
+      assert 'test/mix/tasks/letflow.check_scope_node_paths_writers_test.exs' in scans, sorted(scans)
+      # the writer/start inventory of G-02 reads every source under lib/ and priv/ through
+      # its own helper (`for dir <- ["lib", "priv"]`), so it is a helper-backed reader too.
+      assert 'test/letflow/security_probe/g02_writer_start_inventory_test.exs' in scans, sorted(scans)
+      # a recursive glob whose `**` is a token of its own is a member too (T-2691 rework 3):
+      # each of these walks lib/ (and priv/) through a chain, not a literal `lib/**`.
+      for chained in ['test/letflow/service_catalog/writers_guard_test.exs',
+                      'test/letflow/entities/field_values_consumers_guard_test.exs',
+                      'test/letflow/identity/last_admin_paths_test.exs']:
+          assert chained in scans, (chained, sorted(scans))
+      # a fixed-depth reader is not recursive: not a member
+      assert 'test/letflow/ledger/read_tenancy_test.exs' not in scans, sorted(scans)
+      # a scan of a tree outside the backend source is not a member: a backend-source diff
+      # cannot break the pin of the handoff tree (the handoff linter scans handoffs/).
+      assert 'test/mix/tasks/letflow.lint_handoffs_test.exs' not in scans, sorted(scans)
+      # the async-sandbox reachability scan reads the whole TEST tree, and that tree holds
+      # test/support/ (the trigger domain), so a change there can break its pin: a member.
+      assert 'test/mix/tasks/letflow_check_async_sandbox_reachability_test.exs' in scans, sorted(scans)
+      # a scan that lands later is a member of the class on the day it lands. The source is
+      # the fixture: THIS file must not carry the whole-tree read itself, or it would be a
+      # member of the class and its runtime would land in every bounded run.
+      with tempfile.TemporaryDirectory() as tmp:
+          source = open('test/fixtures/ci_select_tests/whole_tree_scan.exs').read()
+          open(os.path.join(tmp, 'new_scan_test.exs'), 'w').write(source)
+          assert s.whole_tree_scan_tests(['new_scan_test.exs'], tmp) == {'new_scan_test.exs'}
+      print('whole-tree class PASS')
+      """
+
+      assert {"whole-tree class PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
+    end
+  end
+
+  # A seeded tree: the selector's own inputs (the script, the path rules) and the files of
+  # the seeded diff, tracked by git so the selector sees them as changed files.
+  defp seed_tree(dir, name, files) do
+    seed = Path.join(dir, name)
+
+    for {path, body} <- files do
+      full = Path.join(seed, path)
+      File.mkdir_p!(Path.dirname(full))
+      File.write!(full, body)
+    end
+
+    for script <- ["ci_select_tests.py", "ci_changed_paths.sh"] do
+      full = Path.join([seed, "scripts", script])
+      File.mkdir_p!(Path.dirname(full))
+      File.cp!(Path.join([@root, "scripts", script]), full)
+    end
+
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: seed)
+    {_, 0} = System.cmd("git", ["add", "-A"], cd: seed)
+    seed
+  end
+
+  # The selector, run against a seeded tree with a seeded diff.
+  defp select_in(seed, changed) do
+    plan = Path.join(seed, "plan.txt")
+
+    {out, 0} =
+      System.cmd(
+        "bash",
+        [
+          "-c",
+          "printf '%s' \"$IN\" | python3 -I -B scripts/ci_select_tests.py \"$@\"",
+          "_",
+          "--event",
+          "merge_group",
+          "--plan-out",
+          plan
+        ],
+        cd: seed,
+        stderr_to_stdout: true,
+        env: [{"IN", Enum.join(changed, "\n") <> "\n"}]
+      )
+
+    assert out =~ "mode=selective", out
+    if File.exists?(plan), do: File.read!(plan) |> String.split("\n", trim: true), else: []
   end
 end

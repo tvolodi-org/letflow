@@ -90,7 +90,7 @@
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
-    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..H (T-2608) start a throwaway tenant, wait for the instance, read the step log, read the mail, force and retry a failure, edit the definition through the designer API, roll it back and check the refusals; not yet covered: a sign-in as the new tenant's administrator and a download route of the notification file. Refusals of today's routes are automated in BP-PLATFORM-16",
     "status": "implemented",
     "acceptance": [
       {
@@ -1369,7 +1369,7 @@
           "GET /api/signup/config"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:55"
+          "lib/letflow/routers/signup.ex:57"
         ],
         "result": "200 the public config"
       },
@@ -1383,7 +1383,7 @@
           "POST /api/signup"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:66"
+          "lib/letflow/routers/signup.ex:89"
         ],
         "result": "202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down"
       },
@@ -1397,9 +1397,37 @@
           "POST /api/signup/verify"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:100"
+          "lib/letflow/routers/signup.ex:127"
         ],
         "result": "200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "GET /api/signup/slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:75"
+        ],
+        "result": "200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup/status"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:151"
+        ],
+        "result": "200 pending, ready or failed with a closed reason (the mailed token is the credential)"
       },
       {
         "actor": "user",
