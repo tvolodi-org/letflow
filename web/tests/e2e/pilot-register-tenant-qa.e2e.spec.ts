@@ -50,7 +50,7 @@ test.describe('BP-PLATFORM-01 A4: the designer page of platform.register_tenant 
     await expect(editor.getByTestId('rf__node-validate')).not.toContainText('Service task')
     await editor.getByTestId('rf__node-provision').click()
     await expect(page.getByTestId('edit-platform-call')).toBeVisible()
-    await expect(page.getByTestId('platform-call-editor').locator('select')).toHaveValue('tenant.provision')
+    await expect(page.getByTestId('platform-call-function').locator('select')).toHaveValue('tenant.provision')
     await expect(page.locator('[data-testid^="platform-arg-var-"]').first()).toBeVisible()
     await editor.getByTestId('rf__node-notify').click()
     await expect(page.getByTestId('notify-step-template').locator('select')).toHaveValue('tenant_registered')
