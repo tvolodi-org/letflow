@@ -154,7 +154,14 @@ def saves(step) -> set:
     return {n for n, spec in (step.get("save") or {}).items() if not (isinstance(spec, dict) and "secret" in spec)}
 
 
+ANONYMOUS_ACTOR = "anonymous"  # the public routes: no token, no roster entry, no dry_run user
+
+
 def actors_of(step) -> set:
+    return _actors_of(step) - {ANONYMOUS_ACTOR}
+
+
+def _actors_of(step) -> set:
     found = set()
     if step.get("actor") and not step.get("http_as"):
         found.add(step["actor"])
