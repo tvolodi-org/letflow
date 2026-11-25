@@ -336,6 +336,46 @@
       "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
     },
     {
+      "id": "C4",
+      "actor": "admin",
+      "says": "C. Fresh tenant plus module install (G14 finding): the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?status=draft&page_size=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0]": {
+            "absent": true
+          }
+        }
+      },
+      "requires": [
+        "slug1"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "C5",
+      "actor": "admin",
+      "says": "C. The same tenant has at least one ACTIVE shipped definition (the previous step is not green by an empty install).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?status=active&page_size=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].status": "ACTIVE"
+        }
+      },
+      "requires": [
+        "slug1"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
       "id": "D1",
       "actor": "admin",
       "says": "D. The mail of the notify step is in the Mailpit trap (recipient and subject only; the body is never read).",
