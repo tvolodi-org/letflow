@@ -26,15 +26,21 @@ and the dispatcher are gap G1a (T-2589).
 | Name | Body | What it does |
 |---|---|---|
 | `platform.validate_registration` | `Impl.ValidateRegistration` | Checks the slug, the display name and the e-mail of a registration and returns `normalized_slug` and `email_domain`. NO side effect: it reads nothing, writes nothing and sends nothing out. It proves the whole path of a platform step (catalogue entry, closed registry, durable dispatcher, authority fence, per-step result row). |
+| `tenant.validate` | `Impl.TenantValidate` | Read-only: checks the slug and the display name (byte bound, reserved slug) and that the slug is free or the same registration. Writes nothing. |
 | `tenant.create` | `Impl.TenantCreate` | Writes the tenant row of the global registry. A repeat of the same call returns the first result (it adopts the tenant that carries the slug); a slug that belongs to ANOTHER tenant is refused, and so is a tenant that was purged. |
 | `tenant.provision` | `Impl.TenantProvision` | Creates the tenant's schema, replays its migrations, seeds its roles and its HMAC key, and activates the tenant. A repeat changes nothing. A tenant that was purged is refused before the first write. |
 | `tenant.bind_realm` | `Impl.TenantBindRealm` | Binds the identity provider's realm to the tenant. A repeat binds nothing a second time; a different realm for a bound tenant is refused. |
 | `tenant.grant_first_admins` | `Impl.TenantGrantFirstAdmins` | Stores the pending grant of the tenant's first administrator in the tenant's own schema. A repeat stores nothing a second time. |
 | `tenant.install_default_modules` | `Impl.TenantInstallDefaultModules` | Installs the tenant's default modules. A repeat installs nothing a second time (the installer answers `:already_installed`). |
 
-`tenant.validate` (the read-only check of the pilot's tenant family) is DECLARED in the
-catalogue -- the authority rule of gap G2 needs the name -- and has no body yet, so the
-dispatcher refuses it with `:platform_function_not_implemented` instead of pretending it ran.
+`tenant.validate` has a body since T-2704 (`Impl.TenantValidate`): the read-only first step of the
+chain. It checks the byte bound, the reserved slugs and that the slug is free or belongs to the same
+registration, with the same refusal codes as `tenant.create`, and writes nothing. Before it, the shipped
+`platform.register_tenant` definition could not be started: the dispatcher refused the first node with
+`:platform_function_not_implemented`.
+
+A name that is DECLARED in the catalogue but has no body is refused with
+`:platform_function_not_implemented` instead of pretending it ran (no entry is in that state today).
 
 ## The code of the routes now sits behind the bodies
 

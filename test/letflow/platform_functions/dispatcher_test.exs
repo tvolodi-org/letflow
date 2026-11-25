@@ -186,7 +186,7 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
     assert stored.outputs == nil
   end
 
-  test "D4: an unknown name and a declared-but-unimplemented name are refused with different codes",
+  test "D4: a name that is not in the catalogue is refused as unknown",
        ctx do
     definition = activated(ctx)
 
@@ -198,19 +198,6 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
                node_id: "call",
                function: "platform.not_in_the_catalogue",
                inputs: %{}
-             )
-
-    # `tenant.validate` IS in the compiled catalogue (the pilot's tenant family)
-    # but has no body yet (T-2590 gave the family's SIDE-EFFECTING functions
-    # one): the dispatcher says so instead of pretending.
-    assert {:error, :platform_function_not_implemented} =
-             Dispatcher.arm(
-               prefix: ctx.tenant.schema_name,
-               instance_id: Ecto.UUID.generate(),
-               definition_id: definition.id,
-               node_id: "call",
-               function: "tenant.validate",
-               inputs: %{"slug" => "acme", "name" => "Acme"}
              )
   end
 
@@ -524,7 +511,7 @@ defmodule Letflow.PlatformFunctions.DispatcherTest do
                definition_id: definition.id,
                node_id: "call",
                function: @function,
-               inputs: inputs(%{"slug" => String.duplicate("a", 4097)})
+               inputs: inputs(%{"slug" => String.duplicate("a", 8193)})
              )
 
     assert rows(ctx) == []

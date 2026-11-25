@@ -3264,9 +3264,9 @@
           "GET /api/v1/platform-status/backup"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:210",
+          "lib/letflow/routers/tenants.ex:213",
+          "lib/letflow/routers/tenants.ex:217",
+          "lib/letflow/routers/tenants.ex:209",
           "lib/letflow/routers/platform_status.ex:25"
         ],
         "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
@@ -3283,8 +3283,8 @@
         ],
         "code_refs": [
           "lib/letflow/routers/me.ex:113",
-          "lib/letflow/routers/tenants.ex:214",
-          "lib/letflow/routers/tenants.ex:218",
+          "lib/letflow/routers/tenants.ex:213",
+          "lib/letflow/routers/tenants.ex:217",
           "lib/letflow/routers/platform_status.ex:25"
         ],
         "result": "200; me shows platform_tenant true"
