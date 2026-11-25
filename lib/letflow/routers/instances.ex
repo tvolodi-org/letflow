@@ -382,6 +382,7 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Idempotency
   alias Letflow.Instances
+  alias Letflow.PlatformProcesses.RegistrationMask
   alias Letflow.PlatformTenant
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.Attachment
@@ -897,7 +898,12 @@ defmodule Letflow.Routers.Instances do
       "instance_id" => result.instance_id,
       "status" => status_string(state.status),
       "tokens" => Enum.map(state.tokens, &token_map/1),
-      "variables" => Response.public_variables(state.variables, state.variable_labels, hidden)
+      "variables" =>
+        Response.public_variables(
+          state.variables,
+          RegistrationMask.put_labels(state.variable_labels, conn.assigns.scoped_opts[:prefix]),
+          hidden
+        )
     })
   end
 
@@ -1016,7 +1022,7 @@ defmodule Letflow.Routers.Instances do
         else: HiddenLabels.load_hidden_labels(auth_context.user_id, prefix)
 
     case loaded do
-      {:ok, hidden} -> fun.(hidden)
+      {:ok, hidden} -> fun.(RegistrationMask.hide(hidden, auth_context, prefix))
       {:error, _reason} -> Response.internal_error(conn)
     end
   end
@@ -1062,7 +1068,7 @@ defmodule Letflow.Routers.Instances do
   end
 
   defp render_get_by_id(conn, {:ok, projection}, hidden),
-    do: Response.ok(conn, instance_map(projection, hidden))
+    do: Response.ok(conn, instance_map(projection, hidden, conn.assigns.scoped_opts[:prefix]))
 
   defp render_get_by_id(conn, result, _hidden), do: render_get_by_id(conn, result)
 
@@ -1071,7 +1077,7 @@ defmodule Letflow.Routers.Instances do
   defp render_get_by_id(conn, {:error, :invalid_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
-  defp instance_map(projection, hidden) do
+  defp instance_map(projection, hidden, prefix) do
     %{
       "instance_id" => projection.instance_id,
       "definition_id" => projection.definition_id,
@@ -1079,7 +1085,11 @@ defmodule Letflow.Routers.Instances do
       "scope_node_id" => projection.scope_node_id,
       "status" => status_string(projection.status),
       "variables" =>
-        Response.public_variables(projection.variables, projection.variable_labels, hidden),
+        Response.public_variables(
+          projection.variables,
+          RegistrationMask.put_labels(projection.variable_labels, prefix),
+          hidden
+        ),
       "started_at" => DateTime.to_iso8601(projection.started_at),
       "completed_at" => optional_iso8601(projection.completed_at),
       "cancelled_at" => optional_iso8601(projection.cancelled_at),
@@ -1171,7 +1181,11 @@ defmodule Letflow.Routers.Instances do
                 {%{}, %{}}
             end
 
-          render_page_result(result, conn, &history_item_map(&1, names, labels, hidden))
+          render_page_result(
+            result,
+            conn,
+            &history_item_map(&1, names, labels, hidden, opts[:prefix])
+          )
         end)
       end)
     else
@@ -1191,7 +1205,7 @@ defmodule Letflow.Routers.Instances do
 
   # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/3`, never
   # emitted verbatim, so engine-written `_sys` values and record ids cannot reach a client.
-  defp history_item_map(event, display_names, labels, hidden) do
+  defp history_item_map(event, display_names, labels, hidden, prefix) do
     %{
       "event_id" => event.event_id,
       "actor_id" => event.actor_id,
@@ -1200,7 +1214,12 @@ defmodule Letflow.Routers.Instances do
       "event_type" => event.event_type,
       "sequence_number" => event.sequence_number,
       "created_at" => DateTime.to_iso8601(event.created_at),
-      "payload" => Response.public_event_payload(event.event_type, event.payload, hidden)
+      "payload" =>
+        Response.public_event_payload(
+          event.event_type,
+          RegistrationMask.put_payload_labels(event.payload, prefix),
+          hidden
+        )
     }
   end
 

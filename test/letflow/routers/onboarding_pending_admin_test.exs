@@ -17,7 +17,6 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
 
   use Letflow.DataCase, async: false
 
-  import ExUnit.CaptureLog
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Audit.Entry
@@ -31,8 +30,6 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
   alias Letflow.TenantSlugFixture
-
-  @runbook "docs/runbooks/onboarding-new-tenant-realm.md"
 
   setup do
     platform = TenantFixture.provisioned_tenant!(slug_prefix: "iss1030-pa-plat")
@@ -72,10 +69,15 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
     )
   end
 
+  # T-2704: POST /onboarding starts a process now and creates no tenant, so the tenants these
+  # tests act on are built from the same primitives the process steps call.
   defp onboard!(ctx, extra) do
-    conn = call(ctx, :post, "/api/v1/onboarding", new_body(extra))
-    assert conn.status == 201, conn.resp_body
-    resp = json(conn)
+    resp =
+      Letflow.Support.OnboardedTenantFixture.onboard!(new_body(extra),
+        operator_id: ctx.operator_id,
+        platform_prefix: ctx.platform.schema_name
+      )
+
     cleanup_onboarded_tenant!(resp["tenant_id"])
     resp
   end
@@ -149,81 +151,6 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
 
   # --- creation (design 5.1) -----------------------------------------------------
 
-  test "POST /onboarding without admin_email (absent, null or blank) answers 201 with administrator.state none and the plain no-administrator message",
-       ctx do
-    variants = [
-      %{},
-      %{"admin_email" => nil},
-      %{"admin_email" => ""},
-      %{"admin_email" => "   \t"}
-    ]
-
-    for extra <- variants do
-      resp = onboard!(ctx, extra)
-      administrator = resp["administrator"]
-
-      assert administrator["state"] == "none", inspect(extra)
-      refute Map.has_key?(administrator, "grant_id")
-      assert administrator["not_provisioned"] == []
-      assert administrator["message"] =~ "no administrator"
-      assert administrator["message"] =~ @runbook
-      refute administrator["message"] =~ "pending"
-      assert Enum.any?(administrator["next_steps"], &(&1 =~ "TENANT_ADMIN"))
-
-      # Nothing was stored, in the tenant or in either chain.
-      assert grants_of(resp["tenant_id"]) == []
-      assert entries(schema_of(resp["tenant_id"]), "tenant.admin_grant.created") == []
-    end
-
-    assert entries(ctx.platform.schema_name, "platform.tenant_admin_grant.created") == []
-  end
-
-  test "POST /onboarding with admin_email stores a normalised pending grant and answers state pending with next steps",
-       ctx do
-    sent = "  Ada.Admin+Ops@Example.COM \t"
-    resp = onboard!(ctx, %{"admin_email" => sent})
-
-    administrator = resp["administrator"]
-    assert administrator["state"] == "pending"
-    assert administrator["message"] =~ "pending TENANT_ADMIN"
-    assert administrator["message"] =~ "VERIFIED"
-    assert is_binary(administrator["grant_id"])
-    assert administrator["not_provisioned"] == []
-
-    steps = administrator["next_steps"]
-    assert is_list(steps) and length(steps) == 3
-    assert Enum.any?(steps, &(&1 =~ "bind-realm"))
-    assert Enum.any?(steps, &(&1 =~ "TENANT_ADMIN"))
-
-    # The stored key: trim + lower-case, the +tag preserved. Open, TENANT_ADMIN, onboarding.
-    assert [grant] = grants_of(resp["tenant_id"])
-    assert grant.id == administrator["grant_id"]
-    assert grant.email_key == "ada.admin+ops@example.com"
-    assert grant.role_name == "TENANT_ADMIN"
-    assert PendingAdminGrant.state(grant) == :open
-
-    # Nothing about the address in the response, in any spelling.
-    encoded = resp |> Jason.encode!() |> String.downcase()
-    refute encoded =~ "ada.admin"
-    refute encoded =~ "example.com\\t"
-
-    # The audit split: operator-free tenant entry, operator-bearing platform entry.
-    assert [tenant_entry] = entries(schema_of(resp["tenant_id"]), "tenant.admin_grant.created")
-    assert tenant_entry.actor_id == nil
-    assert tenant_entry.resource_id == grant.id
-    refute inspect(tenant_entry) =~ ctx.operator_id
-
-    assert [platform_entry] =
-             ctx.platform.schema_name
-             |> entries("platform.tenant_admin_grant.created")
-             |> Enum.filter(&(&1.resource_id == grant.id))
-
-    assert platform_entry.actor_id == ctx.operator_id
-    assert platform_entry.after_state["tenant_id"] == resp["tenant_id"]
-    assert platform_entry.after_state["onboarding_id"] == resp["id"]
-    assert platform_entry.after_state["grant_id"] == grant.id
-  end
-
   test "POST /onboarding with an invalid admin_email answers 422 and creates no tenant row",
        ctx do
     for value <- [
@@ -251,134 +178,11 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
     over = ascii_address(255)
 
     resp = onboard!(ctx, %{"admin_email" => at_limit})
-    assert resp["administrator"]["state"] == "pending"
     assert [grant] = grants_of(resp["tenant_id"])
     assert grant.email_key == at_limit
 
     conn = refused!(ctx, %{"admin_email" => over}, 422)
     assert field_error_on?(conn, "admin_email")
-  end
-
-  test "POST /onboarding with only admin_username and admin_display_name still answers state none and stores no grant",
-       ctx do
-    resp = onboard!(ctx, %{"admin_username" => "grace", "admin_display_name" => "Grace Hopper"})
-
-    assert resp["administrator"]["state"] == "none"
-    assert grants_of(resp["tenant_id"]) == []
-
-    assert entries(schema_of(resp["tenant_id"]), "tenant.admin_grant.created") == []
-    assert entries(ctx.platform.schema_name, "platform.tenant_admin_grant.created") == []
-  end
-
-  test "POST /onboarding with admin_email plus admin_username returns state pending and echoes only admin_username as not_provisioned",
-       ctx do
-    resp = onboard!(ctx, %{"admin_email" => "ada@example.com", "admin_username" => "ada-admin"})
-
-    assert resp["administrator"]["state"] == "pending"
-
-    assert resp["administrator"]["not_provisioned"] == [
-             %{"field" => "admin_username", "value" => "ada-admin"}
-           ]
-
-    assert [_one] = grants_of(resp["tenant_id"])
-  end
-
-  test "POST /onboarding still echoes admin_username and admin_display_name as not_provisioned",
-       ctx do
-    resp =
-      onboard!(ctx, %{
-        "admin_email" => "ada@example.com",
-        "admin_username" => "ada-admin",
-        "admin_display_name" => "Ada Admin"
-      })
-
-    echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1["value"]})
-    assert echoed == %{"admin_username" => "ada-admin", "admin_display_name" => "Ada Admin"}
-    assert resp["administrator"]["message"] =~ "NOT used"
-
-    # Neither became a user or a membership: only the pending grant exists.
-    schema = schema_of(resp["tenant_id"])
-    assert Repo.aggregate(User, :count, :id, prefix: schema) == 0
-    assert Repo.aggregate(Letflow.Identity.GroupMember, :count, :user_id, prefix: schema) == 0
-  end
-
-  test "POST /onboarding existing clients that send no admin fields behave as in PR 1", ctx do
-    body = new_body(%{})
-    conn = call(ctx, :post, "/api/v1/onboarding", body)
-
-    assert conn.status == 201
-    resp = json(conn)
-    cleanup_onboarded_tenant!(resp["tenant_id"])
-
-    assert Enum.sort(Map.keys(resp)) ==
-             Enum.sort([
-               "id",
-               "tenant_id",
-               "slug",
-               "hostname",
-               "created_at",
-               "login",
-               "administrator",
-               "ignored_fields"
-             ])
-
-    assert resp["administrator"]["state"] == "none"
-    refute Map.has_key?(resp["administrator"], "grant_id")
-    assert resp["ignored_fields"] == []
-    assert resp["login"]["loginable"] == false
-    assert grants_of(resp["tenant_id"]) == []
-  end
-
-  test "POST /onboarding answers 201 with state not_stored when the grant insert fails", ctx do
-    slug = TenantSlugFixture.unique_slug("iss1030pa")
-    email = "owner.not.stored@example.com"
-    handler_id = {__MODULE__, make_ref()}
-
-    # The grants table is removed right after the onboarding record commits and just before the grant
-    # insert: a real database failure of the insert, not a stub.
-    :telemetry.attach(
-      handler_id,
-      [:letflow, :repo, :query],
-      &__MODULE__.drop_grants_table_on_registry_insert/4,
-      {self(), slug}
-    )
-
-    {conn, log} =
-      with_log(fn ->
-        try do
-          call(
-            ctx,
-            :post,
-            "/api/v1/onboarding",
-            new_body(%{"slug" => slug, "admin_email" => email})
-          )
-        after
-          :telemetry.detach(handler_id)
-        end
-      end)
-
-    resp = json(conn)
-    cleanup_onboarded_tenant!(resp["tenant_id"])
-
-    assert conn.status == 201, conn.resp_body
-
-    administrator = resp["administrator"]
-    assert administrator["state"] == "not_stored"
-    assert administrator["message"] =~ "could NOT be stored"
-    assert administrator["message"] =~ "no administrator"
-    refute Map.has_key?(administrator, "grant_id")
-
-    # The tenant and its onboarding record exist and are usable; only the grant is missing.
-    assert %Tenant{status: :active} = Repo.get_by(Tenant, slug: slug)
-    assert Repo.get_by(OnboardingRecord, tenant_id: resp["tenant_id"])
-
-    # Nothing reached the platform chain, and the failure is logged without the address.
-    assert entries(ctx.platform.schema_name, "platform.tenant_admin_grant.created") == []
-
-    assert log =~
-             "pending administrator grant not stored (tenant_id=#{inspect(resp["tenant_id"])})"
-
-    refute log =~ ~r/\[(warning|error)\][^\n]*owner\.not\.stored@example\.com/
   end
 
   @doc false
