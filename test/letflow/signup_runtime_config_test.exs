@@ -116,8 +116,34 @@ defmodule Letflow.SignupRuntimeConfigTest do
         refute message =~ "tok-SECRET"
       end
 
-      assert {:raised, message, _} = signup([@url, @tok, @dom])
-      assert message =~ "LETFLOW_SIGNUP_ENABLED"
+      # T-2781: the three alone (flag unset) are valid
+      assert {:ok, _} = signup([@url, @tok, @dom])
+    end
+
+    test "T-2781 QA wiring boots with sign-up OFF, token stays out, flag OFF" do
+      qa = [
+        {"LETFLOW_SIGNUP_PROVISIONER_URL", "http://10.203.118.2:8080"},
+        {"LETFLOW_SIGNUP_PROVISIONER_TOKEN", "dummy-test-token-SECRET"},
+        {"LETFLOW_SIGNUP_HOSTNAME_DOMAIN", "letflow.qa.bizdala.com"}
+      ]
+
+      assert {:ok, config} =
+               signup(qa ++ [{"DATABASE_URL", "ecto://dummy:dummy@localhost/dummy"}], :prod)
+
+      cfg = config |> Keyword.fetch!(:letflow) |> Keyword.fetch!(Letflow.Signup) |> Map.new()
+      assert cfg.enabled == false
+
+      assert {cfg.provisioner_url, cfg.hostname_domain} ==
+               {"http://10.203.118.2:8080", "letflow.qa.bizdala.com"}
+
+      refute inspect(config) =~ "SECRET"
+    end
+
+    test "T-2781 any one of the three missing still raises with the flag unset" do
+      for partial <- [[@url], [@tok], [@dom], [@url, @tok], [@tok, @dom]] do
+        assert {:raised, message, _} = signup(partial)
+        assert message =~ "must be set together"
+      end
     end
 
     test "R2 a URL that is not loopback/private http, and a bad domain, raise without echo" do

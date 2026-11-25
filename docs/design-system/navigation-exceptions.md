@@ -47,6 +47,8 @@ entry; they do not each need their own menu item.
 | `/instances/:id` | Selected instance. |
 | `/instances/:id/attachments/:attachmentId` | Attachment link within an instance. |
 | `/login` | Public sign-in entry. |
+| `/signup` | Public self-service sign-up form (linked from the sign-in page and the marketing site). |
+| `/signup/verify` | Page the mailed sign-up link opens; shows the new tenant URL. |
 | `/me/problem-reports` | My reports link in the shell top bar and the receipt of Report a problem. |
 | `/me/settings` | My settings link in the shell. |
 | `/platform-dashboard` | Platform home selected for platform users. |

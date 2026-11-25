@@ -105,6 +105,10 @@ Remember the id of the document as `doc_id`."*
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
+* `poll` (optional, a GET step with an `expect`): `"poll": {"within_s": 60, "interval_s": 2}` repeats the read until
+  the `expect` holds or `within_s` ran out; the last answer is judged and the log row says `polls`. It is for a read
+  right after the start of an instance (the engine runs its steps afterwards), for example "the instance is
+  COMPLETED". Both times may be a `${name}` of the context. A POST step or a step without an `expect` is refused.
 * `requires` (optional): `"requires": ["doc_id"]` runs the step only if that name was saved. Use it on every cleanup
   step, so nothing is reversed that was never created. List every value the cleanup assertion needs (for example both
   `posted_doc_id` and `balance_to_before`): when any one is missing the step is **skipped**, not failed, and the log's
@@ -116,6 +120,7 @@ Remember the id of the document as `doc_id`."*
 |---|---|
 | the person takes the task of a document in My Tasks and completes it | `"do": {"wait_task": {"for_document": "${doc_id}", "step": "post", "within_s": 30}, "claim": true, "complete": {"body": {}}}`. `step` is `post` for a receipt, issue or transfer and `reverse` for a reversal |
 | the system must send a mail and the process waits for it | `"do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}}` and `"expect": {"status": 200}`. See "Waiting for a mail" below |
+| a user of a realm made DURING the run signs in (the new tenant admin of a sign-up) | a step `"do": {"login": {"realm": "${tenant_realm}", "username": "...", "password": "${signup_password}"}}` (password grant of the identity provider, `BPM_IDP_BASE_URL`, default QA; the realm is the one the provisioner issued (save it from the registry's `idp_realm_id`), the password must be a `${name}` reference, `BPM_IDP_BASE_URL` must be https; the token stays a secret, never in the log) with actor `anonymous`; later steps name it with `"bearer": "session"` (the API of the run, that token; `"bearer_base": "<saved name>"` sends the call to a URL an earlier step saved, such as the new tenant's `tenant_url`) |
 | only look and check (no change) | `"do": {"assert_only": {"path": "/api/v1/..."}}` and an `expect`. A read, never a body |
 | the same request twice (a retry: the system must not do it twice) | `"do": {"repeat": {"api": "POST", "path": "...", "body": {...}}}`, `"expect"` for the first answer and `"expect_repeat"` for the second (default: the same as the first) |
 | two people press at the same moment (concurrency) | `"do": {"parallel": [{...call 1...}, {...call 2...}]}` and `"expect": {"unordered": [{"status": 201}, {"status": 409}]}`: one wins, one is refused, in any order. A list `"expect": [e1, e2]` fixes the order |
@@ -202,6 +207,11 @@ residue section at the end of this file.
 
 The same object may be given on the command line as one JSON map:
 `--actors '{"admin": "adm", "platform-admin": {"user": "admin-user", "tenant": "bpm-default"}}'`.
+
+### The anonymous caller (public routes)
+
+A step with `"actor": "anonymous"` sends no `Authorization` header and needs no user, no roster entry and no
+`dry_run.actors` row; it goes to the address of the run. It is for the public routes (`/api/signup`, T-2749).
 
 ### Do and do not
 
@@ -292,6 +302,16 @@ A fixture file is process-like (`steps`, `cleanup`, `inputs`, the same step kind
 | `provides` | the context names it saves (each must be saved by a step) |
 | `needs` | fixtures that run before it (optional) |
 | `inputs` | ids it needs from outside (the person who runs gives them with `--input`) |
+
+**Step markers** (optional keys of a step):
+
+- `blocked_by`: a text naming what the step waits for (a task or piece not built yet). The runner does not run
+  the step: it prints `not run: blocked by <text>`, records the verdict `blocked`, counts it in the summary
+  (`steps not run`, and `PASS (N steps NOT RUN, blocked)`), and a blocked step never passes and never fails.
+  Removing the marker is an acceptance line of the task that builds the piece.
+- `refusal_probe`: `true` only on an `expect_refused` step that probes a refusal on a create route
+  (POST /api/v1/tenants). It exempts the step from the tenant-create gate, which otherwise skips a tenant create
+  unless the run allows it; the refusal itself is then sent and checked.
 
 **Rules for writing one** (idempotent, self-cleaning):
 

@@ -28,10 +28,10 @@
           "GET /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:211",
           "web/src/router.tsx:165",
           "web/src/router.tsx:129",
-          "lib/letflow/routers/tenants.ex:426"
+          "lib/letflow/routers/tenants.ex:433"
         ],
         "result": "the paginated list of all tenants"
       },
@@ -39,17 +39,16 @@
         "actor": "PLATFORM_ADMIN",
         "forms": [],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/tenants.ex:398"
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/tenants.ex:397"
         ],
-        "result": "201 with the tenant record; 409 slug already exists; 422 validation failed; 500 when provisioning fails (no rollback, see moduledoc OQ-5)"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; provisioning runs as steps of the instance, a failed step shows as instance ERROR on the timeline, not as a 5xx"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -64,11 +63,11 @@
           "PATCH /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:222",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:219",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:475",
-          "lib/letflow/routers/tenants.ex:509"
+          "lib/letflow/routers/tenants.ex:482",
+          "lib/letflow/routers/tenants.ex:516"
         ],
         "result": "200 with the tenant record; unknown slug 404"
       }
@@ -91,7 +90,7 @@
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
-    "uat": "skeleton only: the runner file lists the steps of the target process and carries dry_run.blocked_by pilot-not-built; the steps are written when G10 builds the proof. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..H (T-2608) start a throwaway tenant, wait for the instance, read the step log, read the mail, force and retry a failure, edit the definition through the designer API, roll it back and check the refusals; not yet covered: a sign-in as the new tenant's administrator and a download route of the notification file. Refusals of today's routes are automated in BP-PLATFORM-16",
     "status": "implemented",
     "acceptance": [
       {
@@ -99,7 +98,7 @@
         "item": "Definition: the process is an ordinary editable, versioned definition in the platform tenant",
         "today": "SHIPPED (G9): the definition platform.register_tenant v1 is seeded into the platform tenant as an ordinary, unstamped, editable definition (mix letflow.seed.platform_definitions; since T-2739 also seeded automatically at boot when LETFLOW_SEED_PLATFORM_DEFINITIONS=true and by the QA deploy, which runs a smoke check that fails the deploy when it is missing; the document is lib/letflow/platform_processes/definition.ex, the seed lib/letflow/platform_processes/seed.ex). The seed never replaces a newer version an administrator made. The seed signs the switch-on with a REAL platform administrator: LETFLOW_PLATFORM_ACTIVATOR_USER_ID names that administrator (a user id of the platform tenant) and is OPTIONAL -- without it the first PLATFORM_ADMIN holder of the platform tenant signs (sorted by id, so the choice is the same on every run); a platform tenant with no such administrator is answered no_platform_activator and nothing is written. The process is still ROUTE CODE: the engine does not run the definition's platform steps yet and the routes still call the functions directly",
         "target": "definition platform.register_tenant exists in the platform tenant, not module-stamped, v1 active after the seed, every edit a new draft",
-        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step: GET definitions on the platform tenant shows the key with its versions (step blocked until G10); source: lib/letflow/routers/definitions.ex:322",
+        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step A1 of BP-PLATFORM-01-register-tenant reads the active platform.register_tenant definition and saves its id; source: lib/letflow/routers/definitions.ex",
         "gap": "G9",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -108,16 +107,16 @@
         "item": "It works: executed by the BPM engine, started from the 'Register tenant' screen and the API, no direct code path",
         "today": "MISSING: the screen posts to the onboarding route and POST /api/v1/tenants; both call Identity.create_tenant and TenantOnboarding.provision_and_migrate directly",
         "target": "both starts create an instance of the active version and answer 202 with the instance id; nodes in order: validate, create tenant, provision schema and migrate, bind realm and administrators, notify by e-mail, end",
-        "proof": "runner steps s1..s6 of the skeleton (instance timeline lists the nodes in order); source-scan test of item 9",
+        "proof": "pending T-2608 later steps B and C (start from the screen and API, then the instance timeline lists the nodes in order); source-scan test of item 9",
         "gap": "G1, G2, G3, G13",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
       {
         "n": 3,
         "item": "A test script for the UAT runner, readable scenario JSON",
-        "today": "PARTIAL: the runner and its readable process files exist; no file for this process and no runner step that reads the mail trap existed before the wait_mail step",
+        "today": "PARTIAL: step A of test/uat/processes/BP-PLATFORM-01-register-tenant.json is runnable and read-only; T-2608 adds the execution, mail, retry, edit and rollback steps B..n",
         "target": "test/uat/processes/BP-PLATFORM-01-register-tenant.json covers items 2, 6, 7 and 8",
-        "proof": "doc: the skeleton file (this task, dry_run blocked_by pilot-not-built); python3 scripts/uat/check_processes.py on it",
+        "proof": "step A of the scenario file plus scripts/uat/tests/test_bp_platform_01.py and python3 scripts/uat/check_processes.py on it; the coverage of items 2, 6, 7 and 8 remains pending T-2608 steps B..n",
         "gap": "G10, G18",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -144,7 +143,7 @@
         "item": "Configurability proof: the runner edits the definition through the designer API (adds the e-mail and 'file' notification steps), starts again, the mail and the file appear, one-step rollback; plus one Playwright test of the designer",
         "today": "PARTIAL: one-step rollback exists (POST /api/v1/definitions/:process_key/rollback); the notify step, its designer fields and the file area are missing; the only Playwright CI job runs a fixed spec list, so a designer spec runs nowhere in CI",
         "target": "start without notify step and see it end; draft with notify (e-mail to a catcher address and file) activated; second start: mail in the trap and file downloadable, first instance stays on v1; rollback; third start sends no mail",
-        "proof": "runner steps s7..s14 of the skeleton (wait_mail step); Playwright test of the designer on this definition (web/tests/e2e, to be added to a listed spec); source: lib/letflow/routers/definitions.ex:344",
+        "proof": "A4 browser check: web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts opens the real QA designer page, selects the edit view, counts eight nodes and opens a node panel; the edit, notification, mail, file and rollback runner coverage is pending T-2608 later steps; source: lib/letflow/routers/definitions.ex",
         "gap": "G4, G5, G8, G12, G19",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -153,7 +152,7 @@
         "item": "Step failures are visible and retryable (DLQ and step log); no secrets in the log",
         "today": "PARTIAL: a failure is visible (DLQ row, instance ERROR, EXECUTION_ERROR event) but a DLQ retry re-dispatches nothing; delivery rows store no address or body (INV-4)",
         "target": "a forced failure of the provision step leaves the instance in ERROR with the step and failure kind in the timeline and a DLQ entry; the platform admin retries it and the instance ends; a retry of a finished step changes nothing; no token, realm credential or mail body in any event, DLQ payload, timeline answer or run.jsonl line",
-        "proof": "runner steps s15..s18 of the skeleton; G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex:99",
+        "proof": "pending T-2608 later step E (forced failure and DLQ retry) and the product-side G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex",
         "gap": "G6, G7",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -162,7 +161,7 @@
         "item": "Security: only the platform admin starts or edits it; company users get the uniform 404/403; the definition calls only catalogue functions it is allowed to",
         "today": "PARTIAL: TenantsManage gates tenant creation and the uniform refusal pattern exists (BP-PLATFORM-16, -17, -20); no catalogue of functions and no allow-list exist",
         "target": "start, create or activate a version, rollback and read the instances need TenantsManage in the platform tenant; company administrator and user get the same refusal, also cross-tenant; activation refuses an unknown function with a fixed code; a company-tenant definition cannot carry a platform step",
-        "proof": "runner steps s19..s22 of the skeleton (expect_refused); route tests test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
+        "proof": "pending T-2608 later step G (expect_refused); current route coverage: test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
         "gap": "G1, G2",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
@@ -171,37 +170,37 @@
         "item": "No bypass: the old direct registration paths are not a second way around the process",
         "today": "MISSING: five paths create a tenant (see tenant_creating_paths); each calls the create and provision functions itself",
         "target": "paths 1 to 4 become starts of the one definition; only the seed task keeps a direct call; no other caller of the create and provision functions in lib/",
-        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; runner step s23",
+        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; the runner assertion is pending a T-2608 later step",
         "gap": "G17",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       },
       {
         "n": 10,
         "item": "The template page 'how to turn a business function into a real process'",
-        "today": "PARTIAL: a draft exists in the spike document (section 6); the page is not in the product",
+        "today": "SHIPPED (G20): docs/bp/process-template.md is in the product, written from what the pilot built (catalogue, definition, start function, runner file, guardrails)",
         "target": "docs/bp/process-template.md exists in the product, rewritten from what the pilot built; this row says 'definition' with its key and links the page",
-        "proof": "doc: the page file (planned, not yet on main) and the executed_by value of this row; check_catalog PASS",
+        "proof": "doc: docs/bp/process-template.md; test/scripts/bp_doc_test.exs; check_catalog PASS. The executed_by value of this row moves to definition:platform.register_tenant only when the engine runs the process and the routes only start it",
         "gap": "G20",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       }
     ],
     "executed_by": "direct",
     "executed_by_target": "definition:platform.register_tenant",
-    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (planned, not yet on main). No definition exists today.",
+    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (on main since G20). The definition exists since G9; executed_by stays direct until the routes only start it.",
     "tenant_creating_paths": [
       {
         "n": 1,
         "path": "POST /api/v1/onboarding, the 'Register tenant' screen (web/src/router.tsx:161)",
-        "calls": "lib/letflow/routers/onboarding.ex:516 Identity.create_tenant, :599 provision_and_migrate; then the onboarding record",
-        "today": "validates the form, creates the tenant and its schema directly, answers with the onboarding record",
+        "calls": "lib/letflow/routers/onboarding.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "validates the form and starts platform.register_tenant, answers 202 with the instance id (T-2704)",
         "becomes": "a start of platform.register_tenant, answer 202 with the instance id (G3)",
         "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
       },
       {
         "n": 2,
         "path": "POST /api/v1/tenants (permission TenantsManage)",
-        "calls": "lib/letflow/routers/tenants.ex:404 Identity.create_tenant, :417 provision_and_migrate",
-        "today": "creates the tenant and provisions it directly, answers 201 (500 on provisioning failure, no rollback)",
+        "calls": "lib/letflow/routers/tenants.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "starts platform.register_tenant, answers 202 with the instance id and the slug (the tenant id is the output of the tenant.create step, read it from GET /tenants/:slug) (T-2704)",
         "becomes": "the API start of the same definition, answer 202 with instance id and tenant id; the 201 scenarios change (G17)",
         "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
       },
@@ -259,9 +258,9 @@
           "POST /api/v1/tenants/:slug/deactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
+          "lib/letflow/routers/tenants.ex:223",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "200 with status inactive; platform tenant: 409; unknown: 404"
       },
@@ -277,9 +276,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:234",
+          "lib/letflow/routers/tenants.ex:231",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:710"
+          "lib/letflow/routers/tenants.ex:717"
         ],
         "result": "200 active again; purged tenant 409 'tenant was purged'"
       },
@@ -295,9 +294,9 @@
           "POST /api/v1/tenants/:slug/purge"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:230",
+          "lib/letflow/routers/tenants.ex:227",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:724"
+          "lib/letflow/routers/tenants.ex:731"
         ],
         "result": "200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown, platform tenant or no lifecycle row 404"
       }
@@ -352,9 +351,9 @@
           "PUT /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:255",
+          "lib/letflow/routers/tenants.ex:254",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 {tenant_id, slug, hostname, onboarding_id, changed}"
       },
@@ -370,9 +369,9 @@
           "DELETE /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:259",
+          "lib/letflow/routers/tenants.ex:258",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 with hostname null"
       }
@@ -423,8 +422,8 @@
           "GET /api/v1/tenants/:slug/script-policy"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:240",
-          "lib/letflow/routers/tenants.ex:564"
+          "lib/letflow/routers/tenants.ex:239",
+          "lib/letflow/routers/tenants.ex:570"
         ],
         "result": "200 platform_policy_map"
       },
@@ -438,8 +437,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/kill-switch"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:244",
-          "lib/letflow/routers/tenants.ex:576"
+          "lib/letflow/routers/tenants.ex:243",
+          "lib/letflow/routers/tenants.ex:582"
         ],
         "result": "200; entry on tenant chain (nil actor) and platform chain (operator id)"
       },
@@ -453,8 +452,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/solo-audited"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:250",
-          "lib/letflow/routers/tenants.ex:607"
+          "lib/letflow/routers/tenants.ex:249",
+          "lib/letflow/routers/tenants.ex:613"
         ],
         "result": "200; the platform-owned solo_audited object"
       }
@@ -501,21 +500,20 @@
           "admin/onboarding/new"
         ],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:189",
+          "lib/letflow/routers/onboarding.ex:187",
           "web/src/router.tsx:161",
           "web/src/router.tsx:162",
-          "lib/letflow/routers/onboarding.ex:285",
-          "lib/letflow/routers/onboarding.ex:510",
-          "lib/letflow/routers/onboarding.ex:564"
+          "lib/letflow/routers/onboarding.ex:254",
+          "lib/letflow/routers/onboarding.ex:490",
+          "lib/letflow/routers/onboarding.ex:506"
         ],
-        "result": "created record with login state; field errors 422; duplicate host or realm refused"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); the screen then opens the instance timeline; an identical replay answers the same 202; field errors 422; duplicate host, realm or slug with different values 409; provisioning runs as steps of the instance (a failed step shows as instance ERROR, not as a 5xx); the tenant is not yet loginable without a realm"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -528,10 +526,10 @@
           "GET /api/v1/onboarding/:id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:193",
+          "lib/letflow/routers/onboarding.ex:191",
           "web/src/router.tsx:163",
           "web/src/router.tsx:164",
-          "lib/letflow/routers/onboarding.ex:1026"
+          "lib/letflow/routers/onboarding.ex:703"
         ],
         "result": "the onboarding record and its state"
       },
@@ -545,7 +543,7 @@
           "GET /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/onboarding.ex:207",
           "web/src/router.tsx:161"
         ],
         "result": "the record of the host given in ?hostname="
@@ -558,8 +556,8 @@
           "POST /api/v1/onboarding/:id/bind-realm"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "the realm bound, or a reason when it cannot be"
       },
@@ -571,7 +569,7 @@
           "GET /api/v1/onboarding/:id/pending-admins"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:201"
+          "lib/letflow/routers/onboarding.ex:199"
         ],
         "result": "pending administrator grants"
       },
@@ -583,7 +581,7 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:205"
+          "lib/letflow/routers/onboarding.ex:203"
         ],
         "result": "the grant revoked"
       }
@@ -1371,7 +1369,7 @@
           "GET /api/signup/config"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:55"
+          "lib/letflow/routers/signup.ex:57"
         ],
         "result": "200 the public config"
       },
@@ -1385,7 +1383,7 @@
           "POST /api/signup"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:66"
+          "lib/letflow/routers/signup.ex:89"
         ],
         "result": "202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down"
       },
@@ -1399,9 +1397,37 @@
           "POST /api/signup/verify"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:100"
+          "lib/letflow/routers/signup.ex:127"
         ],
         "result": "200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "GET /api/signup/slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:75"
+        ],
+        "result": "200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup/status"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:151"
+        ],
+        "result": "200 pending, ready or failed with a closed reason (the mailed token is the credential)"
       },
       {
         "actor": "user",
@@ -1471,8 +1497,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "201 the promoted definition; 403 insufficient permissions; invalid source: invalid_promotion_source; any other source tenant: the zero-detail 404"
       }
@@ -1586,9 +1612,9 @@
           "GET /api/v1/platform-problem-reports"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/tenants.ex:211",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/onboarding.ex:207",
           "lib/letflow/routers/platform_status.ex:25",
           "lib/letflow/routers/platform_module_rollouts.ex:44",
           "lib/letflow/routers/platform_migrations.ex:88",
@@ -1617,10 +1643,10 @@
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:230",
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/onboarding.ex:189"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:227",
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/onboarding.ex:187"
         ],
         "result": "403 on harmless write probes (an unknown slug, an empty body); nothing changes"
       },
@@ -1632,8 +1658,8 @@
           "GET /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:275"
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:274"
         ],
         "result": "an unmatched sub-path under the tenants mount answers the same 403 as a matched one"
       },
@@ -1694,8 +1720,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "404 for an unknown id and for another tenant's id; the same body"
       }
@@ -1843,9 +1869,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:234",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:231",
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "409 platform tenant cannot be deactivated; 409 tenant was purged"
       }
@@ -1853,7 +1879,7 @@
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:702)",
+      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:708)",
       "403 tenant_inactive for the tenant's own callers (lib/letflow/plugs/tenant_status.ex:106, lib/letflow/plugs/auth_pipeline.ex:213)",
       "409 after purge"
     ],
@@ -1891,10 +1917,10 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:201",
-          "lib/letflow/routers/onboarding.ex:205",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:199",
+          "lib/letflow/routers/onboarding.ex:203",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "realm bind refused for a duplicate realm; pending grants listed and revoked"
       }

@@ -76,7 +76,9 @@
   "route": [
    "GET /api/signup/config",
    "POST /api/signup",
-   "POST /api/signup/verify"
+   "POST /api/signup/verify",
+   "GET /api/signup/slug",
+   "POST /api/signup/status"
   ],
   "authentication": "none-by-design",
   "tenant_scope": "none-by-design",
