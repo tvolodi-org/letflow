@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { Checkbox } from '@/components/ui/Checkbox'
+import { stepCaption } from './nodeSummary'
 import { PlatformCallEditor, type PlatformCatalogueState } from './PlatformCallEditor'
 import { NotifyStepEditor, type NotifyCatalogueState } from './NotifyStepEditor'
 import { useDiagramText } from './useDiagramText'
@@ -60,7 +61,7 @@ export function useEditText() {
 }
 
 export function nodeName(n: GraphNode, typeName: (t: string) => string): string {
-  return n.label ?? typeName(n.node_type)
+  return n.label ?? stepCaption(n.node_type, readAttrs(n)) ?? typeName(n.node_type)
 }
 
 interface PanelProps {

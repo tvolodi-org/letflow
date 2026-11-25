@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusPill } from '@/components/ui/StatusPill'
 import type { GraphDiff } from '@/utils/canvas/graphDiff'
 import { DIFF_PILL, STATE_PILL } from './diagramConfig'
-import { summariseNode } from './nodeSummary'
+import { stepCaption, summariseNode } from './nodeSummary'
 import { useDiagramText } from './useDiagramText'
 
 export interface NodeDetailsProps {
@@ -28,7 +28,7 @@ export function NodeDetails({ node, nodes, edges, state, diff, onClose }: NodeDe
   const m = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.${id}` }, values)
   const labelOf = (id: string) => {
     const n = nodes.find((x) => x.id === id)
-    return n ? n.label ?? t.typeName(n.nodeType) : id
+    return n ? n.label ?? stepCaption(n.nodeType, n.attributes) ?? t.typeName(n.nodeType) : id
   }
   const s = summariseNode(node.nodeType, node.attributes, labelOf)
   const outs = edges.filter((e) => e.source === node.id)
@@ -90,6 +90,9 @@ export function NodeDetails({ node, nodes, edges, state, diff, onClose }: NodeDe
   if (s.validationScript) rows.push([m('details.validation'), <span className="lf-pd__mono">{s.validationScript}</span>])
   if (s.distinctFrom && s.distinctFrom.length > 0) rows.push([m('details.distinct'), s.distinctFrom.join(', ')])
   if (s.writes && s.writes.length > 0) rows.push([m('details.writes'), <span className="lf-pd__mono">{s.writes.join(', ')}</span>])
+  if (s.platformFunction) rows.push([m('details.platformFunction'), <span className="lf-pd__mono" data-testid="details-platform-function">{s.platformFunction}</span>])
+  if (s.notifyTemplate) rows.push([m('details.notifyTemplate'), <span className="lf-pd__mono" data-testid="details-notify-template">{s.notifyTemplate}</span>])
+  if (s.notifyRecipientVar) rows.push([m('details.notifyRecipient'), <span className="lf-pd__mono">{s.notifyRecipientVar}</span>])
   if (s.service) rows.push([m('details.service'), <span className="lf-pd__mono">{s.service}</span>])
   if (s.endpointHost !== undefined) {
     rows.push([m('details.endpoint'), s.endpointHost === null ? m('details.endpointSet') : <span className="lf-pd__mono">{s.endpointHost}</span>])
@@ -123,7 +126,7 @@ export function NodeDetails({ node, nodes, edges, state, diff, onClose }: NodeDe
   return (
     <aside className="lf-pd__details" aria-label={m('details.title')} data-testid="diagram-node-details">
       <div className="lf-pd__details-head">
-        <h3 className="lf-pd__details-title">{node.label ?? t.typeName(node.nodeType)}</h3>
+        <h3 className="lf-pd__details-title">{node.label ?? stepCaption(node.nodeType, node.attributes) ?? t.typeName(node.nodeType)}</h3>
         <Button variant="ghost" size="sm" iconOnly icon={<X className="lf-icon" />} label={m('details.close')} onClick={onClose} />
       </div>
       <dl className="lf-pd__dl">
