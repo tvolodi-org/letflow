@@ -28,13 +28,53 @@ class Signup(unittest.TestCase):
         rows = runner.run_assertions(self.steps[step_id]["expect"], status, body)
         return all(r["ok"] for r in rows)
 
-    def test_every_step_is_anonymous_and_no_secret_or_retired_tenant(self):
+    def test_actors_are_anonymous_or_the_platform_admin_and_no_secret_or_retired_tenant(self):
         for step in self.steps.values():
-            self.assertEqual("anonymous", step["actor"])
+            self.assertIn(step["actor"], ("anonymous", "admin"))
         text = json.dumps(self.process["steps"] + self.process["cleanup"])
         self.assertNotIn("qoimeks", text)
-        self.assertNotIn("password", text)
+        # the password is an input of the run, never a literal in the file
+        self.assertEqual(["signup_password"], self.process["inputs"])
+        for step in self.process["steps"]:
+            body = step["do"].get("body") or {}
+            if "password" in body:
+                self.assertEqual("${signup_password}", body["password"])
         self.assertTrue(self.process["later_steps"])
+
+    def test_signup_sends_the_owner_fields_and_expects_the_tenant_url(self):
+        body = self.steps["S6"]["do"]["body"]
+        for key in ("company_name", "user_name", "password", "slug"):
+            self.assertIn(key, body)
+        self.assertEqual("${signup_password}", body["password"])
+        self.assertTrue(body["slug"].startswith("uat-tmp-"))
+        self.assertTrue(self.ok("S6", {"status": "check_your_mail", "tenant_url": "https://uat-tmp-1.x"}, 202))
+        # no tenant URL (the build lacks the fields) or a refusal is RED
+        self.assertFalse(self.ok("S6", {"status": "check_your_mail"}, 202))
+        self.assertFalse(self.ok("S6", {"error": "signup_unavailable"}, 503))
+
+    def test_new_tenant_must_be_active_without_a_human_step(self):
+        self.assertTrue(self.ok("S7", {"status": "ACTIVE"}, 200))
+        self.assertFalse(self.ok("S7", {"status": "PENDING"}, 200))
+        self.assertFalse(self.ok("S7", {}, 404))
+        self.assertEqual(["signup_made"], self.steps["S7"]["requires"])
+
+    def test_refusals_slug_taken_and_reserved(self):
+        self.assertEqual("slug_taken", self.steps["S8"]["expect_refused"])
+        self.assertEqual("admin", self.steps["S9"]["do"]["body"]["slug"])
+        self.assertEqual(422, self.steps["S9"]["expect_refused"]["status"])
+
+    def test_cleanup_touches_only_the_throwaway_tenant_and_needs_the_mark(self):
+        self.assertEqual(1, len(self.process["cleanup"]))
+        c = self.process["cleanup"][0]
+        self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/deactivate", c["do"]["path"])
+        self.assertEqual(["signup_made"], c["requires"])
+        self.assertEqual("admin", c["actor"])
+        self.assertEqual("bpm-default", self.process["dry_run"]["actors"]["admin"]["tenant"])
+
+    def test_residue_group_exists_for_the_platform_actor(self):
+        r = runner.Runner.__new__(runner.Runner)
+        r.processes, r.overrides, r.fixtures = [self.process], {}, []
+        self.assertEqual(["admin"], r.needed_roles())
 
     def test_config_on_and_off(self):
         self.assertTrue(self.ok("S1", {"enabled": True, "languages": ["en", "ru", "kk"]}, 200))
@@ -48,7 +88,8 @@ class Signup(unittest.TestCase):
 
     def test_static_check_passes_and_anonymous_needs_no_roster(self):
         for step in self.steps.values():
-            self.assertEqual(set(), check_processes.actors_of(step))
+            want = set() if step["actor"] == "anonymous" else {"admin"}
+            self.assertEqual(want, check_processes.actors_of(step))
 
     def test_anonymous_sends_no_authorization_and_mints_no_token(self):
         seen = {}
@@ -73,7 +114,7 @@ class Signup(unittest.TestCase):
     def test_needed_roles_skip_anonymous(self):
         r = runner.Runner.__new__(runner.Runner)
         r.processes, r.overrides, r.fixtures = [self.process], {}, []
-        self.assertEqual([], r.needed_roles())
+        self.assertEqual(["admin"], r.needed_roles())
 
 
 if __name__ == "__main__":
