@@ -63,7 +63,13 @@ TOKEN_CMD_TIMEOUT_S = 60
 INBOX_PAGES_MAX = 10
 RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
-DO_KINDS = ("api", "wait_task", "wait_mail", "assert_only", "repeat", "parallel")
+# A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
+ANONYMOUS_ACTOR = "anonymous"
+DO_KINDS = ("api", "wait_task", "wait_mail", "login", "assert_only", "repeat", "parallel")
+# The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
+# password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
+IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
+REALM_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 # The mail trap (Mailpit) a wait_mail step reads: the address of the trap, how long a search may take and
 # how many messages of the search answer are looked at (G18).
 MAIL_TRAP_URL_DEFAULT = "http://127.0.0.1:8025"
@@ -794,8 +800,14 @@ class Runner:
     def token_for(self, role: str) -> str:
         return self._token_of(self.actor_spec(role), role)
 
-    def request(self, role, method, path, body=None, headers=None, http_as=None):
+    def request(self, role, method, path, body=None, headers=None, http_as=None, bearer=None, bearer_base=None):
         hdrs = dict(headers or {})
+        if bearer:
+            value = self.secrets.get(bearer)
+            if not value:
+                raise RunnerError(f"bearer {bearer}: no session yet (an earlier login step must make it)")
+            hdrs["Authorization"] = "Bearer " + value
+            return http_call(method, (bearer_base or self.base_url) + path, hdrs, body)
         if http_as:
             value = self.secrets.get(http_as)
             if not value:
@@ -805,6 +817,9 @@ class Runner:
                 raise RunnerError(f"http_as {http_as}: --old-base-url is not set")
             hdrs["Authorization"] = "Bearer " + value
             return http_call(method, self.old_base_url + path, hdrs, body)
+        if role == ANONYMOUS_ACTOR:
+            # The public routes (the sign-up): no token, no Authorization header, the address of the run.
+            return http_call(method, self.base_url + path, hdrs, body)
         base = self.actor_base(role)
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
         result = http_call(method, base + path, hdrs, body)
@@ -846,6 +861,7 @@ class Runner:
                 for call in calls:
                     if call.get("actor") and not call.get("http_as"):
                         roles.add(call["actor"])
+        roles.discard(ANONYMOUS_ACTOR)  # the anonymous caller has no user and no token
         return sorted(roles)
 
     # -- preflight ----------------------------------------------------------------------------
@@ -1031,6 +1047,16 @@ class Runner:
                 what = first["what"]
                 label = f"expected {first['expected']} got {first['actual']}" if what == "status" else \
                     f"expected {what} {first['expected']} got {first['actual']}"
+                reason = None
+                if isinstance(body, dict):
+                    # the closed reason: a `limit` code (error "conflict" + limit "demo_cap_reached") wins over `error`
+                    for key in ("limit", "error"):
+                        cand = body.get(key)
+                        if isinstance(cand, str) and re.fullmatch(r"[a-z0-9_]{1,64}", cand):
+                            reason = cand
+                            break
+                if reason:
+                    label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1063,7 +1089,7 @@ class Runner:
 
     @staticmethod
     def _handles_secret(step) -> bool:
-        if step.get("http_as"):
+        if step.get("http_as") or step.get("bearer") or "login" in (step.get("do") or {}):
             return True
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
@@ -1156,6 +1182,8 @@ class Runner:
             return [self._wait_task(step, do, record)]
         if "wait_mail" in do:
             return [self._wait_mail(step, do, record)]
+        if "login" in do:
+            return [self._login(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
@@ -1164,15 +1192,62 @@ class Runner:
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        info = self._call(role, spec, http_as)
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        extra = {"bearer": step.get("bearer"), "bearer_base": base}
+        info = self._call(role, spec, http_as, **extra)
         if "poll" in step:
-            info = self._poll_call(step, do, role, spec, http_as, info, record)
+            info = self._poll_call(step, do, role, spec, http_as, info, record, extra)
         record.update(method=info["method"], path=info["path"])
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
 
-    def _poll_call(self, step, do, role, spec, http_as, info, record):
+    def _login(self, step, do, record):
+        """Sign in as a user of a realm that exists only since this run started. -> (200, {"signed_in": true}, "{}")
+        or (401, ...) when the identity provider refuses. The token is a secret (never in the log, never in the
+        context); a step that names it as "bearer" calls the API with it."""
+        spec = substitute(do["login"], self.ctx)
+        realm, user, password = spec.get("realm"), spec.get("username"), spec.get("password")
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("login: the realm is not a valid slug")
+        if not (isinstance(user, str) and user and isinstance(password, str) and password):
+            raise RunnerError("login: needs username and password")
+        name = spec.get("as") or "session"
+        self.secret_values.add(password)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        if urllib.parse.urlsplit(idp).scheme != "https":
+            raise RunnerError("login: BPM_IDP_BASE_URL must be https (the password is sent to it)")
+        form = urllib.parse.urlencode({"grant_type": "password", "client_id": "letflow-web",
+                                       "username": user, "password": password}).encode()
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/token")
+        try:
+            req = urllib.request.Request(f"{idp}/realms/{realm}/protocol/openid-connect/token", data=form,
+                                         method="POST", headers={"Content-Type": "application/x-www-form-urlencoded",
+                                                                 "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+        except (OSError, ValueError) as err:
+            raise RunnerError(f"login: the identity provider did not answer ({type(err).__name__})") from None
+        token = None
+        if status == 200:
+            try:
+                token = json.loads(text).get("access_token")
+            except (ValueError, AttributeError):
+                token = None
+        if not isinstance(token, str) or not token:
+            return (status if status != 200 else 502), {"signed_in": False}, "{}"
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
         """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
         runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
         answer is the one the step is judged on; `polls` says how often the read ran."""
@@ -1185,12 +1260,12 @@ class Runner:
             if time.monotonic() >= deadline:
                 break
             time.sleep(interval)
-            info = self._call(role, spec, http_as)
+            info = self._call(role, spec, http_as, **(extra or {}))
             polls += 1
         record["polls"] = polls
         return info
 
-    def _call(self, role, spec, http_as=None):
+    def _call(self, role, spec, http_as=None, bearer=None, bearer_base=None):
         """One HTTP call of a step (thread safe): the substituted request and the answer."""
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
@@ -1200,7 +1275,8 @@ class Runner:
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
-        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as))
+        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
+                              bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
 
     def _repeat(self, role, spec, times, http_as, record):
@@ -2349,6 +2425,13 @@ def validate_step(step, where) -> None:
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
+    elif kind == "login":
+        spec = do["login"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "username", "password")):
+            raise ConfigError(f"{where}: login needs a realm, a username and a password")
+        if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
+            raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2400,6 +2483,11 @@ def validate_step(step, where) -> None:
         raise ConfigError(f"{where}: refusal_probe belongs on an expect_refused step")
     if "http_as" in step and step["http_as"] != "shared_access":
         raise ConfigError(f"{where}: http_as can only be shared_access")
+    if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
+        raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
+                                      and step.get("bearer")):
+        raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
     if "http_as" not in step and not step.get("actor"):
         raise ConfigError(f"{where}: every step needs id, actor and do")
     if "expect_refused" in step and "expect" in step:
@@ -2527,7 +2615,7 @@ def load_chain(path) -> tuple:
         process = load_process(found)
         why = blocked_reason(process)
         if why:
-            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (never run)", flush=True)
+            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (not run: {len(process.get('steps') or [])} step(s))", flush=True)
             continue
         processes.append(process)
     if not processes:
@@ -2789,12 +2877,12 @@ def cmd_dry_run(args, out=None) -> int:
         doc = json.loads(path.read_text(encoding="utf-8"))
         why = blocked_reason(doc)
         if why:
-            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (never run)", file=out)
+            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (not run: {len(doc.get('steps') or [])} step(s))", file=out)
         else:
             runnable.append(path)
     files = runnable
     if not files:
-        print("dry-run: PASS (every file is blocked: nothing to run)", file=out)
+        print("dry-run: NOT RUN (every file is blocked: nothing was run, this is not a pass)", file=out)
         return 0
     entries = []
     for path in files:
@@ -2946,11 +3034,12 @@ def main_run(args) -> int:
         needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
+        needed.discard(ANONYMOUS_ACTOR)  # the anonymous caller needs no mapping
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
         for p in processes:
             if p["id"] in overrides:
-                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None}
+                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None, ANONYMOUS_ACTOR}
                 if need - overrides[p["id"]]["actors"].keys():
                     raise ConfigError(f"{p['id']}: actors missing for its tenant: " + ", ".join(sorted(need - overrides[p["id"]]["actors"].keys())))
         check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)
