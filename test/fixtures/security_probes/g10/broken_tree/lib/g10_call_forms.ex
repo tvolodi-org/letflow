@@ -85,5 +85,9 @@ defmodule Letflow.Fixtures.G10UnresolvedForms do
 
   def variable_module(reader), do: reader.get_env("G10_VARIABLE_SETTING")
 
+  def applied_computed(fun), do: apply(System, fun, ["G10_COMPUTED_FUN_SETTING"])
+
+  def atom_prefixed, do: :"Elixir.System".get_env("G10_ATOM_PREFIX_SETTING")
+
   def erlang_call, do: :os.getenv(~c"G10_ERLANG_SETTING")
 end

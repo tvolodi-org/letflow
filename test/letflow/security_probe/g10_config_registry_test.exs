@@ -97,6 +97,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
       assert {:unregistered_env, "env:G10_IMPORTED_SETTING"} in reported
       assert {:unregistered_env, "env:G10_IMPORTED_FETCH_SETTING"} in reported
       assert {:unregistered_env, "env:G10_ELIXIR_PREFIXED_SETTING"} in reported
+      assert {:unregistered_env, "env:G10_ATOM_PREFIX_SETTING"} in reported
       assert {:unregistered_env, "env:G10_ALIASED_SETTING"} in reported
       assert {:unregistered_env, "env:G10_IMPORT_BESIDE_LOCAL_SETTING"} in reported
       assert {:unregistered_env, "env:G10_FILE_SCOPE_SETTING"} in reported
@@ -127,6 +128,7 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
 
       assert forms == [
                {"G10_ALIASED_SETTING", :get_env, "lib/g10_call_forms.ex"},
+               {"G10_ATOM_PREFIX_SETTING", :get_env, "lib/g10_call_forms.ex"},
                {"G10_ATTRIBUTE_LIST_SETTING", :literal, "lib/g10_broken.ex"},
                {"G10_ATTRIBUTE_SETTING", :get_env, "lib/g10_broken.ex"},
                {"G10_ELIXIR_PREFIXED_SETTING", :get_env, "lib/g10_call_forms.ex"},
@@ -168,8 +170,8 @@ defmodule Letflow.SecurityProbe.G10ConfigRegistryTest do
         |> Enum.sort()
 
       # apply/3 on System, Kernel.apply/3 on Application, a capture, a module held in an
-      # attribute, a module held in a variable and :os.getenv.
-      assert length(lines) == 6, "expected six unresolved forms, got: " <> inspect(lines)
+      # attribute, a module held in a variable, :os.getenv and apply(System, computed_fun, ...).
+      assert length(lines) == 7, "expected seven unresolved forms, got: " <> inspect(lines)
       assert Enum.all?(lines, &String.starts_with?(&1, "lib/g10_call_forms.ex:"))
 
       refute Enum.any?(real_findings, &(&1.code == :unresolved_read_form)),

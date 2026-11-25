@@ -1012,15 +1012,19 @@ defmodule Letflow.Support.ConfigRegistryScan do
   end
 
   # `apply(System, :get_env, [...])` (or a module the scope cannot name with a literal read
-  # function) is an unresolved form. An `apply` whose module AND function are both computed names
-  # nothing about the environment and is not reported: the class table discloses it.
+  # function, or `apply(System, computed_fun, ...)`) is an unresolved form. An `apply` whose module
+  # AND function are both computed names nothing about the environment and is not reported: the
+  # class table discloses it.
   defp unresolved_apply(mod, fun, meta, rel, ctx, test?) do
     module = resolve_module(alias_name(mod), ctx.aliases)
-    reads? = is_atom(fun) and fun in @read_functions
+    literal_read? = is_atom(fun) and fun in @read_functions
+    # a computed function on a literal System/Application module may be a read: fail closed
+    computed_on_env? = not is_atom(fun) and module in ["System", "Application"]
 
-    if reads? and (module in ["System", "Application"] or is_nil(module)),
-      do: [dynamic_site(rel, line(meta), :unresolved_form, test?)],
-      else: []
+    if (literal_read? and (module in ["System", "Application"] or is_nil(module))) or
+         computed_on_env?,
+       do: [dynamic_site(rel, line(meta), :unresolved_form, test?)],
+       else: []
   end
 
   defp unresolved_capture(mod, fun, meta, rel, ctx, test?) do
@@ -1096,6 +1100,14 @@ defmodule Letflow.Support.ConfigRegistryScan do
       end
     else
       nil
+    end
+  end
+
+  # The atom spelling of the prefix, `:"Elixir.System"`, names the same module.
+  defp alias_name(atom) when is_atom(atom) and not is_nil(atom) and not is_boolean(atom) do
+    case Atom.to_string(atom) do
+      "Elixir." <> rest when rest != "" -> rest
+      _ -> nil
     end
   end
 
