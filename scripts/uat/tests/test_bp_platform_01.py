@@ -159,7 +159,7 @@ class StepsBToH(unittest.TestCase):
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
-        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "D1", "E1", "E2",
+        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
                  "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
@@ -395,12 +395,21 @@ class BlockedSteps(H2IsPlayed):
     def test_every_realm_dependent_step_of_the_scenario_is_marked(self):
         process = json.loads(FILE.read_text())
         marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
-        for sid in ("B1", "E1", "F6", "G3", "C3", "F8"):
+        for sid in ("B1", "E1", "F6", "G3", "C3", "C4", "C5", "F8"):
             self.assertIn(sid, marked)
         for x in process["steps"]:  # a step that saves a name used by a blocked step is blocked too
             if x["id"] in marked:
                 continue
             self.assertNotIn("instance_id", " ".join((x.get("requires") or [])), x["id"])
+
+    def test_fresh_tenant_module_install_ends_active(self):
+        """G14 finding: no shipped definition of a fresh tenant stays a draft; an empty install does not pass."""
+        steps = {x["id"]: x for x in json.loads(FILE.read_text())["steps"]}
+        c4, c5 = steps["C4"], steps["C5"]
+        self.assertIn("status=draft", c4["do"]["path"])
+        self.assertEqual({"absent": True}, c4["expect"]["json"]["$.items[0]"])
+        self.assertIn("status=active", c5["do"]["path"])
+        self.assertEqual("ACTIVE", c5["expect"]["json"]["$.items[0].status"])
 
     def test_blocked_by_and_refusal_probe_are_validated(self):
         base = {"id": "X", "actor": "admin", "do": {"api": "GET", "path": "/x"}}
