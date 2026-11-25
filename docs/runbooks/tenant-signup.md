@@ -8,7 +8,7 @@ Decision record: `docs/migration/decisions/0084-public-signup-part-1.md`. Code: 
 `POST /api/signup` (company name, e-mail, language, terms) records a request and mails a single-use link.
 `POST /api/signup/verify` (token) marks it `verified` and moves its step to `ready_for_provisioning`.
 `GET /api/signup/config` reports the languages and the terms version. After the credential mail the Letflow demo tenant is created in-process (T-1679, slice 1a); the welcome mail (T-1685, slice 1b) follows and the row becomes `completed`.
-With the provisioner settings below, a verified row continues: infra's tenant-provisioner creates the realm and the
+With the provisioner settings below, a verified row continues: the platform's tenant-provisioner (set up once, not per tenant) creates the realm and the
 first admin, and the one-time credential is mailed (decision 0085). Without them a verified row only waits. The SPA sign-up screens are not built yet.
 
 ## Switching it on (QA/demo)
