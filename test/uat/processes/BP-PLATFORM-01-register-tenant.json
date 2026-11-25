@@ -1,16 +1,8 @@
 {
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
-  "title": "Register a tenant as a configurable process: step A, the shipped definition is active and complete (read-only)",
-  "description": "Step A of the pilot scenario (T-2744, first part of G10 / T-2608). The platform administrator reads the platform tenant and checks that the definition platform.register_tenant is SHIPPED: active, version 2 or later (the v2 document of T-2727) (A1); its graph has the twelve nodes with the function name of every service step (validate, create, provision, record_lifecycle, record_onboarding, bind_realm, grant_first_admins, install_default_modules), the notify gateway and and the notify node with a template AND a recipient (A2); the designer's own reads answer the registry entry of each function and the template options of the notify step, the data the pickers show (A3). A4 is the one browser check, the designer page opens with twelve nodes and a click opens the panel: the runner cannot drive a browser, so it is the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. The spec selects the edit view before it counts the twelve nodes and clicks one to open its panel. Step A is READ-ONLY: nothing is created, no throwaway tenant, no cleanup. A3 reads the sorted catalogues by position (platform functions sorted by name: platform.validate_registration, tenant.bind_realm, tenant.create, tenant.grant_first_admins, tenant.install_default_modules, tenant.provision, tenant.record_lifecycle, tenant.record_onboarding, tenant.validate; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it. Steps B..n are added by T-2608 (see later_steps).",
-  "later_steps": [
-    "B: start a registration from the screen (needs T-2704); the answer is 202 with an instance id; throwaway tenants are uat-tmp-* only",
-    "C: the instance runs to its end; the step log lists the steps in order (T-2727)",
-    "D: the mail of the notify step is in Mailpit (wait_mail)",
-    "E: a forced failure of one step, then the retry from the dead-letter list (T-2728)",
-    "F: the designer edit through the API (new draft, validate, activate), a start after it, then the rollback in one step",
-    "G: the refusals of a company user, and the cleanup with the platform residue check"
-  ],
+  "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. BLOCKED (D-179/PM 12:20, D-195): every step that needs a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5, marked blocked_by) is NOT RUN: the onboarding route verifies the realm against the real Keycloak (RealmProbe) and no automated provisioner flow gives a realm or a tenant-admin token per uat-tmp tenant. The runner prints 'not run: blocked by ...' for them, counts them in the verdict line, and a blocked step never passes. Removing a marker is an acceptance line of the task that builds the provisioner wiring (it must then also add the sign-in as the new tenant's administrator at C3 and the observation of the notification file at F8). Steps that run now: A (read), B0 (outbound allow-list), F1-F5 (designer edit, activation refusal), G1-G2 (rollback), H1-H3 and H6 (refusals). The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
@@ -20,7 +12,8 @@
         "user": "admin-user",
         "tenant": "bpm-default",
         "base_url": "https://qa.bizdala.com"
-      }
+      },
+      "storekeeper": "qoimeks-qa2-storekeeper"
     },
     "inputs": {}
   },
@@ -29,7 +22,7 @@
     {
       "id": "A1",
       "actor": "admin",
-      "says": "The platform administrator reads the active definition platform.register_tenant of the platform tenant: it exists, it is ACTIVE, version 2 or later.",
+      "says": "The platform administrator reads the active definition platform.register_tenant of the platform tenant: it exists, it is ACTIVE, version 1 or later.",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/active/platform.register_tenant"
@@ -40,18 +33,19 @@
           "$.name": "platform.register_tenant",
           "$.status": "ACTIVE",
           "$.version": {
-            "regex": "^([2-9]|[1-9][0-9]+)$"
+            "regex": "^[1-9][0-9]*$"
           }
         }
       },
       "save": {
-        "definition_id": "$.id"
+        "definition_id": "$.id",
+        "version1": "$.version"
       }
     },
     {
       "id": "A2",
       "actor": "admin",
-      "says": "The graph the designer page loads: twelve nodes, every service step carries its function name, the notify gateway sits in front of the notify node, which carries a template and a recipient variable.",
+      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node carries a template and a recipient variable.",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/${definition_id}"
@@ -80,8 +74,6 @@
           "$.graph.nodes[7].attributes.platform_call.function": "tenant.grant_first_admins",
           "$.graph.nodes[8].id": "install_default_modules",
           "$.graph.nodes[8].attributes.platform_call.function": "tenant.install_default_modules",
-          "$.graph.nodes[9].id": "notify_gate",
-          "$.graph.nodes[9].node_type": "EXCLUSIVE_GATEWAY",
           "$.graph.nodes[10].id": "notify",
           "$.graph.nodes[10].attributes.notify.template_key": "tenant_registered",
           "$.graph.nodes[10].attributes.notify.recipient.var": "admin_email"
@@ -107,14 +99,14 @@
           "$.items[3].name": "tenant.grant_first_admins",
           "$.items[5].name": "tenant.provision",
           "$.items[6].name": "tenant.record_lifecycle",
+          "$.items[7].name": "tenant.record_onboarding",
+          "$.items[8].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },
           "$.items[2].outputs[0].name": {
             "exists": true
-          },
-          "$.items[7].name": "tenant.record_onboarding",
-          "$.items[8].name": "tenant.validate"
+          }
         }
       }
     },
@@ -135,7 +127,1401 @@
           }
         }
       }
+    },
+    {
+      "id": "B0a",
+      "actor": "admin",
+      "says": "B0. The platform tenant's allow-list: the mail channel is open (the seed of G14 opens channels only).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email"
+        }
+      },
+      "expect": {
+        "status": 201
+      }
+    },
+    {
+      "id": "B0b",
+      "actor": "admin",
+      "says": "B0. The catcher domain of the QA mail trap is allowed for the platform tenant's notify step (the step is refused at dispatch without it). The cleanup removes it again.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email",
+          "destination": "uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "domain_added": "$.destination"
+      }
+    },
+    {
+      "id": "B0c",
+      "actor": "admin",
+      "says": "B0. The file channel is open for the platform tenant (a file step needs no destination).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "file"
+        }
+      },
+      "expect": {
+        "status": 201
+      }
+    },
+    {
+      "id": "B1",
+      "actor": "admin",
+      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. Every registration gets its own realm id (uat-tmp-<uuid>): a realm binds to one tenant only, and a deactivated tenant keeps it, so a fixed realm would fail the second run.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid1}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid1}",
+          "admin_email": "reg-${uuid1}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instance_id1": "$.instance_id",
+        "slug1": "$.slug"
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "B2",
+      "actor": "admin",
+      "says": "B. The engine ARMED the first step: the validate visit of the timeline carries the function name of its dispatch row (null when no platform_step_dispatches row exists), within the stuck limit. A red step here means no step was armed (the engine did not arm the platform step); a row armed but not run is B3.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}/timeline"
+      },
+      "poll": {
+        "within_s": "${stuck_after_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].step": {
+            "absent": false
+          }
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "B3",
+      "actor": "admin",
+      "says": "B. The first step RAN: it is completed within the stuck limit (default 60 s). A red step here with the step still running means the platform step runner is off on the host (LETFLOW_START_PLATFORM_STEP_RUNNER missing; T-2703/T-2707): the instance sits in started and never runs.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}/timeline"
+      },
+      "poll": {
+        "within_s": "${stuck_after_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].result": "completed"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "C1",
+      "actor": "admin",
+      "says": "C. The instance runs to its end: COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "C2",
+      "actor": "admin",
+      "says": "C. The step log lists the nine steps in order, each completed (who/when/duration are on the row; no value is on it).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "create",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "provision",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "record_lifecycle",
+          "$.steps[4].result": "completed",
+          "$.steps[5].node_id": "record_onboarding",
+          "$.steps[5].result": "completed",
+          "$.steps[6].node_id": "bind_realm",
+          "$.steps[6].result": "completed",
+          "$.steps[7].node_id": "grant_first_admins",
+          "$.steps[7].result": "completed",
+          "$.steps[8].node_id": "install_default_modules",
+          "$.steps[8].result": "completed",
+          "$.steps[9].node_id": "notify",
+          "$.steps[9].result": "completed",
+          "$.steps[1].started_at": {
+            "exists": true
+          },
+          "$.steps[1].duration_ms": {
+            "exists": true
+          },
+          "$.steps[10].node_id": "end"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "C3",
+      "actor": "admin",
+      "says": "C. The new tenant exists, is active and has its own realm bound. NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "active",
+          "$.idp_realm_id": "uat-tmp-${uuid1}"
+        }
+      },
+      "requires": [
+        "slug1"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "D1",
+      "actor": "admin",
+      "says": "D. The mail of the notify step is in the Mailpit trap (recipient and subject only; the body is never read).",
+      "do": {
+        "wait_mail": {
+          "recipient": "reg-${uuid1}@uat.letflow.internal",
+          "subject": "Tenant ${slug1} is registered",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E1",
+      "actor": "admin",
+      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one B1 already bound to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid2}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid2}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid1}",
+          "admin_email": "reg-${uuid2}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instance_id2": "$.instance_id",
+        "slug2": "$.slug"
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E2",
+      "actor": "admin",
+      "says": "E. The instance ends in ERROR.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ERROR"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E3",
+      "actor": "admin",
+      "says": "E. The timeline names the failed step (bind_realm) and the steps before it as completed.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[3].node_id": "provision",
+          "$.steps[3].result": "completed",
+          "$.steps[6].node_id": "bind_realm",
+          "$.steps[6].result": "failed",
+          "$.steps[6].last_failure_kind": {
+            "exists": true
+          }
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E4",
+      "actor": "admin",
+      "says": "E. The failure is in the dead-letter list of the platform tenant.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/dlq?instance_id=${instance_id2}"
+      },
+      "poll": {
+        "within_s": 60,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "dlq_id": "$.items[0].id"
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E5",
+      "actor": "admin",
+      "says": "E. The platform administrator retries the entry: the failed step is dispatched once more (the realm stays refused, so it fails again; the retry is bounded, not a loop).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/dlq/${dlq_id}/retry",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          202
+        ]
+      },
+      "requires": [
+        "dlq_id"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "E6",
+      "actor": "admin",
+      "says": "E. The step log shows the second attempt of the failed step.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[6].node_id": "bind_realm",
+          "$.steps[6].attempts": {
+            "regex": "^[2-9]$"
+          }
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "F1",
+      "actor": "admin",
+      "says": "F. The designer edit through the API: a new draft version of platform.register_tenant with the file notification step after the mail step.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "platform.register_tenant",
+          "version": "uat-${run_id}",
+          "description": "UAT ${run_id}: file step added",
+          "graph": {
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "create"
+              },
+              {
+                "id": "e3",
+                "source": "create",
+                "target": "provision"
+              },
+              {
+                "id": "e4",
+                "source": "provision",
+                "target": "bind_realm"
+              },
+              {
+                "id": "e5",
+                "source": "bind_realm",
+                "target": "grant_first_admins"
+              },
+              {
+                "id": "e6",
+                "source": "grant_first_admins",
+                "target": "notify"
+              },
+              {
+                "id": "e7",
+                "source": "notify",
+                "target": "notify_file"
+              },
+              {
+                "id": "e8",
+                "source": "notify_file",
+                "target": "end"
+              }
+            ],
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "name": {
+                        "var": "name"
+                      },
+                      "slug": {
+                        "var": "slug"
+                      }
+                    },
+                    "function": "tenant.validate",
+                    "reads": {
+                      "name": "string",
+                      "slug": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "validate",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "name": {
+                        "var": "name"
+                      },
+                      "slug": {
+                        "var": "slug"
+                      }
+                    },
+                    "function": "tenant.create",
+                    "reads": {
+                      "name": "string",
+                      "slug": "string"
+                    },
+                    "writes": {
+                      "tenant_id": "string"
+                    }
+                  }
+                },
+                "id": "create",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.provision",
+                    "reads": {
+                      "tenant_id": "string"
+                    },
+                    "writes": {
+                      "schema_name": "string"
+                    }
+                  }
+                },
+                "id": "provision",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "realm_id": {
+                        "var": "realm_id"
+                      },
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.bind_realm",
+                    "reads": {
+                      "realm_id": "string",
+                      "tenant_id": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "bind_realm",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "admin_email": {
+                        "var": "admin_email"
+                      },
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.grant_first_admins",
+                    "reads": {
+                      "admin_email": "string",
+                      "tenant_id": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "grant_first_admins",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "notify": {
+                    "recipient": {
+                      "var": "admin_email"
+                    },
+                    "template_key": "tenant_registered",
+                    "values": {
+                      "registered_by": {
+                        "var": "admin_email"
+                      },
+                      "tenant_name": {
+                        "var": "name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      }
+                    }
+                  }
+                },
+                "id": "notify",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "id": "notify_file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "registration-notice",
+                    "values": {
+                      "registered_by": {
+                        "var": "admin_email"
+                      },
+                      "tenant_name": {
+                        "var": "name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ]
+          },
+          "copy_variable_schemas_from": "${definition_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "definition_id2": "$.id"
+      },
+      "requires": [
+        "definition_id"
+      ]
+    },
+    {
+      "id": "F2",
+      "actor": "admin",
+      "says": "F. The designer's live check accepts the graph.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${definition_id2}/validate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "definition_id2"
+      ]
+    },
+    {
+      "id": "F3",
+      "actor": "admin",
+      "says": "F. A refusal: a draft whose file step names a path (../x) is created, and its activation is refused.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "platform.register_tenant",
+          "version": "uat-bad-${run_id}",
+          "description": "UAT ${run_id}: a path-like file name",
+          "graph": {
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "create"
+              },
+              {
+                "id": "e3",
+                "source": "create",
+                "target": "provision"
+              },
+              {
+                "id": "e4",
+                "source": "provision",
+                "target": "bind_realm"
+              },
+              {
+                "id": "e5",
+                "source": "bind_realm",
+                "target": "grant_first_admins"
+              },
+              {
+                "id": "e6",
+                "source": "grant_first_admins",
+                "target": "notify"
+              },
+              {
+                "id": "e7",
+                "source": "notify",
+                "target": "notify_file"
+              },
+              {
+                "id": "e8",
+                "source": "notify_file",
+                "target": "end"
+              }
+            ],
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "name": {
+                        "var": "name"
+                      },
+                      "slug": {
+                        "var": "slug"
+                      }
+                    },
+                    "function": "tenant.validate",
+                    "reads": {
+                      "name": "string",
+                      "slug": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "validate",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "name": {
+                        "var": "name"
+                      },
+                      "slug": {
+                        "var": "slug"
+                      }
+                    },
+                    "function": "tenant.create",
+                    "reads": {
+                      "name": "string",
+                      "slug": "string"
+                    },
+                    "writes": {
+                      "tenant_id": "string"
+                    }
+                  }
+                },
+                "id": "create",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.provision",
+                    "reads": {
+                      "tenant_id": "string"
+                    },
+                    "writes": {
+                      "schema_name": "string"
+                    }
+                  }
+                },
+                "id": "provision",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "realm_id": {
+                        "var": "realm_id"
+                      },
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.bind_realm",
+                    "reads": {
+                      "realm_id": "string",
+                      "tenant_id": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "bind_realm",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "platform_call": {
+                    "args": {
+                      "admin_email": {
+                        "var": "admin_email"
+                      },
+                      "tenant_id": {
+                        "var": "tenant_id"
+                      }
+                    },
+                    "function": "tenant.grant_first_admins",
+                    "reads": {
+                      "admin_email": "string",
+                      "tenant_id": "string"
+                    },
+                    "writes": {}
+                  }
+                },
+                "id": "grant_first_admins",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "attributes": {
+                  "notify": {
+                    "recipient": {
+                      "var": "admin_email"
+                    },
+                    "template_key": "tenant_registered",
+                    "values": {
+                      "registered_by": {
+                        "var": "admin_email"
+                      },
+                      "tenant_name": {
+                        "var": "name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      }
+                    }
+                  }
+                },
+                "id": "notify",
+                "node_type": "SERVICE_TASK"
+              },
+              {
+                "id": "notify_file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "../x",
+                    "values": {
+                      "registered_by": {
+                        "var": "admin_email"
+                      },
+                      "tenant_name": {
+                        "var": "name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ]
+          },
+          "copy_variable_schemas_from": "${definition_id}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "bad_definition_id": "$.id"
+      },
+      "requires": [
+        "definition_id"
+      ]
+    },
+    {
+      "id": "F4",
+      "actor": "admin",
+      "says": "F. The activation of the path-like draft is refused with a 4xx and the active version stays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${bad_definition_id}/activate",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": [
+          400,
+          409,
+          422
+        ]
+      },
+      "requires": [
+        "bad_definition_id"
+      ]
+    },
+    {
+      "id": "F5",
+      "actor": "admin",
+      "says": "F. The draft with the file step is activated (one step).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${definition_id2}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "definition_id2"
+      ]
+    },
+    {
+      "id": "F6",
+      "actor": "admin",
+      "says": "F. A start after the edit: a third throwaway tenant.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid3}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid3}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid3}",
+          "admin_email": "reg-${uuid3}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instance_id3": "$.instance_id",
+        "slug3": "$.slug"
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "F7",
+      "actor": "admin",
+      "says": "F. The instance runs to its end.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id3}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "F8",
+      "actor": "admin",
+      "says": "F. The step log lists the six steps and then the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id3}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "create",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "provision",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].result": "completed",
+          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].result": "completed",
+          "$.steps[6].node_id": "notify",
+          "$.steps[6].result": "completed",
+          "$.steps[7].node_id": "notify_file",
+          "$.steps[7].result": "completed"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "F9",
+      "actor": "admin",
+      "says": "F. The mail of the edited version is in the trap as well.",
+      "do": {
+        "wait_mail": {
+          "recipient": "reg-${uuid3}@uat.letflow.internal",
+          "subject": "Tenant ${slug3} is registered",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "F10",
+      "actor": "admin",
+      "says": "F. The first instance stays on version 1: its definition id is still the one step A read.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.definition_id": "${definition_id}"
+        }
+      },
+      "requires": [
+        "instance_id1"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "G1",
+      "actor": "admin",
+      "says": "G. The rollback in ONE call to the version step A found.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/platform.register_tenant/rollback",
+        "body": {
+          "target_version": "${version1}"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "rolled_back": "$.version"
+      },
+      "requires": [
+        "version1"
+      ]
+    },
+    {
+      "id": "G2",
+      "actor": "admin",
+      "says": "G. The active version is the first one again.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/active/platform.register_tenant"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${definition_id}"
+        }
+      }
+    },
+    {
+      "id": "G3",
+      "actor": "admin",
+      "says": "G. A start after the rollback: a fourth throwaway tenant.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid4}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid4}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid4}",
+          "admin_email": "reg-${uuid4}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instance_id4": "$.instance_id",
+        "slug4": "$.slug"
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "G4",
+      "actor": "admin",
+      "says": "G. The instance runs to its end.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id4}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "G5",
+      "actor": "admin",
+      "says": "G. The step log has no file step any more: the seventh row is the end of the process.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id4}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "create",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "provision",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].result": "completed",
+          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].result": "completed",
+          "$.steps[6].node_id": "notify",
+          "$.steps[6].result": "completed",
+          "$.steps[7].node_id": "end"
+        }
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "G6",
+      "actor": "admin",
+      "says": "G. The mail step of version 1 still works.",
+      "do": {
+        "wait_mail": {
+          "recipient": "reg-${uuid4}@uat.letflow.internal",
+          "subject": "Tenant ${slug4} is registered",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "H1",
+      "actor": "storekeeper",
+      "says": "H. Refusal: a company user may not start a registration (uniform refusal).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid5}",
+          "display_name": "UAT refused",
+          "hostname": "uat-tmp-${uuid5}.${hostname_suffix}"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "H2",
+      "actor": "storekeeper",
+      "says": "H. Refusal: the tenant route answers the same (the create-gate is off for this step: the request is meant to be refused, and the run's cleanup deactivates the slug if it were not).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-${uuid5}",
+          "display_name": "UAT refused"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "refusal_probe": true
+    },
+    {
+      "id": "H3",
+      "actor": "storekeeper",
+      "says": "H. Refusal: a company user cannot activate or roll back the platform definition (the id and the key are unknown in the company tenant).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${definition_id}/activate",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "definition_id"
+      ]
+    },
+    {
+      "id": "H4",
+      "actor": "storekeeper",
+      "says": "H. Refusal: the instance of the platform tenant is not readable by a company user.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "instance_id1"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "H5",
+      "actor": "storekeeper",
+      "says": "H. Refusal: a company user cannot retry a platform DLQ entry.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/dlq/${dlq_id}/retry",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "dlq_id"
+      ],
+      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+    },
+    {
+      "id": "H6",
+      "actor": "storekeeper",
+      "says": "H. Refusal: the allow-list of the platform tenant is not in a company user's reach.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email",
+          "destination": "uat.letflow.internal"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
     }
   ],
-  "cleanup": []
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "definition_id2"
+      ],
+      "skip_if": [
+        "rolled_back"
+      ],
+      "says": "Roll the definition back if the run stopped before G1.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/platform.register_tenant/rollback",
+        "body": {
+          "target_version": "${version1}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "bad_definition_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${bad_definition_id}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "slug2"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug2}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "slug3"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug3}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "requires": [
+        "slug4"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug4}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "admin",
+      "requires": [
+        "domain_added"
+      ],
+      "says": "Remove the catcher domain this run added to the allow-list.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/outbound-destinations?channel=email&destination=uat.letflow.internal"
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com",
+    "stuck_after_s": "60",
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "definitions": [
+      "platform.register_tenant"
+    ],
+    "instances": [
+      "${instance_id1}",
+      "${instance_id2}",
+      "${instance_id3}",
+      "${instance_id4}"
+    ]
+  }
 }

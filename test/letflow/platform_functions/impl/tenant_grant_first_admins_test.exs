@@ -124,6 +124,9 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdminsTest do
   end
 
   defp lifecycle!(tenant_id, stored) do
+    # The tenant is committed, so its lifecycle row is too: remove it before the tenant drop.
+    on_exit(fn -> Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^tenant_id)) end)
+
     Repo.insert!(
       struct(Lifecycle, %{
         tenant_id: tenant_id,
