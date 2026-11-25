@@ -18,7 +18,8 @@
  *  offers the registered keys.
  */
 import { useIntl } from 'react-intl'
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
+import { useGuideStore } from '@/stores/guideStore'
 import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
@@ -28,6 +29,7 @@ import type { UserSession } from '@/types/api'
 import { DiagramEditPane, type DiagramEditPaneProps } from '@/components/diagram/DiagramEditPane'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { holdHarnessReady } from '../fixtureFetch'
 import type { FixtureRoute, HarnessScreen } from '../types'
 
 const n = (id: string, node_type: NodeType, label: string | null, attributes: Record<string, unknown> | null = null) => ({ id, node_type, label, attributes })
@@ -165,6 +167,33 @@ function frame(title: string, props: Partial<DiagramEditPaneProps> & { def?: Pro
   )
 }
 
+/** T-2805: the real editor page with the guide panel opened on mount (optionally at one section). */
+function GuideOpen({ section }: { section?: string }): ReactElement {
+  useEffect(() => {
+    // Hold the ready signal until the guide text has rendered and the fonts are in.
+    const release = holdHarnessReady()
+    useGuideStore.getState().openGuide(section)
+    const poll = window.setInterval(() => {
+      if (document.querySelector('[data-testid="designer-guide-body"] section')) {
+        window.clearInterval(poll)
+        void document.fonts.ready.then(() => window.setTimeout(release, 300))
+      }
+    }, 50)
+    return () => {
+      window.clearInterval(poll)
+      release()
+      useGuideStore.getState().closeGuide()
+    }
+  }, [section])
+  return (
+    <AuthContext.Provider value={PAGE_AUTH}>
+      <AccessStateProvider state={accessState('platformAdmin')}>
+        <DefinitionEditorPage />
+      </AccessStateProvider>
+    </AuthContext.Provider>
+  )
+}
+
 export const registerTenantDesignerScreens: HarnessScreen[] = [
   // The registration definition in the designer, as the seed leaves it: a version that runs.
   { name: 'pd-register-tenant', routes: ROUTES, render: () => frame(DEF.name, {}) },
@@ -182,4 +211,6 @@ export const registerTenantDesignerScreens: HarnessScreen[] = [
       </AuthContext.Provider>
     ),
   },
+  { name: 'pd-guide-open', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideOpen /> },
+  { name: 'pd-guide-notify', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideOpen section="sec-notification-step" /> },
 ]

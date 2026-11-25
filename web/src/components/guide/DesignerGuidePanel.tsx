@@ -10,6 +10,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/Button'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useGuideStore } from '@/stores/guideStore'
 import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
@@ -34,7 +36,8 @@ const ANCHOR = /^<a id="(sec-[a-z0-9-]+)"><\/a>\s*$/
 /** Splits the document at its anchor lines: text before the first anchor has id null. */
 export function splitSections(md: string): { id: string | null; text: string }[] {
   const out: { id: string | null; lines: string[] }[] = [{ id: null, lines: [] }]
-  for (const line of md.split(/\r?\n/)) {
+  // The document's HTML comments (message-key lists for the docs test) are not for the reader.
+  for (const line of md.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
     const m = ANCHOR.exec(line)
     if (m) out.push({ id: m[1], lines: [] })
     else out[out.length - 1].lines.push(line)
@@ -51,6 +54,7 @@ export function DesignerGuidePanel() {
   const [md, setMd] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -74,12 +78,8 @@ export function DesignerGuidePanel() {
     }
   }, [open, locale])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeGuide()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, closeGuide])
+  // Focus moves into the panel on open and back to the opener on close; Escape closes (same rules as Dialog).
+  useModalFocus(panelRef, { open, onClose: closeGuide })
 
   const sections = useMemo(() => (md ? splitSections(md) : []), [md])
 
@@ -96,7 +96,7 @@ export function DesignerGuidePanel() {
   }
 
   return (
-    <aside className="lf-guide-panel" data-testid="designer-guide-panel" aria-label={dm.guideTitle}>
+    <aside ref={panelRef} tabIndex={-1} className="lf-guide-panel" data-testid="designer-guide-panel" aria-label={dm.guideTitle}>
       <div className="lf-guide-panel__head">
         <h2>{dm.guideTitle}</h2>
         <Button variant="secondary" size="sm" data-testid="designer-guide-close" onClick={closeGuide}>
@@ -105,7 +105,14 @@ export function DesignerGuidePanel() {
       </div>
       <div className="lf-guide-panel__body" ref={bodyRef} data-testid="designer-guide-body">
         {failed && <p data-testid="designer-guide-unavailable">{dm.guideUnavailable}</p>}
-        {!failed && !md && <p>…</p>}
+        {!failed && !md && (
+          <div data-testid="designer-guide-loading" role="status" aria-label={dm.guideTitle}>
+            <Skeleton width="60%" />
+            <Skeleton />
+            <Skeleton />
+            <Skeleton width="80%" />
+          </div>
+        )}
         {sections.map((s, i) => (
           <section key={s.id ?? `intro-${i}`} id={s.id ?? undefined} data-testid={s.id ? `guide-${s.id}` : undefined}>
             <ReactMarkdown
