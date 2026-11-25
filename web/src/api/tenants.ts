@@ -7,8 +7,11 @@ export interface Tenant {
   idp_realm_id: string | null
   hostname?: string
   redirect_uris?: string[]
-  status: 'ACTIVE' | 'INACTIVE'
-  created_at: string
+  // GET /api/v1/tenants sends lowercase status and `inserted_at` (tenant_map/1).
+  status: 'active' | 'inactive' | 'ACTIVE' | 'INACTIVE'
+  inserted_at?: string
+  updated_at?: string
+  created_at?: string
   tenant_type: 'production' | 'test'
 }
 
