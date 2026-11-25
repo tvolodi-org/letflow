@@ -75,13 +75,14 @@ defmodule Letflow.Engine.ServiceTask do
       :script_key,
       :script_version,
       :platform_call,
+      :notify,
       headers: %{},
       timeout_ms: 30_000,
       retry_limit: 3,
       warnings: []
     ]
 
-    @type route_kind :: :inline_url | :catalog_service | :script | :platform_call
+    @type route_kind :: :inline_url | :catalog_service | :script | :platform_call | :notify
     @type http_method :: :GET | :POST | :PUT | :PATCH | :DELETE
     @type warning :: :both_url_and_service_id_provided_url_ignored
 
@@ -95,6 +96,7 @@ defmodule Letflow.Engine.ServiceTask do
             script_key: String.t() | nil,
             script_version: pos_integer() | nil,
             platform_call: map() | nil,
+            notify: map() | nil,
             headers: %{optional(String.t()) => String.t()},
             timeout_ms: pos_integer(),
             retry_limit: non_neg_integer(),
@@ -216,10 +218,45 @@ defmodule Letflow.Engine.ServiceTask do
         parse_platform_call_config(node_id, call, attrs)
 
       _no_platform_call ->
+        parse_notify_or_other(node_id, attrs)
+    end
+  end
+
+  # T-2810: a node carrying a `notify` attribute (and no `platform_call`) is route :notify.
+  # `Letflow.Definitions.NotifyCalls` already refuses a second route at activation; a graph
+  # activated before that fence is refused here, at entry, with the same answer.
+  defp parse_notify_or_other(node_id, attrs) do
+    case Map.get(attrs, "notify") do
+      nil ->
         case ref_id(attrs, "script_key") do
           nil -> parse_http_config(node_id, attrs)
           script_key -> parse_script_config(node_id, script_key, attrs)
         end
+
+      notify ->
+        parse_notify_config(node_id, notify, attrs)
+    end
+  end
+
+  # The notify declaration is parsed (validated) by the dispatcher at run time and by
+  # `NotifyCalls` at activation; here it is carried as-is. A non-map attribute is a refusal.
+  defp parse_notify_config(node_id, notify, attrs) do
+    with {:ok, node_id} <- fetch_node_id(node_id) do
+      if not is_map(notify) or ref_id(attrs, "endpoint") != nil or
+           ref_id(attrs, "service_id") != nil or ref_id(attrs, "script_key") != nil or
+           Map.get(attrs, "entity_writes") != nil or Map.get(attrs, "module_writes") != nil do
+        {:error, :conflicting_routes}
+      else
+        {:ok,
+         %Config{
+           node_id: node_id,
+           route_kind: :notify,
+           method: @default_method,
+           timeout_ms: @default_timeout_ms,
+           retry_limit: 0,
+           notify: notify
+         }}
+      end
     end
   end
 
