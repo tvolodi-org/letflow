@@ -99,7 +99,10 @@ export default function DefinitionEditorPage() {
 
   const [name, setName] = useState('')
   const [version, setVersion] = useState('1.0.0')
-  const [description, setDescription] = useState('')
+  // T-2742: the description starts as the STORED one. It used to start as '' and so differed from every definition
+  // that has a description, which wrote a one-field "unsaved local draft" on a fresh open (the banner on QA).
+  const [descriptionEdit, setDescription] = useState<string | null>(null)
+  const description = descriptionEdit ?? def?.description ?? ''
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRawJson, setShowRawJson] = useState(false)
