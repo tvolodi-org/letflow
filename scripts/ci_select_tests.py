@@ -155,6 +155,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g04_http_surfaces_test.exs",
     "test/letflow/security_probe/g04_outbound_surfaces_test.exs",
     "test/letflow/security_probe/g04_dlq_surface_test.exs",
+    "test/letflow/security_probe/g04_artifact_surfaces_test.exs",
     "test/letflow/security_probe/g14_refusal_mapping_matrix_test.exs",
 ]
 # T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole
