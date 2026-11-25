@@ -195,7 +195,19 @@ defmodule Letflow.Signup.Provisioning do
   # The tenant exists (a crash or a mail failure after the create): only the welcome mail is left.
   defp process(%Request{step: "tenant_created"} = row, cfg), do: send_welcome(row, cfg)
 
+  # The host must carry an allowed suffix BEFORE a realm exists for it: otherwise the tenant create refuses it
+  # later and every sign-up leaves an orphan realm (no realm is created for a host the create would refuse).
   defp process(%Request{step: "ready_for_provisioning"} = row, cfg) do
+    case TenantProvisioner.Request.hostname(
+           hostname(row, cfg),
+           TenantProvisioner.Config.allowed_hostname_suffixes()
+         ) do
+      {:ok, _host} -> create_realm_step(row, cfg)
+      {:error, _field} -> {:permanent, :invalid_tenant}
+    end
+  end
+
+  defp create_realm_step(row, cfg) do
     case RealmProvisioner.create_realm(row, cfg) do
       {:ok, _kind, realm} ->
         row =
@@ -276,8 +288,12 @@ defmodule Letflow.Signup.Provisioning do
     end
   end
 
-  defp hostname(row, cfg),
-    do: RealmProvisioner.label(row.tenant_id) <> "." <> to_string(cfg.hostname_domain)
+  # T-2748: the visitor's chosen slug is the host label; a row without one keeps the derived `t-<hex>` label.
+  @doc "The tenant host of a sign-up row: `<slug or derived label>.<hostname domain>`."
+  @spec hostname(map(), map()) :: String.t()
+  def hostname(row, cfg),
+    do:
+      (row.slug || RealmProvisioner.label(row.tenant_id)) <> "." <> to_string(cfg.hostname_domain)
 
   # T-1685: the one welcome mail. Host from operator config and the server-made tenant id (INV-9).
   defp send_welcome(row, cfg) do
@@ -357,6 +373,58 @@ defmodule Letflow.Signup.Provisioning do
     |> scope(only)
     |> Repo.all()
     |> Enum.map(&{&1, run(&1)})
+  end
+
+  @doc """
+  T-2748: the visitor's own retry of one `failed` request: a retryable failure goes back to `provisioning`
+  at its resumable step with a fresh attempt budget (same rules as `resume/1`); a permanent one stays.
+  """
+  @spec retry_failed(String.t()) :: :ok | :not_retryable | :slug_taken
+  def retry_failed(tenant_id) do
+    row =
+      Repo.one(
+        from(r in Request,
+          where:
+            r.tenant_id == ^tenant_id and r.state == "failed" and r.step == "provisioning_failed"
+        )
+      )
+
+    # SF-13: the visitor never refills the platform's budget: `step_attempts` is NOT reset, so every run of
+    # every visitor retry draws on the same `max_attempts` total; an exhausted budget is permanent for them.
+    if (row && row.last_error in @retryable) and row.last_error != "attempts_exhausted" and
+         row.step_attempts < Signup.config().max_attempts do
+      step =
+        cond do
+          row.credential_sent_at -> "credential_sent"
+          row.idp_realm_id -> "realm_created"
+          true -> "ready_for_provisioning"
+        end
+
+      # A failed row released its slug (`signup_requests_slug_open_index`); another visitor may hold it now.
+      # The update is the atomic check: the index refuses it, the newer holder is untouched (INV-8).
+      try do
+        Repo.update_all(from(r in Request, where: r.tenant_id == ^tenant_id),
+          set: [state: "provisioning", step: step, claimed_at: nil]
+        )
+
+        :ok
+      rescue
+        e in Postgrex.Error ->
+          case e.postgres do
+            %{code: :unique_violation, constraint: "signup_requests_slug_open_index"} ->
+              :slug_taken
+
+            # the same e-mail has a newer live request: this one stays failed (one open request per e-mail)
+            %{code: :unique_violation, constraint: "signup_requests_open_email_index"} ->
+              :not_retryable
+
+            _ ->
+              reraise(e, __STACKTRACE__)
+          end
+      end
+    else
+      :not_retryable
+    end
   end
 
   defp scope(query, nil), do: query

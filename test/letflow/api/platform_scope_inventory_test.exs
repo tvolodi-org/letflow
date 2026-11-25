@@ -242,7 +242,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/public_read.ex", "GET", "/:kind/:handle"},
       {"lib/letflow/routers/signup.ex", "GET", "/config"},
       {"lib/letflow/routers/signup.ex", "POST", "/"},
+      {"lib/letflow/routers/signup.ex", "GET", "/slug"},
       {"lib/letflow/routers/signup.ex", "POST", "/verify"},
+      {"lib/letflow/routers/signup.ex", "POST", "/status"},
       {"lib/letflow/routers/tenant_config.ex", "GET", "/"},
       {"lib/letflow/routers/tenant_config.ex", "GET", "/logo"}
     ]
@@ -365,7 +367,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
         assert entry in seen, "stale public allowlist entry #{inspect(entry)}"
       end
 
-      assert length(@public_allowlist) == 11
+      assert length(@public_allowlist) == 13
       assert length(@credential_allowlist) == 16
     end
 
@@ -746,7 +748,10 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
 
     # GLOBAL-PUBLIC router (design 7.4, never under ApiPipeline): reads the public tenant slug to
     # answer the unauthenticated mobile bootstrap; it returns only public configuration.
-    @tenant_param_public ["lib/letflow/routers/mobile_tenant_config.ex"]
+    @tenant_param_public [
+      "lib/letflow/routers/mobile_tenant_config.ex",
+      "lib/letflow/routers/signup.ex"
+    ]
 
     @tenant_param_patterns [
       # a request field constraint naming a tenant (or a tenant slug)
