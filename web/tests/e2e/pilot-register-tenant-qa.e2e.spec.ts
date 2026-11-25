@@ -34,4 +34,27 @@ test.describe('BP-PLATFORM-01 A4: the designer page of platform.register_tenant 
     await expect(page.getByTestId('edit-node-panel')).toBeVisible()
     await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)
   })
+
+  // T-2742 (pilot G9d): the steps carry function names, the panel has the pickers, a fresh open shows no draft banner.
+  // The runner verdict of BP-PLATFORM-01 step A on the deployed build is PENDING until that run.
+  test('G9d: function labels, function picker, argument mapping, notify pickers, no draft banner', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(url as string)
+    await expect(page.getByTestId('draft-banner')).toHaveCount(0)
+    await page.getByTestId('definition-view-edit').click()
+    const editor = page.getByTestId('diagram-editor')
+    await expect(editor).toBeVisible()
+    for (const fn of ['validate', 'create', 'provision', 'bind_realm', 'grant_first_admins', 'notify']) {
+      await expect(editor.getByTestId(`rf__node-${fn}`)).toContainText(fn)
+    }
+    await expect(editor.getByTestId('rf__node-validate')).not.toContainText('Service task')
+    await editor.getByTestId('rf__node-provision').click()
+    await expect(page.getByTestId('edit-platform-call')).toBeVisible()
+    await expect(page.getByTestId('platform-call-function').locator('select')).toHaveValue('tenant.provision')
+    await expect(page.locator('[data-testid^="platform-arg-var-"]').first()).toBeVisible()
+    await editor.getByTestId('rf__node-notify').click()
+    await expect(page.getByTestId('notify-step-template').locator('select')).toHaveValue('tenant_registered')
+    await expect(page.getByTestId('notify-step-recipient')).toBeVisible()
+    await expect(page.getByTestId('draft-banner')).toHaveCount(0)
+  })
 })

@@ -21,7 +21,27 @@ export interface NodeSummary {
   timeoutMs?: string
   duration?: string
   subDefinition?: string
+  /** T-2742: the platform function a `platform_call` step runs (`tenant.validate`). */
+  platformFunction?: string
+  /** T-2742: the template key and the recipient variable of a `notify` step (a constant address is never shown). */
+  notifyTemplate?: string
+  notifyRecipientVar?: string
   otherCount: number
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** T-2742: the caption of a step that has no label of its own: the short name of the platform function it runs
+ *  (`tenant.validate` -> `validate`), or `notify` for a notification step. Null for any other step. */
+export function stepCaption(nodeType: string, attrs: unknown): string | null {
+  if (nodeType !== 'SERVICE_TASK' || !isObj(attrs)) return null
+  const call = attrs.platform_call
+  if (isObj(call) && typeof call.function === 'string' && call.function.trim() !== '') {
+    const fn = call.function
+    return fn.slice(fn.lastIndexOf('.') + 1) || fn
+  }
+  if (isObj(attrs.notify)) return 'notify'
+  return null
 }
 
 const str = (v: unknown): string | undefined =>
@@ -92,6 +112,17 @@ export function summariseNode(
   if (has('duration_iso8601')) out.duration = str(attrs.duration_iso8601)
   if (has('definition_name')) out.subDefinition = str(attrs.definition_name)
 
-  out.subLine = out.role ?? out.assignee ?? out.script ?? out.duration ?? out.subDefinition ?? out.service ?? null
+  if (nodeType === 'SERVICE_TASK') {
+    const call = attrs.platform_call
+    if (isObj(call) && typeof call.function === 'string') out.platformFunction = call.function
+    const notify = attrs.notify
+    if (isObj(notify)) {
+      out.notifyTemplate = str(notify.template_key)
+      const rec = notify.recipient
+      if (isObj(rec)) out.notifyRecipientVar = str(rec.var)
+    }
+  }
+
+  out.subLine = out.platformFunction ?? out.role ?? out.assignee ?? out.script ?? out.duration ?? out.subDefinition ?? out.service ?? null
   return out
 }
