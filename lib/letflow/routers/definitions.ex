@@ -1535,6 +1535,13 @@ defmodule Letflow.Routers.Definitions do
   defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
     do: Response.start_permission_invalid(conn, violation)
 
+  # G-14 (the refusal-mapping matrix): the rollback path runs the same fences
+  # as the activation path, and every one of them may refuse with a graph that
+  # does not parse. The refusal is the tenant's own graph, so it is a 422 --
+  # never the catch-all's 500.
+  defp render_rollback(conn, {:error, :graph_structure_invalid}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
+
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)
 

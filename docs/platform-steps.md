@@ -438,6 +438,37 @@ So the variable belongs to the DEPLOYMENT, not to the build:
 | QA host | `LETFLOW_START_PLATFORM_STEP_RUNNER=true` in BOTH host-local files: `$APP_DIR/qa.env` (the file `deploy/redeploy-qa.sh` sources) and `$APP_DIR/deploy/.env` (the compose `env_file` of `deploy/docker-compose.qa.yml`, the file the app container boots with). `qa.env` alone does not reach the container. `deploy/redeploy-qa.sh` refuses to deploy when either file does not carry it exactly `true`; the runbook is `docs/runbooks/qa-platform-step-runner.md`. |
 | Production | Unset means off, and the row in `docs/runbooks/production-readiness.md` §Settings says so, so an install that forgot it does not start with the runner off unnoticed. Turning it on in production is the owner's decision. |
 
+### The engine runs a notification step (T-2810)
+
+A SERVICE_TASK that carries a `notify` attribute (and nothing else that routes it) is route
+`:notify`. Before T-2810 entering such a node fell to the HTTP branch, failed to parse and ended
+the instance in ERROR. Now the engine arms the SAME durable row as a platform step
+(`platform_step_dispatches`, `function_name` = `notify.send`, `inputs` empty) and
+`Letflow.Engine.NotifyStepRunner` runs it on the same ticker, in EVERY tenant schema (a
+notification step is a tenant step, unlike a platform call). The advance, the failure landing and
+the DLQ retry are the platform step's own (`apply_platform_step_result/3`, `fail_platform_step/2`,
+`Letflow.Instances.StepRetry`); the DLQ entry type is `notify_step`. The poller is the one gated by
+`LETFLOW_START_PLATFORM_STEP_RUNNER`.
+
+| path | trigger | effect | replay | logged / stored |
+|---|---|---|---|---|
+| success, mail | the row is due | the template is sent, the delivery row is written, the instance continues by the edges | the delivery log is asked FIRST (`already_done`): nothing is sent twice | row `advanced`; delivery row: key, locale, status, trigger (no address, no body) |
+| success, file | the row is due | the rendered template is written into the tenant's area, the instance continues | same: a written file for this template and instance is not written again | row `advanced`; the file row |
+| recipient variable absent or not an address | the row is due | refused with `notify_recipient_missing` / `notify_recipient_invalid`: ERROR + EXECUTION_ERROR + `notify_step` DLQ entry | the DLQ retry runs the step once more | row `given_up`, `last_failure_kind` = the code |
+| template unknown | the row is due | refused (`notify_template_unknown`), same landing | retryable | same |
+| destination off the allow-list | the row is due | refused at DISPATCH (`notify_destination_not_allowed`): the list is read at every attempt | retryable once the list allows it | same |
+| send failure | the adapter fails | `notify_failed`: ERROR + DLQ | the retry sends (the log has no `sent` row yet) | same |
+| the tenant's send cap | over the cap | nothing is sent (`notify_skipped`): ERROR + DLQ | retryable later | same |
+| worker dies after the send, before its result | the lease (5 min) expires | the next claim takes the row over (attempt cap 5) | `already_done`: nothing is sent a second time | attempt count grows |
+| retry from the DLQ | an operator | runs the row once (the cap does not stop it), lifts the ERROR and resumes the instance exactly once | a second retry answers `already_done` | the same row |
+
+No address, name or body is written to a log, an audit row, the step row, a DLQ row or an answer
+(INV-4): the recipient and the values are read from the instance's variables at run time. Open
+point: the delivery log is keyed by template + instance, so two steps of the SAME template in one
+instance count as one delivery; give them different templates. T-2727's `tenant.notify_admin`
+platform function is untouched; a later version of the registration definition may use this
+generic step instead.
+
 ### What is not built yet
 
 The engine now arms and runs a platform step (T-2703). What remains is the rewiring: the routes

@@ -849,7 +849,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       StepDispatch
       |> where(
         [d],
-        d.status in [:pending, :running] and d.next_attempt_at <= ^now
+        d.status in [:pending, :running] and d.next_attempt_at <= ^now and
+          d.function_name != ^Letflow.Engine.NotifyStepRunner.function_name()
       )
       |> order_by([d], asc: d.next_attempt_at)
       |> limit(^limit)

@@ -150,6 +150,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
     "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
     "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
+    "test/letflow/security_probe/g14_refusal_mapping_matrix_test.exs",
 ]
 # T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole
 # tree of the backend source and pins it (an allowlist, a ledger or a count). A diff that
