@@ -87,6 +87,20 @@ def cooccurrence_roots(text):
             roots.add(root)
     return roots
 
+EXPAND_RE = re.compile(r'Path\.expand\(\s*"([^"\n]*)"\s*,\s*__DIR__\s*\)')
+
+def expand_roots(text, path):
+    """A root written relative to the test file, resolved against its directory."""
+    if "Path.wildcard" not in text or "**" not in text:
+        return set()
+    roots = set()
+    for rel in EXPAND_RE.findall(text):
+        resolved = os.path.normpath(os.path.join(os.path.dirname(path), rel)).replace(os.sep, "/")
+        root = source_root(resolved)
+        if root:
+            roots.add(root)
+    return roots
+
 def helper_modules(root):
     modules = {}
     for pattern in ("lib/**/*.ex", "test/support/**/*.ex"):
@@ -163,7 +177,7 @@ def main():
         if not path.endswith("_test.exs"):
             continue
         text = read(os.path.join(root, path))
-        roots = glob_roots(text) | cooccurrence_roots(text) | indirect_roots(text, modules)
+        roots = glob_roots(text) | cooccurrence_roots(text) | indirect_roots(text, modules) | expand_roots(text, path)
         if roots:
             members.append(path)
     for path in sorted(set(members)):

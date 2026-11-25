@@ -111,7 +111,7 @@ defmodule Letflow.CiSelectTestsTest do
     args = types.SimpleNamespace(root='.', shards=8, per_shard=4, target_ms=120000, standard_max_tests=160)
     weights, _ = s.read_manifest('test/shard_manifest.txt')
     lines, _, deferred, reserved = s.bounded_plan(files, changed, weights, args, files)
-    required = s.inventory_tests(changed, files, '.')
+    required = s.safety_tests(files) | s.inventory_tests(changed, files, '.')
     assert required <= {line.split()[1] for line in lines}
     assert required.isdisjoint(deferred)
     # T-2691: the plan holds at most 160 optional files plus the reserved checks.
@@ -1167,6 +1167,94 @@ defmodule Letflow.CiSelectTestsTest do
 
       assert Enum.any?(plan, &String.ends_with?(&1, " test/letflow/demo/indirect_scan_test.exs")),
              inspect(plan)
+    end
+
+    @tag :tmp_dir
+    test "T10: a whole-tree reader whose root is Path.expand(rel, __DIR__) is a member and is planned", %{
+      tmp_dir: dir
+    } do
+      seed =
+        seed_tree(dir, "expand_root", %{
+          "test/letflow/demo/expand_scan_test.exs" => """
+          defmodule Letflow.Demo.ExpandScanTest do
+            use ExUnit.Case, async: true
+
+            test "no router calls create_token" do
+              root = Path.expand("../../../lib/letflow/demo", __DIR__)
+              files = Path.wildcard(Path.join(root, "**/*.{ex,exs}"))
+              assert files != []
+            end
+          end
+          """,
+          # The same relative form without a recursive glob reads one file: not a member.
+          "test/letflow/demo/expand_single_test.exs" => """
+          defmodule Letflow.Demo.ExpandSingleTest do
+            use ExUnit.Case, async: true
+
+            test "one file" do
+              assert File.read!(Path.expand("../../../lib/letflow/demo/plain.ex", __DIR__)) =~ "Plain"
+            end
+          end
+          """,
+          "lib/letflow/demo/plain.ex" => """
+          defmodule Letflow.Demo.Plain do
+            def value, do: 1
+          end
+          """
+        })
+
+      code = """
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      files = ['test/letflow/demo/expand_scan_test.exs', 'test/letflow/demo/expand_single_test.exs']
+      members = s.whole_tree_scan_tests(files, sys.argv[1])
+      assert members == {'test/letflow/demo/expand_scan_test.exs'}, members
+      print('expand PASS')
+      """
+
+      assert {"expand PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code, seed],
+                 cd: @root,
+                 stderr_to_stdout: true
+               )
+    end
+
+    test "T11: the reserved weight is not charged against the optional per-partition target" do
+      code = """
+      import importlib.util, os, tempfile, types
+      spec = importlib.util.spec_from_file_location('selector', 'scripts/ci_select_tests.py')
+      s = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(s)
+      with tempfile.TemporaryDirectory() as tmp:
+          scan = os.path.join(tmp, 'test/letflow/demo/scan_test.exs')
+          os.makedirs(os.path.dirname(scan))
+          open(scan, 'w').write(open('test/fixtures/ci_select_tests/whole_tree_scan.exs').read())
+          heavy = os.path.join(tmp, 'test/letflow/demo/x_test.exs')
+          open(heavy, 'w').write('defmodule Demo.XTest do\\nend\\n')
+          files = ['test/letflow/demo/scan_test.exs', 'test/letflow/demo/x_test.exs']
+          # Two partitions of 1000 ms: the reserved scan weighs 900, the optional test 900.
+          # Charged against one account the optional test (900 + 900 > 1000) is deferred.
+          args = types.SimpleNamespace(root=tmp, shards=2, per_shard=1, target_ms=1000, standard_max_tests=160)
+          weights = {'test/letflow/demo/scan_test.exs': 900.0, 'test/letflow/demo/x_test.exs': 900.0}
+          lines, _, deferred, _ = s.bounded_plan(files, ['lib/letflow/demo/x.ex'], weights, args, files)
+          chosen = [line.split()[1] for line in lines]
+          assert 'test/letflow/demo/x_test.exs' in chosen, (chosen, deferred)
+          # the whole run's bound still applies to the combined set: a third optional test
+          # that would push reserved + optional past 2000 ms is deferred
+          extra = os.path.join(tmp, 'test/letflow/demo/y_test.exs')
+          open(extra, 'w').write('defmodule Demo.YTest do\\nend\\n')
+          files.append('test/letflow/demo/y_test.exs')
+          weights['test/letflow/demo/y_test.exs'] = 900.0
+          lines, _, deferred, _ = s.bounded_plan(files, ['lib/letflow/demo/x.ex', 'lib/letflow/demo/y.ex'], weights, args, files)
+          chosen = [line.split()[1] for line in lines]
+          assert sum(weights[t] for t in chosen) <= args.shards * args.target_ms, chosen
+      print('optional account PASS')
+      """
+
+      assert {"optional account PASS\n", 0} =
+               System.cmd("python3", ["-I", "-B", "-c", code], cd: @root, stderr_to_stdout: true)
     end
 
     test "T8: a reserved check is admitted even when it does not fit its partition's budget" do

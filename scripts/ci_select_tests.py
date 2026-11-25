@@ -37,6 +37,7 @@ import argparse
 import glob
 import math
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -184,6 +185,9 @@ STANDARD_SECURITY_PROBE_TESTS = [
 # pattern over every source file is quadratic and the class derivation reads the tree.
 WHOLE_TREE_GLOB_MARKER_RE = re.compile(r"/\*\*")
 PATH_TAIL_RE = re.compile(r"[A-Za-z0-9_./-]*$")
+# A root written relative to the test file: `Path.expand("../../../lib/x", __DIR__)`. The
+# literal names no backend-source prefix until it is resolved against the test's directory.
+EXPAND_ROOT_RE = re.compile(r'Path\.expand\(\s*"([^"\n]*)"\s*,\s*__DIR__\s*\)')
 # The other spellings of a recursive glob: the `**` is a token of its own in a path chain
 # (`Path.join([root, dir, "**", "*.ex"])`, `["lib", "**", "*.ex"]`, `@lib |> Path.join("**/*.ex")`),
 # so the root is a different literal of the same definition (T-2691 rework 3).
@@ -652,7 +656,8 @@ def whole_tree_scan_tests(all_tests, root):
         text = read(os.path.join(root, path)) or ""
         if not text:
             continue
-        if whole_tree_glob_roots(text) or chain_glob_roots(text) or indirect_tree_roots(text, root):
+        if (whole_tree_glob_roots(text) or chain_glob_roots(text)
+                or expand_glob_roots(text, path) or indirect_tree_roots(text, root)):
             scans.add(path)
     return scans
 
@@ -675,6 +680,25 @@ def source_root(literal):
     if any(prefix.startswith(literal + "/") for prefix in BACKEND_SOURCE_PREFIXES):
         return literal
     return None
+
+
+def expand_glob_roots(text, path):
+    """The backend-source roots of a recursive glob whose root is `Path.expand(rel, __DIR__)`.
+
+    The relative literal is resolved against the test file's directory; the definition must
+    also hold a `**` token and a `wildcard` call, so a single-file read through the same
+    form is not a member (T-2691 rework 4: the token-issuer, TA-audit-path and version-
+    binding scans were deferrable).
+    """
+    if "**" not in text or "wildcard" not in text:
+        return set()
+    roots = set()
+    for rel in EXPAND_ROOT_RE.findall(text):
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), rel))
+        root = source_root(resolved)
+        if root:
+            roots.add(root)
+    return roots
 
 
 def whole_tree_glob_roots(text):
@@ -1028,6 +1052,11 @@ def bounded_plan(selected, changed, weights, args, all_tests):
         return 4
 
     bins = [[0.0, []] for _ in range(args.shards * args.per_shard)]
+    # The optional candidates' own account per bin: the reserved weight is not charged
+    # against the per-partition target that measures them (T-2691 rework), or a heavy
+    # high-risk check would lose its place to the reserved set.
+    optional_load = {id(b): 0.0 for b in bins}
+    optional_weight = 0.0
     deferred, families, optional_admitted = [], set(), 0
     # The optional file cap: never admit the whole corpus, even in a small synthetic
     # repository. The reserved set is admitted on top of it (T-2691), so it is never
@@ -1052,10 +1081,15 @@ def bounded_plan(selected, changed, weights, args, all_tests):
             b[1].append(t)
             reserved_weight += weight
             continue
-        if optional_admitted >= optional_limit or b[0] + weight > args.target_ms or extra_family:
+        if (optional_admitted >= optional_limit
+                or optional_load[id(b)] + weight > args.target_ms
+                or reserved_weight + optional_weight + weight > capacity
+                or extra_family):
             deferred.append(t)
             continue
         b[0] += weight
+        optional_load[id(b)] += weight
+        optional_weight += weight
         b[1].append(t)
         optional_admitted += 1
         if priority(t) == 4:
