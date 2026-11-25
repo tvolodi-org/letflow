@@ -141,7 +141,7 @@ defmodule Letflow.Signup do
   Verifies a token. Idempotent within the token's lifetime. One failure for unknown, expired, closed
   and malformed tokens (INV-5).
   """
-  @spec verify(term(), DateTime.t(), boolean()) :: :ok | {:error, :invalid}
+  @spec verify(term(), DateTime.t(), boolean()) :: :ok | {:error, :invalid | :slug_taken}
   def verify(token, now \\ DateTime.utc_now(), retry? \\ false)
 
   def verify(token, now, retry?) when is_binary(token) and byte_size(token) in 20..100 do
@@ -194,6 +194,7 @@ defmodule Letflow.Signup do
     case Provisioning.retry_failed(request.tenant_id) do
       :ok -> {:ok, request.tenant_id}
       :not_retryable -> :ok
+      :slug_taken -> {:error, :slug_taken}
     end
   end
 

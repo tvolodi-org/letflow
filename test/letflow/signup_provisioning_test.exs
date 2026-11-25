@@ -330,6 +330,27 @@ defmodule Letflow.SignupProvisioningTest do
       assert row(r3.tenant_id).step_attempts == 2
     end
 
+    test "P27 a retry after another visitor took the released slug is a 409 slug_taken, not a crash" do
+      enable!()
+      {a, token} = failed_row!(last_error: "unavailable", step_attempts: 1, slug: "race-co")
+      b = ready_row(slug: "race-co", email: "other@example.test")
+      b_before = row(b.tenant_id)
+
+      resp = request(:post, "/api/signup/verify", %{"token" => token, "retry" => true})
+      assert resp.status == 409
+      assert %{"error" => "slug_taken"} = json(resp)
+      assert row(a.tenant_id).state == "failed"
+      assert row(b.tenant_id).state == b_before.state
+      assert row(b.tenant_id).slug == "race-co"
+      assert Provisioning.retry_failed(a.tenant_id) == :slug_taken
+
+      # the same e-mail has a newer live request: not retryable, no crash
+      {c, _} = failed_row!(last_error: "unavailable", step_attempts: 1)
+      _live = ready_row()
+      assert Provisioning.retry_failed(c.tenant_id) == :not_retryable
+      assert row(c.tenant_id).state == "failed"
+    end
+
     test "P24 a host outside the allowed suffixes creates no realm" do
       r = ready_row(slug: "my-co")
       stub = stub_created(r.tenant_id)

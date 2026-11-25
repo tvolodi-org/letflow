@@ -143,6 +143,10 @@ defmodule Letflow.Routers.Signup do
         {:error, :invalid} ->
           emit(:verify_invalid)
           respond(conn, 400, %{error: "invalid_or_expired_link"})
+
+        {:error, :slug_taken} ->
+          emit(:slug_taken)
+          respond(conn, 409, %{error: "slug_taken"})
       end
     end
   end

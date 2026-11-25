@@ -379,7 +379,7 @@ defmodule Letflow.Signup.Provisioning do
   T-2748: the visitor's own retry of one `failed` request: a retryable failure goes back to `provisioning`
   at its resumable step with a fresh attempt budget (same rules as `resume/1`); a permanent one stays.
   """
-  @spec retry_failed(String.t()) :: :ok | :not_retryable
+  @spec retry_failed(String.t()) :: :ok | :not_retryable | :slug_taken
   def retry_failed(tenant_id) do
     row =
       Repo.one(
@@ -400,11 +400,28 @@ defmodule Letflow.Signup.Provisioning do
           true -> "ready_for_provisioning"
         end
 
-      Repo.update_all(from(r in Request, where: r.tenant_id == ^tenant_id),
-        set: [state: "provisioning", step: step, claimed_at: nil]
-      )
+      # A failed row released its slug (`signup_requests_slug_open_index`); another visitor may hold it now.
+      # The update is the atomic check: the index refuses it, the newer holder is untouched (INV-8).
+      try do
+        Repo.update_all(from(r in Request, where: r.tenant_id == ^tenant_id),
+          set: [state: "provisioning", step: step, claimed_at: nil]
+        )
 
-      :ok
+        :ok
+      rescue
+        e in Postgrex.Error ->
+          case e.postgres do
+            %{code: :unique_violation, constraint: "signup_requests_slug_open_index"} ->
+              :slug_taken
+
+            # the same e-mail has a newer live request: this one stays failed (one open request per e-mail)
+            %{code: :unique_violation, constraint: "signup_requests_open_email_index"} ->
+              :not_retryable
+
+            _ ->
+              reraise(e, __STACKTRACE__)
+          end
+      end
     else
       :not_retryable
     end
