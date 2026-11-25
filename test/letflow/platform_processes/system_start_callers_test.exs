@@ -22,7 +22,8 @@ defmodule Letflow.PlatformProcesses.SystemStartCallersTest do
              "lib/letflow/engine.ex",
              "lib/letflow/definitions/start_permission.ex",
              "lib/letflow/tenant_provisioner.ex",
-             "lib/letflow/tenant_provisioner/admit.ex"
+             "lib/letflow/tenant_provisioner/admit.ex",
+             "lib/letflow/tenant_provisioner/register.ex"
            ])
 
   @pattern ~r/\bSystemStart\b|\bstart_register_tenant_system\b/
