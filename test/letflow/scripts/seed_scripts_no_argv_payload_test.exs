@@ -585,11 +585,13 @@ defmodule Letflow.Scripts.SeedScriptsNoArgvPayloadTest do
       esac
       i=$(( i + 1 ))
     done
-    if [[ "${method}" == POST && "${last}" != */activate && -n "${STUB_CURL_FAIL_POST:-}" ]]; then
+    if [[ "${method}" == POST && "${last}" != */activate && "${last}" != */outbound-destinations && -n "${STUB_CURL_FAIL_POST:-}" ]]; then
       exit 22
     fi
     if [[ "${last}" == */me/access ]]; then
-      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite"]}'
+      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite","OutboundDestinationsManage"]}'
+    elif [[ "${last}" == */outbound-destinations ]]; then
+      if [[ "${method}" == POST ]]; then printf '%s' '{}'; else printf '%s' '{"entries":[]}'; fi
     elif [[ "${last}" == */activate ]]; then
       printf '%s' '{"id":"def-stub-1","name":"Stub","version":"1","status":"ACTIVE"}'
     elif [[ "${method}" == POST ]]; then
@@ -642,6 +644,10 @@ defmodule Letflow.Scripts.SeedScriptsNoArgvPayloadTest do
           for n <- 1..calls,
               File.exists?(Path.join(dir, "body_#{n}")),
               not String.ends_with?(File.read!(Path.join(dir, "url_#{n}")), "/activate"),
+              not String.ends_with?(
+                File.read!(Path.join(dir, "url_#{n}")),
+                "/outbound-destinations"
+              ),
               do: n
 
         assert posts != [], "no definition POST body was recorded by the stub curl"
