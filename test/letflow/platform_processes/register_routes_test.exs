@@ -767,4 +767,163 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
     conn = post(ctx, "/api/v1/tenants", Map.put(body, "tenant_type", "production"))
     assert conn.status == 409, conn.resp_body
   end
+
+  describe "T-2727 V8: the v2 run, end to end through the runner" do
+    alias Letflow.OutboundDestinations
+
+    defp activate_v1!(ctx) do
+      alias Letflow.Support.PlatformCallFixture, as: Fx
+      prefix = ctx.platform.schema_name
+      admin = Fx.user!(prefix, "v1-activator")
+      Fx.platform_admin!(prefix, admin)
+      v1 = Letflow.PlatformProcesses.Definition
+
+      {:ok, draft} =
+        Letflow.Definitions.create_with_variable_schemas(
+          Map.put(v1.attrs(), :created_by, admin.id),
+          v1.variable_schemas(),
+          prefix: prefix
+        )
+
+      activator =
+        Letflow.Definitions.Activator.from_auth_context(
+          %{user_id: admin.id, roles: ["PLATFORM_ADMIN"]},
+          true
+        )
+
+      OutboundDestinations.open_channels(prefix, admin.id, draft.graph)
+      {:ok, _} = Letflow.Definitions.activate(draft.id, prefix: prefix, activator: activator)
+      admin
+    end
+
+    defp run_all(ctx, instance_id) do
+      Enum.each(1..20, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+
+      Repo.get_by!(InstanceProjection, [instance_id: instance_id],
+        prefix: ctx.platform.schema_name
+      )
+    end
+
+    # The engine on main has no runtime for the `notify` node (v1 has the same node): entering it is
+    # a `config_parse_failed` apply refusal. That gap is reported in the task findings; this test
+    # proves what the v2 definition owns -- the steps BEFORE the gateway ran, the hostname gave the
+    # onboarding record, and the gateway was reached with `notify_admin` true. The Dispatcher's own
+    # delivery is proved by the SF-08 test above and by the notification-step tests.
+    test "with admin_email and hostname: the steps before the gateway run, the onboarding record is stored",
+         ctx do
+      seed!(ctx)
+
+      body =
+        "/api/v1/onboarding"
+        |> form()
+        |> Map.put("admin_email", "owner-t2727-v8@example.com")
+
+      conn = post(ctx, "/api/v1/onboarding", body)
+      assert conn.status == 202, conn.resp_body
+      instance_id = json(conn)["instance_id"]
+      assert started_variables(ctx, instance_id)["notify_admin"] == true
+
+      projection = run_all(ctx, instance_id)
+      tenant = Repo.get_by(Tenant, slug: body["slug"])
+      assert tenant, "the create step must have stored the tenant"
+      drop_on_exit(tenant)
+
+      record = Repo.get_by(OnboardingRecord, slug: body["slug"])
+      assert record, "the hostname must have produced the onboarding record"
+      assert record.hostname == body["hostname"]
+
+      # install_default_modules (the step just before the gateway) was applied: the failure, if any,
+      # is at the notify node, never at one of the v2 steps.
+      refute match?(
+               %{"affected" => %{"node_id" => node}}
+               when node in ~w(validate create provision record_lifecycle record_onboarding
+                               bind_realm grant_first_admins),
+               projection.error_detail
+             )
+    end
+
+    test "without admin_email: notify_admin false, the instance COMPLETES with no mail and no error",
+         ctx do
+      seed!(ctx)
+      body = form("/api/v1/onboarding")
+      conn = post(ctx, "/api/v1/onboarding", body)
+      assert conn.status == 202, conn.resp_body
+      instance_id = json(conn)["instance_id"]
+      assert started_variables(ctx, instance_id)["notify_admin"] == false
+
+      projection = run_all(ctx, instance_id)
+      if tenant = Repo.get_by(Tenant, slug: body["slug"]), do: drop_on_exit(tenant)
+
+      assert projection.status == :completed,
+             inspect({projection.status, projection.error_detail})
+
+      assert Repo.get_by(OnboardingRecord, slug: body["slug"])
+    end
+
+    test "on v1 active the operator builder sends none of the v2 keys, and the start completes",
+         ctx do
+      activate_v1!(ctx)
+
+      body =
+        "/api/v1/tenants"
+        |> form()
+        |> Map.put("admin_email", "owner-v1@example.com")
+
+      conn = post(ctx, "/api/v1/tenants", body)
+      assert conn.status == 202, conn.resp_body
+      vars = started_variables(ctx, json(conn)["instance_id"])
+
+      for key <- ["tenant_type", "notify_admin", "requested_tenant_id"],
+          do: refute(Map.has_key?(vars, key), "v1 start must not carry #{key}")
+
+      assert vars["slug"] == body["slug"]
+    end
+
+    test "V14a: a request started on v1 replays after v2 is activated: the first instance, no 409",
+         ctx do
+      admin = activate_v1!(ctx)
+      body = form("/api/v1/tenants")
+
+      first = post(ctx, "/api/v1/tenants", body)
+      assert first.status == 202, first.resp_body
+
+      assert {:ok, %{outcome: :created}} =
+               Letflow.PlatformProcesses.Seed.seed(
+                 prefix: ctx.platform.schema_name,
+                 activator_user_id: admin.id
+               )
+
+      again = post(ctx, "/api/v1/tenants", body)
+      assert again.status == 202, again.resp_body
+      assert json(again)["instance_id"] == json(first)["instance_id"]
+      assert json(again)["replayed"] == true
+
+      changed = post(ctx, "/api/v1/tenants", Map.put(body, "display_name", "Other"))
+      assert changed.status == 409, changed.resp_body
+    end
+
+    for {field, value} <- [
+          {"admin_email", "owner-t2727-v16@example.com"},
+          {"idp_realm_id", "t2727v16realm"}
+        ] do
+      test "V16: #{field} absent then present, and present then absent, is a 409 on route 2 (hostname is required there; its absent/present replay is the system start's, in system_start_test.exs)",
+           ctx do
+        seed!(ctx)
+        field = unquote(field)
+        value = unquote(value)
+
+        absent = "/api/v1/onboarding" |> form() |> Map.delete(field)
+        assert post(ctx, "/api/v1/onboarding", absent).status == 202
+        added = post(ctx, "/api/v1/onboarding", Map.put(absent, field, value))
+        assert added.status == 409, added.resp_body
+
+        present = Map.put(form("/api/v1/onboarding"), field, value)
+        assert post(ctx, "/api/v1/onboarding", present).status == 202
+        removed = post(ctx, "/api/v1/onboarding", Map.delete(present, field))
+        assert removed.status == 409, removed.resp_body
+
+        assert post(ctx, "/api/v1/onboarding", present).status == 202
+      end
+    end
+  end
 end

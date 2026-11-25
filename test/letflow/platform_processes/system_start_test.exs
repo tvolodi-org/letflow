@@ -450,4 +450,123 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
     assert audit.actor_id == nil
     assert audit.after_state["started_via"] == "signup_provisioning"
   end
+
+  describe "T-2727 V14/V16: the replay of a system start" do
+    defp roll_back_to_v1!(ctx) do
+      {:ok, draft} =
+        Definitions.create_with_variable_schemas(
+          Map.put(Definition.attrs(), :created_by, ctx.admin.id),
+          Definition.variable_schemas(),
+          prefix: ctx.platform.schema_name
+        )
+
+      activator =
+        Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+      Letflow.OutboundDestinations.open_channels(
+        ctx.platform.schema_name,
+        ctx.admin.id,
+        draft.graph
+      )
+
+      {:ok, _} =
+        Definitions.activate(draft.id,
+          prefix: ctx.platform.schema_name,
+          activator: activator
+        )
+    end
+
+    test "V14b: after a rollback to v1 the same request replays the first instance; a change is a reuse",
+         ctx do
+      activate_contract_document!(ctx)
+      req = request()
+
+      assert {:ok, %{instance_id: first}} =
+               PlatformProcesses.start_register_tenant_system(req, ctx.system_start, [])
+
+      roll_back_to_v1!(ctx)
+
+      assert {:ok, %{instance_id: ^first}} =
+               PlatformProcesses.start_register_tenant_system(req, ctx.system_start, [])
+
+      assert {:error, :idempotency_key_reuse} =
+               PlatformProcesses.start_register_tenant_system(
+                 %{req | name: "Another name"},
+                 ctx.system_start,
+                 []
+               )
+
+      assert instance_count(ctx.platform.schema_name) == 1
+    end
+
+    test "V14b: after the definition is deprecated the same request replays; a change is a reuse",
+         ctx do
+      definition = activate_contract_document!(ctx)
+      req = request()
+
+      assert {:ok, %{instance_id: first}} =
+               PlatformProcesses.start_register_tenant_system(req, ctx.system_start, [])
+
+      activator =
+        Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+      assert {:ok, _} =
+               Definitions.deprecate(definition.id,
+                 prefix: ctx.platform.schema_name,
+                 activator: activator
+               )
+
+      assert {:ok, %{instance_id: ^first}} =
+               PlatformProcesses.start_register_tenant_system(req, ctx.system_start, [])
+
+      assert {:error, :idempotency_key_reuse} =
+               PlatformProcesses.start_register_tenant_system(
+                 %{req | name: "Another name"},
+                 ctx.system_start,
+                 []
+               )
+    end
+
+    for {field, value} <- [
+          {:hostname, "t2727-replay.example.com"},
+          {:idp_realm_id, "t2727-realm"},
+          {:email_key, "owner-t2727@example.com"}
+        ] do
+      test "V16: #{field} absent then present, and present then absent, is a reuse", ctx do
+        activate_contract_document!(ctx)
+        field = unquote(field)
+        value = unquote(value)
+
+        # absent -> present
+        absent = request()
+
+        assert {:ok, %{instance_id: _}} =
+                 PlatformProcesses.start_register_tenant_system(absent, ctx.system_start, [])
+
+        assert {:error, :idempotency_key_reuse} =
+                 PlatformProcesses.start_register_tenant_system(
+                   Map.put(absent, field, value),
+                   ctx.system_start,
+                   []
+                 )
+
+        # present -> absent
+        present = Map.put(request(), field, value)
+
+        assert {:ok, %{instance_id: _}} =
+                 PlatformProcesses.start_register_tenant_system(present, ctx.system_start, [])
+
+        assert {:error, :idempotency_key_reuse} =
+                 PlatformProcesses.start_register_tenant_system(
+                   Map.put(present, field, nil),
+                   ctx.system_start,
+                   []
+                 )
+
+        # the same value is a replay
+        assert {:ok, %{replayed: true}} =
+                 PlatformProcesses.start_register_tenant_system(present, ctx.system_start, [])
+      end
+    end
+  end
 end

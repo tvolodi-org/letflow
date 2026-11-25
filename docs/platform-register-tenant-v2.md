@@ -1,8 +1,14 @@
 # `platform.register_tenant` v2 and the system-authority start (design, pilot gap G17c)
 
-Status: DESIGN (T-2734, written 2026-11-24). It describes how to build the change; nothing in it is built yet. The build
-is T-2727. The consumer is the contract amendment of `POST /admin/v1/tenants` (202 + poll), approved by the PM on
-2026-11-24 17:25 with three changes. Its build is T-2728, and section 9 is the part of this design that T-2728 implements.
+Status: BUILT by T-2727 (written 2026-11-24 as T-2734): the v2 definition, its steps, the admission table, the
+system-authority start and decision 0094's Update are implemented, with the tests of section 10 for V2, V4, V5, V8, V9,
+V11, V14 and V16. Still pending (T-2728 / G17d): the front gate and the Sweep (the `Admission` schema is the only part
+built), routes 3 and 4 on the definition with the 202 + poll contract (section 9), and the rows V3, V6, V7, V10, V12,
+V13 and V15. Known gap found while building V8: the engine has no runtime for the
+`notify` node (v1 has the same node), so a start with `notify_admin: true` ends in ERROR on entering `notify`; the mail
+itself is proved through the notification `Dispatcher` tests. The consumer is the contract amendment of
+`POST /admin/v1/tenants` (202 + poll), approved by the PM on 2026-11-24 17:25 with three changes; section 9 is the part
+of this design that T-2728 implements.
 Decision record: `docs/migration/decisions/0094-platform-call-authority.md`, amendment "The system-authority start".
 
 **This change adds NO new way to create a tenant.** The tenant row is still written in exactly one place, the body of
