@@ -339,6 +339,49 @@ defmodule Letflow.Support.G14RefusalMatrix do
   end
 
   @doc """
+  The Response helpers whose contract carries a `violations` list, derived from
+  the helper source (`def name(conn, violations) when is_list(violations)`).
+  """
+  @spec violation_helpers() :: [atom()]
+  def violation_helpers do
+    "lib/letflow/api/response.ex"
+    |> File.read!()
+    |> then(&Regex.scan(~r/def (\w+)\(conn, violations\) when is_list\(violations\)/, &1))
+    |> Enum.map(fn [_, name] -> String.to_atom(name) end)
+  end
+
+  @doc """
+  The body check shared by the real-tree matrix and its negative test. Returns
+  a list of problems (empty when the body honours the contract): a helper whose
+  contract carries a violations list needs a non-empty list; any other stable
+  code body needs a diagnostic field beyond the bare code.
+  """
+  @spec body_problems(map() | term(), atom() | nil) :: [String.t()]
+  def body_problems(body, helper) when is_map(body) do
+    cond do
+      helper in violation_helpers() ->
+        case Map.get(body, "violations") do
+          [_ | _] -> []
+          other -> ["violations list missing or empty: #{inspect(other)}"]
+        end
+
+      is_atom(helper) and not is_nil(helper) ->
+        if map_size(Map.delete(body, "error")) > 0,
+          do: [],
+          else: ["no diagnostic field beyond the code"]
+
+      true ->
+        case Map.get(body, "violations") do
+          nil -> []
+          [_ | _] -> []
+          other -> ["empty violations list: #{inspect(other)}"]
+        end
+    end
+  end
+
+  def body_problems(body, _helper), do: ["body is not an object: #{inspect(body)}"]
+
+  @doc """
   The status a clause answers statically: the Response helper it calls decides
   it (`unprocessable` is 422, `send_problem` carries the status of the problem
   it is given).

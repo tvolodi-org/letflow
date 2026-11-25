@@ -180,16 +180,23 @@ defmodule Letflow.SecurityProbe.G14RefusalMappingMatrixTest do
                      "#{surface.name} answered a problem document with no code or detail: #{inspect(body)}"
             end
 
-            case body["violations"] do
-              nil ->
-                :ok
+            problems = Matrix.body_problems(body, Matrix.stable_code_helper(clause, shape))
 
-              violations ->
-                assert is_list(violations) and violations != [],
-                       "#{surface.name} answered an empty violations list"
-            end
+            assert problems == [],
+                   "#{surface.name} / #{inspect(shape.name)} body contract: #{inspect(problems)}"
         end
       end
+    end
+  end
+
+  describe "the body check is not vacuous" do
+    test "a body that lost its violations list fails the shared check" do
+      [helper | _] = Matrix.violation_helpers()
+
+      assert Matrix.body_problems(%{"error" => "x", "violations" => [%{"a" => 1}]}, helper) == []
+      assert Matrix.body_problems(%{"error" => "x"}, helper) != []
+      assert Matrix.body_problems(%{"error" => "x", "violations" => []}, helper) != []
+      assert Matrix.body_problems(%{"error" => "x"}, :some_single_helper) != []
     end
   end
 
