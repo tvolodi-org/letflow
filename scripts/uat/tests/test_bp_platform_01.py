@@ -6,15 +6,20 @@ Run: python3 -B -m unittest -v scripts/uat/tests/test_bp_platform_01.py   (from 
 """
 
 import copy
+import io
 import json
 import re
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 import runner  # noqa: E402
+from fakes import FakeServerCase  # noqa: E402
 
 FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-01-register-tenant.json"
 CALLS = [
@@ -256,10 +261,33 @@ class StepsBToH(unittest.TestCase):
             self.assertEqual([403, 404], self.steps[sid]["expect_refused"]["status"])
         self.assertEqual("qoimeks-qa2-storekeeper", self.process["dry_run"]["actors"]["storekeeper"])
 
-    def test_h2_is_played_not_swallowed_by_the_create_gate(self):
-        # the create-gate would record H2 as skipped and the engine verdict would then fail the run
+    def test_h2_is_marked_as_a_refusal_probe(self):
         self.assertTrue(self.steps["H2"].get("refusal_probe"))
         self.assertEqual("/api/v1/tenants", self.steps["H2"]["do"]["path"])
+
+    def test_b2_tells_a_missing_dispatch_row_from_a_pending_one(self):
+        # a visit with no dispatch row: step is null and the log counts one attempt (merge_dispatch(step, nil))
+        missing = {"steps": [{"node_id": "start", "result": "completed"},
+                             {"node_id": "validate", "step": None, "result": "running", "attempts": 1}]}
+        pending = {"steps": [{"node_id": "start", "result": "completed"},
+                             {"node_id": "validate", "step": "tenant.validate", "result": "running", "attempts": 0}]}
+        self.assertFalse(self.verdict("B2", missing))
+        self.assertTrue(self.verdict("B2", pending))
+        self.assertFalse(self.verdict("B3", pending))  # armed but never run: the runner is off
+
+    def test_the_realms_are_distinct_per_tenant_and_the_forced_failure_is_a_duplicate(self):
+        realms = [self.steps[sid]["do"]["body"]["idp_realm_id"] for sid in ("B1", "F6", "G3")]
+        self.assertEqual(["uat-tmp-${uuid1}", "uat-tmp-${uuid3}", "uat-tmp-${uuid4}"], realms)
+        # E1 reuses the realm B1 bound: the bind refuses a realm bound to another tenant (duplicate_realm)
+        self.assertEqual("uat-tmp-${uuid1}", self.steps["E1"]["do"]["body"]["idp_realm_id"])
+        self.assertEqual("uat-tmp-${uuid1}", self.steps["C3"]["expect"]["json"]["$.idp_realm_id"])
+        self.assertNotIn("realm", self.process["inputs"])
+
+    def test_the_file_and_sign_in_gaps_are_named_in_the_description(self):
+        text = self.process["description"]
+        self.assertIn("NOT covered", text)
+        self.assertIn("signing in as the new tenant's administrator", text)
+        self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
         self.assertFalse(runner.wait_time_ok("1e400"))
@@ -269,6 +297,69 @@ class StepsBToH(unittest.TestCase):
     def test_every_step_passes_the_runner_validation(self):
         for step in self.process["steps"] + self.process["cleanup"]:
             runner.validate_step(step, step["id"])
+
+
+class Refuser(BaseHTTPRequestHandler):
+    """A company tenant's API: every POST to the tenant registry is refused with 403 and recorded."""
+
+    seen = []
+
+    def do_GET(self):  # noqa: N802
+        self.reply(200, {"status": "ok", "sha": "abc123"})
+
+    def do_POST(self):  # noqa: N802
+        type(self).seen.append(self.path)
+        self.reply(403, {"error": "forbidden"})
+
+    def reply(self, status, doc):
+        data = json.dumps(doc).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+class H2IsPlayed(FakeServerCase):
+    """T-2608 review: the create-gate must not swallow the refusal probe H2, and must still stop an ordinary create."""
+
+    def setUp(self):
+        super().setUp()
+        self.handler = type("R", (Refuser,), {"seen": []})
+        self.other = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+        threading.Thread(target=self.other.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.addCleanup(self.other.server_close)
+        self.addCleanup(self.other.shutdown)
+        self.actors = {"storekeeper": {"user": "sk", "tenant": "qoimeks-qa2",
+                                       "base_url": f"http://127.0.0.1:{self.other.server_address[1]}"}}
+
+    def play(self, step):
+        r = runner.Runner({"id": "H", "steps": [step]}, base_url=self.base, tenant="qoimeks-qa2", actors=self.actors,
+                          run_dir=self.run_dir, inputs={}, poll_interval=0.01, out=io.StringIO())
+        code = r.run()
+        return code, next(x for x in self.lines() if x["phase"] == "step" and x["step"] == step["id"])
+
+    def h2(self):
+        process = json.loads(FILE.read_text())
+        step = next(x for x in process["steps"] if x["id"] == "H2")
+        step["do"]["body"]["slug"] = "uat-tmp-00000000"
+        return step
+
+    def test_the_marked_refusal_is_sent_and_recorded_as_a_pass(self):
+        code, row = self.play(self.h2())
+        self.assertEqual(["/api/v1/tenants"], self.handler.seen)
+        self.assertEqual("pass", row["verdict"])
+        self.assertEqual(0, code)
+
+    def test_the_same_step_without_the_mark_is_stopped_by_the_gate(self):
+        step = self.h2()
+        del step["refusal_probe"]
+        code, row = self.play(step)
+        self.assertEqual([], self.handler.seen)
+        self.assertEqual("skipped", row["verdict"])
 
 
 if __name__ == "__main__":

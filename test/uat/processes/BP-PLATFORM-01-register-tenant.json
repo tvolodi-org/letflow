@@ -2,11 +2,9 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
-  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm the bind step refuses) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. Inputs: realm (a realm id that exists on QA for the throwaway tenants), realm_bad (default uat-no-such-realm), hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it. NOT covered, named in the findings of T-2608: signing in as the new tenant's administrator (the runner has static actors and no provisioner flow yet) and a download route of the notification file (the file step is proved by its completed row in the step log).",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. Inputs: none; every registration gets its own realm id uat-tmp-<uuid> (the bind checks the database, not Keycloak). Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it. NOT covered, named in the findings of T-2608: signing in as the new tenant's administrator (the runner has static actors and no provisioner flow yet) and the observation of the notification file itself (the file step is proved by its completed row in the step log only).",
   "tenant": "${tenant}",
-  "inputs": [
-    "realm"
-  ],
+  "inputs": [],
   "dry_run": {
     "tenant": "bpm-default",
     "actors": {
@@ -17,9 +15,7 @@
       },
       "storekeeper": "qoimeks-qa2-storekeeper"
     },
-    "inputs": {
-      "realm": "uat-tmp-fixture"
-    }
+    "inputs": {}
   },
   "outputs": {},
   "steps": [
@@ -176,7 +172,7 @@
     {
       "id": "B1",
       "actor": "admin",
-      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call.",
+      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. Every registration gets its own realm id (uat-tmp-<uuid>): a realm binds to one tenant only, and a deactivated tenant keeps it, so a fixed realm would fail the second run.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -184,7 +180,7 @@
           "slug": "uat-tmp-${uuid1}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
-          "idp_realm_id": "${realm}",
+          "idp_realm_id": "uat-tmp-${uuid1}",
           "admin_email": "reg-${uuid1}@uat.letflow.internal"
         }
       },
@@ -205,7 +201,7 @@
     {
       "id": "B2",
       "actor": "admin",
-      "says": "B. The engine ARMED the first step: the timeline lists the validate step within the stuck limit. A red step here means no step was armed (the engine did not arm the platform step).",
+      "says": "B. The engine ARMED the first step: the validate visit of the timeline carries the function name of its dispatch row (null when no platform_step_dispatches row exists), within the stuck limit. A red step here means no step was armed (the engine did not arm the platform step); a row armed but not run is B3.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id1}/timeline"
@@ -217,7 +213,10 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.steps[1].node_id": "validate"
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].step": {
+            "absent": false
+          }
         }
       }
     },
@@ -299,7 +298,7 @@
     {
       "id": "C3",
       "actor": "admin",
-      "says": "C. The new tenant exists, is active and has its realm bound (the first administrators are granted by the grant step; the tenant is signed-in capable only through the provisioner flow, which no step of this file replaces).",
+      "says": "C. The new tenant exists, is active and has its own realm bound. NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/${slug1}"
@@ -309,7 +308,7 @@
         "json": {
           "$.slug": "${slug1}",
           "$.status": "active",
-          "$.idp_realm_id": "${realm}"
+          "$.idp_realm_id": "uat-tmp-${uuid1}"
         }
       },
       "requires": [
@@ -334,7 +333,7 @@
     {
       "id": "E1",
       "actor": "admin",
-      "says": "E. A forced failure: a registration with a realm the bind step refuses.",
+      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one B1 already bound to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -342,7 +341,7 @@
           "slug": "uat-tmp-${uuid2}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid2}.${hostname_suffix}",
-          "idp_realm_id": "${realm_bad}",
+          "idp_realm_id": "uat-tmp-${uuid1}",
           "admin_email": "reg-${uuid2}@uat.letflow.internal"
         }
       },
@@ -1001,7 +1000,7 @@
           "slug": "uat-tmp-${uuid3}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid3}.${hostname_suffix}",
-          "idp_realm_id": "${realm}",
+          "idp_realm_id": "uat-tmp-${uuid3}",
           "admin_email": "reg-${uuid3}@uat.letflow.internal"
         }
       },
@@ -1041,7 +1040,7 @@
     {
       "id": "F8",
       "actor": "admin",
-      "says": "F. The step log lists the six steps and then the file step, completed (the file is written into the tenant's own notification area; no route lists it yet).",
+      "says": "F. The step log lists the six steps and then the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id3}/timeline"
@@ -1150,7 +1149,7 @@
           "slug": "uat-tmp-${uuid4}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid4}.${hostname_suffix}",
-          "idp_realm_id": "${realm}",
+          "idp_realm_id": "uat-tmp-${uuid4}",
           "admin_email": "reg-${uuid4}@uat.letflow.internal"
         }
       },
@@ -1472,7 +1471,6 @@
     }
   ],
   "defaults": {
-    "realm_bad": "uat-no-such-realm",
     "hostname_suffix": "letflow.qa.bizdala.com",
     "stuck_after_s": "60",
     "run_within_s": "120"
