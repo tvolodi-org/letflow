@@ -285,8 +285,9 @@ class StepsBToH(unittest.TestCase):
 
     def test_the_file_and_sign_in_gaps_are_named_in_the_description(self):
         text = self.process["description"]
-        self.assertIn("NOT covered", text)
-        self.assertIn("signing in as the new tenant's administrator", text)
+        self.assertIn("is NOT RUN", text)
+        self.assertIn("sign-in as the new tenant's administrator at C3", text)
+        self.assertIn("observation of the notification file at F8", text)
         self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
@@ -360,6 +361,43 @@ class H2IsPlayed(FakeServerCase):
         code, row = self.play(step)
         self.assertEqual([], self.handler.seen)
         self.assertEqual("skipped", row["verdict"])
+
+
+class BlockedSteps(H2IsPlayed):
+    """PM answer 12:20 (D-195): a blocked_by step is never run, never a failure, never a pass."""
+
+    def test_a_blocked_step_sends_nothing_and_is_reported_not_run(self):
+        step = self.h2()
+        del step["refusal_probe"]
+        step["blocked_by"] = "T-2727 provisioner wiring"
+        code, row = self.play(step)
+        self.assertEqual([], self.handler.seen)
+        self.assertEqual("blocked", row["verdict"])
+        self.assertEqual("not run: blocked by T-2727 provisioner wiring", row["error"])
+        self.assertEqual(0, code)
+        summary = (self.run_dir / "summary.md").read_text()
+        self.assertIn("steps not run (blocked_by): 1", summary)
+        self.assertIn("1 steps NOT RUN", summary)
+
+    def test_every_realm_dependent_step_of_the_scenario_is_marked(self):
+        process = json.loads(FILE.read_text())
+        marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
+        for sid in ("B1", "E1", "F6", "G3", "C3", "F8"):
+            self.assertIn(sid, marked)
+        for x in process["steps"]:  # a step that saves a name used by a blocked step is blocked too
+            if x["id"] in marked:
+                continue
+            self.assertNotIn("instance_id", " ".join((x.get("requires") or [])), x["id"])
+
+    def test_blocked_by_and_refusal_probe_are_validated(self):
+        base = {"id": "X", "actor": "admin", "do": {"api": "GET", "path": "/x"}}
+        with self.assertRaises(runner.ConfigError):
+            runner.validate_step({**base, "blocked_by": " "}, "X")
+        with self.assertRaises(runner.ConfigError):
+            runner.validate_step({**base, "refusal_probe": True}, "X")
+        with self.assertRaises(runner.ConfigError):
+            runner.validate_step({**base, "expect_refused": {}, "refusal_probe": "yes"}, "X")
+        runner.validate_step({**base, "expect_refused": {}, "refusal_probe": True}, "X")
 
 
 if __name__ == "__main__":

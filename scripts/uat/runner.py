@@ -996,6 +996,10 @@ class Runner:
         response = None
         secret_step = self._handles_secret(step)
         try:
+            if blocked_reason(step):
+                # a step that waits for a piece that is not built: reported, never run, never a pass
+                record.update(verdict="blocked", error="not run: blocked by " + blocked_reason(step))
+                return self._finish(record, started, True)
             missing = [n for n in step.get("requires", []) if n not in self.ctx]
             if missing:
                 record.update(verdict="skipped", error="requires " + ", ".join(missing))
@@ -2242,7 +2246,10 @@ class Runner:
             f"- steps: {'pass' if steps_ok else 'FAIL'}   cleanup: {'pass' if cleanup_ok else 'FAIL'}",
             f"- cleanup mode: {self.cleanup_mode}",
             f"- tenant residue: {'pass' if residue_ok else 'FAIL'}",
-            f"- verdict: **{'PASS' if ok else 'FAIL'}**",
+            f"- steps not run (blocked_by): {sum(1 for r in self.records if r.get('verdict') == 'blocked')}",
+            f"- verdict: **{'PASS' if ok else 'FAIL'}**"
+            + (f" ({sum(1 for r in self.records if r.get('verdict') == 'blocked')} steps NOT RUN, blocked)"
+               if any(r.get('verdict') == 'blocked' for r in self.records) else ""),
         ]
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
@@ -2358,6 +2365,12 @@ def validate_step(step, where) -> None:
     for key in ("requires", "skip_if"):
         if key in step and not (isinstance(step[key], list) and all(isinstance(n, str) for n in step[key])):
             raise ConfigError(f"{where}: {key} is a list of names")
+    if "blocked_by" in step and not (isinstance(step["blocked_by"], str) and step["blocked_by"].strip()):
+        raise ConfigError(f"{where}: blocked_by is a non-empty text (what the step waits for)")
+    if "refusal_probe" in step and step["refusal_probe"] is not True:
+        raise ConfigError(f"{where}: refusal_probe can only be true")
+    if "refusal_probe" in step and "expect_refused" not in step:
+        raise ConfigError(f"{where}: refusal_probe belongs on an expect_refused step")
     if "http_as" in step and step["http_as"] != "shared_access":
         raise ConfigError(f"{where}: http_as can only be shared_access")
     if "http_as" not in step and not step.get("actor"):
@@ -2681,6 +2694,9 @@ def refuse_retired(retired_map, tenant, actors, base_urls=(), docs=()):
 
 
 def blocked_reason(doc):
+    if isinstance(doc, dict) and "do" in doc:  # a step: its own blocked_by marker
+        reason = doc.get("blocked_by")
+        return reason if isinstance(reason, str) and reason.strip() else None
     block = doc.get("dry_run") if isinstance(doc, dict) else None
     reason = block.get("blocked_by") if isinstance(block, dict) else None
     return reason if isinstance(reason, str) and reason.strip() else None

@@ -297,6 +297,16 @@ A fixture file is process-like (`steps`, `cleanup`, `inputs`, the same step kind
 | `needs` | fixtures that run before it (optional) |
 | `inputs` | ids it needs from outside (the person who runs gives them with `--input`) |
 
+**Step markers** (optional keys of a step):
+
+- `blocked_by`: a text naming what the step waits for (a task or piece not built yet). The runner does not run
+  the step: it prints `not run: blocked by <text>`, records the verdict `blocked`, counts it in the summary
+  (`steps not run`, and `PASS (N steps NOT RUN, blocked)`), and a blocked step never passes and never fails.
+  Removing the marker is an acceptance line of the task that builds the piece.
+- `refusal_probe`: `true` only on an `expect_refused` step that probes a refusal on a create route
+  (POST /api/v1/tenants). It exempts the step from the tenant-create gate, which otherwise skips a tenant create
+  unless the run allows it; the refusal itself is then sent and checked.
+
 **Rules for writing one** (idempotent, self-cleaning):
 
 1. **Look first.** Step 1 looks for the record by a deterministic reference, for example the external reference
