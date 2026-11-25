@@ -19,6 +19,8 @@ import { Button } from '@/components/ui/Button'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
+import { useDeclaredVariables } from './DeclaredVariablesContext'
+import { VariablePicker } from './VariablePicker'
 import type { ApiError, PlatformFunctionEntry, PlatformFunctionInput } from '@/types/api'
 import {
   argSource,
@@ -180,6 +182,7 @@ function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
   const source = argSource(call, input.name)
+  const declared = useDeclaredVariables()
   // The type of the row is the DECLARED one: the JSON-Schema name the server reads (a uuid is declared as a string).
   const type = declaredTypeName(input.type)
   const [text, setText] = useState(() => (source === 'const' ? argText(call, input.name, type) : ''))
@@ -241,7 +244,19 @@ function PlatformArgRow({ input, call, onChange }: ArgRowProps) {
         onChange={changeSource}
         data-testid={`platform-arg-source-${input.name}`}
       />
-      {source === 'var' && (
+      {source === 'var' && declared && (
+        <VariablePicker
+          label={e('processDiagram.edit.platform.variableName')}
+          hint={e('processDiagram.edit.platform.variableHint')}
+          value={value}
+          onPick={(picked) => {
+            setVarText(picked)
+            onChange(withArg(call, input.name, 'var', picked))
+          }}
+          testId={`platform-arg-var-${input.name}`}
+        />
+      )}
+      {source === 'var' && !declared && (
         <Field
           label={e('processDiagram.edit.platform.variableName')}
           width="m"

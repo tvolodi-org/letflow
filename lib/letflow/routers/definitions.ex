@@ -375,10 +375,22 @@ defmodule Letflow.Routers.Definitions do
   end
 
   defp validate_with_optional_graph(conn, id, graph) when is_map(graph) do
-    render_validation(
-      conn,
-      Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
-    )
+    # T-2811: an optional `variable_schemas` list (the variables declared on the screen, not saved
+    # yet) is what the preview checks the graph against; a malformed one is a 422, never a 500.
+    case normalise_variable_schema_entries(Map.get(conn.body_params, "variable_schemas")) do
+      {:ok, nil} ->
+        render_validation(
+          conn,
+          Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
+        )
+
+      {:ok, entries} ->
+        opts = Keyword.put(conn.assigns.scoped_opts, :declared_variables, entries)
+        render_validation(conn, Definitions.validate_graph_preview(id, graph, opts))
+
+      {:error, :invalid_variable_schemas} ->
+        Response.unprocessable(conn, "variable_schemas entries are malformed")
+    end
   end
 
   defp validate_with_optional_graph(conn, _id, _not_a_map) do
@@ -436,8 +448,31 @@ defmodule Letflow.Routers.Definitions do
   # inherit get_by_id/2's not-found collapse (OQ-2)".
 
   defp handle_get_by_id(conn, raw_id) do
-    render_get_by_id(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
+    render_get_by_id_with_variables(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
   end
+
+  # T-2811: the single-definition read also lists the DECLARED VARIABLES (key, json_schema, description)
+  # so the designer can show and extend them; the list and search reads stay as they were.
+  defp render_get_by_id_with_variables(conn, {:ok, definition}) do
+    declared =
+      case Definitions.variable_schema_entries(definition.id, conn.assigns.scoped_opts) do
+        {:ok, entries} ->
+          Enum.map(entries, fn e ->
+            %{
+              "variable_key" => e.variable_key,
+              "json_schema" => e.json_schema,
+              "description" => e.description
+            }
+          end)
+
+        _ ->
+          []
+      end
+
+    Response.ok(conn, Map.put(definition_map(definition), "variable_schemas", declared))
+  end
+
+  defp render_get_by_id_with_variables(conn, other), do: render_get_by_id(conn, other)
 
   defp render_get_by_id(conn, {:ok, definition}),
     do: Response.ok(conn, definition_map(definition))

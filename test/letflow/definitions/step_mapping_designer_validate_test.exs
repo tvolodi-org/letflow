@@ -202,4 +202,59 @@ defmodule Letflow.Definitions.StepMappingDesignerValidateTest do
     row = Repo.get!(Definitions.ProcessDefinition, created["id"], prefix: ctx.tenant.schema_name)
     assert row.status == :draft
   end
+
+  describe "T-2811 variables declared on the screen" do
+    setup ctx do
+      created =
+        post_create!(
+          ctx.tenant,
+          call(%{"reads" => %{"slug" => "string", "ghost" => "string"}, "writes" => %{}}),
+          [%{"variable_key" => "slug", "json_schema" => %{"type" => "string"}}]
+        )
+
+      %{created: created}
+    end
+
+    defp validate_with(ctx, extra) do
+      body = Map.merge(%{"graph" => ctx.created["graph"]}, extra)
+      build_conn("POST", "/#{ctx.created["id"]}/validate", ctx.tenant, body) |> dispatch()
+    end
+
+    test "VD1 the stored schemas alone still report the undeclared variable", ctx do
+      conn = validate_with(ctx, %{})
+      assert conn.status == 422
+      assert "step_mapping_variable_undeclared" in Enum.map(error_codes(conn), & &1["code"])
+    end
+
+    test "VD2 an unsaved variable list makes the finding disappear and writes nothing", ctx do
+      entries = [
+        %{"variable_key" => "slug", "json_schema" => %{"type" => "string"}},
+        %{"variable_key" => "ghost", "json_schema" => %{"type" => "string"}}
+      ]
+
+      conn = validate_with(ctx, %{"variable_schemas" => entries})
+      assert conn.status == 200, conn.resp_body
+
+      stored = build_conn("GET", "/#{ctx.created["id"]}", ctx.tenant, nil) |> dispatch()
+      keys = Jason.decode!(stored.resp_body)["variable_schemas"] |> Enum.map(& &1["variable_key"])
+      assert keys == ["slug"]
+    end
+
+    test "VD3 a malformed variable list is a 422, not a crash", ctx do
+      conn = validate_with(ctx, %{"variable_schemas" => [%{"nope" => 1}]})
+      assert conn.status == 422
+      conn = validate_with(ctx, %{"variable_schemas" => "x"})
+      assert conn.status == 422
+    end
+
+    test "VD4 GET /:id lists the declared variables", ctx do
+      assert [%{"variable_key" => "slug", "json_schema" => %{"type" => "string"}}] =
+               ctx.created["id"]
+               |> then(&build_conn("GET", "/#{&1}", ctx.tenant, nil))
+               |> dispatch()
+               |> Map.get(:resp_body)
+               |> Jason.decode!()
+               |> Map.get("variable_schemas")
+    end
+  end
 end
