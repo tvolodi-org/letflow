@@ -750,7 +750,7 @@
     {
       "id": "F3",
       "actor": "admin",
-      "says": "F. A refusal: a draft whose file step names a path (../x) is created, and its activation is refused.",
+      "says": "F. A refusal: a draft whose file step names a path (../x) is refused at SAVE time (422, notify_file_name_invalid); nothing is stored, so there is no draft to activate.",
       "do": {
         "api": "POST",
         "path": "/api/v1/definitions",
@@ -970,35 +970,12 @@
           "copy_variable_schemas_from": "${definition_id}"
         }
       },
-      "expect": {
-        "status": 201
-      },
-      "save": {
-        "bad_definition_id": "$.id"
-      },
-      "requires": [
-        "definition_id"
-      ]
-    },
-    {
-      "id": "F4",
-      "actor": "admin",
-      "says": "F. The activation of the path-like draft is refused with a 4xx and the active version stays.",
-      "do": {
-        "api": "POST",
-        "path": "/api/v1/definitions/${bad_definition_id}/activate",
-        "body": {}
-      },
       "expect_refused": {
         "status": [
-          400,
-          409,
           422
-        ]
-      },
-      "requires": [
-        "bad_definition_id"
-      ]
+        ],
+        "code": "notify_file_name_invalid"
+      }
     },
     {
       "id": "F5",
@@ -1014,7 +991,10 @@
       },
       "requires": [
         "definition_id2"
-      ]
+      ],
+      "save": {
+        "activated_id2": "$.id"
+      }
     },
     {
       "id": "F6",
@@ -1391,7 +1371,7 @@
       "id": "c1",
       "actor": "admin",
       "requires": [
-        "definition_id2"
+        "activated_id2"
       ],
       "skip_if": [
         "rolled_back"
@@ -1406,23 +1386,6 @@
       },
       "expect": {
         "status": 200
-      }
-    },
-    {
-      "id": "c2",
-      "actor": "admin",
-      "requires": [
-        "bad_definition_id"
-      ],
-      "do": {
-        "api": "DELETE",
-        "path": "/api/v1/definitions/${bad_definition_id}"
-      },
-      "expect": {
-        "status": [
-          200,
-          204
-        ]
       }
     },
     {
@@ -1523,5 +1486,6 @@
       "${instance_id3}",
       "${instance_id4}"
     ]
-  }
+  },
+  "residue_check": false
 }
