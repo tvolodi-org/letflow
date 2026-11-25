@@ -911,6 +911,19 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.step_mappings_invalid(conn, violations)
 
+  # G-14 (the refusal-mapping matrix): the promoted graph is checked in the
+  # TARGET tenant by the same fences as an activation, and both may refuse. The
+  # refusals are the tenant's own graph, so they are 422 -- never the
+  # catch-all's 500.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:start_permission_invalid, violation}}}
+       ),
+       do: Response.start_permission_invalid(conn, violation)
+
+  defp render_apply(conn, {:error, {:promotion_failed, :graph_structure_invalid}}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
+
   # T-2604 (pilot gap G16): the declared test cases of the promoted version failed or are malformed.
   defp render_apply(
          conn,
