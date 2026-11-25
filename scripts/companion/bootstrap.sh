@@ -51,7 +51,8 @@ done < "$lst"
 mkdir "$tmp/companion" "$tmp/expected"
 # Two independent copy routes, so the diff compares real bytes: tar into the companion, cp --parents into expected.
 (cd "$root" && tar -cf - -T "$tmp/present.lst") | tar -xf - -C "$tmp/companion"
-while IFS= read -r p; do (cd "$root" && cp --parents -p -- "$p" "$tmp/expected/"); done < "$tmp/present.lst"
+# One batched cp (not one process per file: 7000+ forks took ~60 s and timed out under load, T-2795).
+(cd "$root" && xargs -d '\n' -a "$tmp/present.lst" cp --parents -p -t "$tmp/expected/" --)
 
 diffout=$(diff -r "$tmp/expected" "$tmp/companion" 2>&1) && drc=0 || drc=$?
 [ "$drc" -eq 0 ] || fail=1
