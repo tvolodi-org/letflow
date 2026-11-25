@@ -61,6 +61,14 @@ and therefore cannot open the door themselves: a tenant administrator has to add
 the `http` channel and the `httpbin.org` host for that tenant before the seed
 activates the definition.
 
+Since T-2730 the seed scripts open them themselves, right before the first
+activate call (`scripts/lib/seed_outbound_open.sh`): the `http` channel and every
+literal host of the rewritten payload, through `POST /api/v1/outbound-destinations`.
+That call needs a token holding `OutboundDestinationsManage` (TENANT_ADMIN); a
+token without it stops the seed with a named error before anything is changed.
+Entries already on the list are not added again, and no URL (so no credential in
+`SERVICE_TASK_MOCK_BASE_URL`) is ever printed. Test: `bash scripts/test_seed_outbound_open.sh`.
+
 ## The platform's own standard definition
 
 The platform's own seed of the pilot's registration definition
