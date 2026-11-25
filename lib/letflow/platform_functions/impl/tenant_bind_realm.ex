@@ -84,15 +84,24 @@ defmodule Letflow.PlatformFunctions.Impl.TenantBindRealm do
     tenant_id = Map.get(inputs, "tenant_id")
     realm = Map.get(inputs, "realm_id")
 
+    # v2 (T-2727): `realm_id` is optional. Absent: nothing to bind (an operator tenant
+    # without a realm), and the step is a no-op.
     with {:ok, tenant_id} <- cast_uuid(tenant_id),
-         :ok <- bounded(realm),
-         {:ok, platform_prefix} <- platform_prefix(),
-         :ok <- bind(tenant_id, realm, platform_prefix) do
+         :ok <- bind_if_present(tenant_id, realm) do
       {:ok, %{}}
     end
   end
 
   def run(_other), do: {:error, :platform_call_arg_invalid}
+
+  defp bind_if_present(_tenant_id, nil), do: :ok
+
+  defp bind_if_present(tenant_id, realm) do
+    with :ok <- bounded(realm),
+         {:ok, platform_prefix} <- platform_prefix() do
+      bind(tenant_id, realm, platform_prefix)
+    end
+  end
 
   # The SYSTEM bind: no operator, so the platform chain records a nil actor.
   defp bind(tenant_id, realm, platform_prefix) do

@@ -104,10 +104,12 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
   def run(%{inputs: inputs}) when is_map(inputs) do
     slug = Map.get(inputs, "slug")
     name = Map.get(inputs, "name")
+    requested_id = Map.get(inputs, "requested_tenant_id")
+    tenant_type = Map.get(inputs, "tenant_type")
 
     with :ok <- bounded(slug),
          :ok <- bounded(name),
-         {:ok, tenant_id} <- create_or_replay(slug, name) do
+         {:ok, tenant_id} <- create_or_replay(slug, name, requested_id, tenant_type) do
       {:ok, %{"tenant_id" => tenant_id}}
     end
   end
@@ -117,34 +119,69 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
   # The slug decides. The tenant with that slug is the tenant this call is
   # about: the same one means the same call (the first result is returned),
   # a different one means the slug is taken.
-  defp create_or_replay(slug, name) do
-    case Identity.get_tenant_by_slug(slug) do
-      {:ok, tenant} -> replay(tenant, name)
-      {:error, :not_found} -> create(slug, name)
+  #
+  # v2 (T-2727): an optional `requested_tenant_id` makes the caller's own id the
+  # `tenants.id` (the slug must be the one derived from it, `t-` + 32 hex), and a
+  # `tenant_type` may then not be sent (a provisioner tenant is always `test`).
+  defp create_or_replay(slug, name, requested_id, tenant_type) do
+    with {:ok, requested_id} <- requested_id(requested_id, slug, tenant_type),
+         :ok <- tenant_type_ok(tenant_type) do
+      case Identity.get_tenant_by_slug(slug) do
+        {:ok, tenant} -> replay(tenant, name, requested_id)
+        {:error, :not_found} -> create(slug, name, requested_id, tenant_type)
+      end
     end
   end
+
+  defp requested_id(nil, _slug, _tenant_type), do: {:ok, nil}
+
+  defp requested_id(_id, _slug, type) when not is_nil(type),
+    do: {:error, :platform_call_arg_invalid}
+
+  defp requested_id(id, slug, _type) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        if slug == "t-" <> String.replace(uuid, "-", ""),
+          do: {:ok, uuid},
+          else: {:error, :platform_call_arg_invalid}
+
+      :error ->
+        {:error, :platform_call_arg_invalid}
+    end
+  end
+
+  defp requested_id(_other, _slug, _type), do: {:error, :platform_call_arg_invalid}
+
+  defp tenant_type_ok(nil), do: :ok
+
+  defp tenant_type_ok(type) when is_binary(type) do
+    if type in Identity.Tenant.tenant_types(), do: :ok, else: {:error, :platform_call_arg_invalid}
+  end
+
+  defp tenant_type_ok(_other), do: {:error, :platform_call_arg_invalid}
 
   # A PURGED tenant is refused before anything else: its schema is gone and
   # the purge's marker is never cleared, so the step must not hand it out
   # (the chain's `tenant.provision` refuses the same tenant).
-  defp replay(%{id: id, display_name: display_name}, name) do
+  defp replay(%{id: id, display_name: display_name}, name, requested_id) do
     cond do
       Identity.tenant_purged?(id) -> {:error, :platform_call_tenant_purged}
+      requested_id != nil and requested_id != id -> {:error, :platform_call_duplicate_slug}
       display_name == name -> {:ok, id}
       true -> {:error, :platform_call_duplicate_slug}
     end
   end
 
-  defp create(slug, name) do
-    case create_tenant(%{"slug" => slug, "display_name" => name}) do
+  defp create(slug, name, requested_id, tenant_type) do
+    case write_row(slug, name, requested_id, tenant_type) do
       {:ok, tenant} ->
         {:ok, tenant.id}
 
-      {:error, :duplicate_slug} ->
+      {:error, dup} when dup in [:duplicate_slug, :exists] ->
         # Another dispatcher won the race for this slug. The row that carries
         # it now decides the answer, under the same rules as a replay.
         case Identity.get_tenant_by_slug(slug) do
-          {:ok, tenant} -> replay(tenant, name)
+          {:ok, tenant} -> replay(tenant, name, requested_id)
           {:error, :not_found} -> {:error, :platform_call_tenant_create_failed}
         end
 
@@ -152,6 +189,15 @@ defmodule Letflow.PlatformFunctions.Impl.TenantCreate do
         {:error, :platform_call_tenant_create_failed}
     end
   end
+
+  defp write_row(slug, name, nil, nil),
+    do: create_tenant(%{"slug" => slug, "display_name" => name})
+
+  defp write_row(slug, name, nil, type),
+    do: create_tenant(%{"slug" => slug, "display_name" => name, "tenant_type" => type})
+
+  defp write_row(slug, name, id, nil),
+    do: Identity.create_provisioned_tenant(%{id: id, slug: slug, display_name: name})
 
   @doc """
   The shared length rule: a non-empty string of at most 255 characters

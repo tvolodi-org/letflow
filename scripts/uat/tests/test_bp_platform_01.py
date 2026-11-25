@@ -1,6 +1,6 @@
 """Tests of the BP-PLATFORM-01 scenario file, step A (T-2744): the expectations of the file judge a good answer as
 good and a defective one (definition missing, not active, a service step without its function, a notify step
-without recipient, a registry without the entry) as failed. No network, no model: the answers are canned.
+without its function, a registry without the entry) as failed. No network, no model: the answers are canned.
 
 Run: python3 -B -m unittest -v scripts/uat/tests/test_bp_platform_01.py   (from the repository root)
 """
@@ -26,8 +26,11 @@ CALLS = [
     ("validate", "tenant.validate"),
     ("create", "tenant.create"),
     ("provision", "tenant.provision"),
+    ("record_lifecycle", "tenant.record_lifecycle"),
+    ("record_onboarding", "tenant.record_onboarding"),
     ("bind_realm", "tenant.bind_realm"),
     ("grant_first_admins", "tenant.grant_first_admins"),
+    ("install_default_modules", "tenant.install_default_modules"),
 ]
 FUNCTIONS = [
     "platform.validate_registration",
@@ -35,7 +38,10 @@ FUNCTIONS = [
     "tenant.create",
     "tenant.grant_first_admins",
     "tenant.install_default_modules",
+    "tenant.notify_admin",
     "tenant.provision",
+    "tenant.record_lifecycle",
+    "tenant.record_onboarding",
     "tenant.validate",
 ]
 
@@ -44,10 +50,12 @@ def definition():
     nodes = [{"id": "start", "node_type": "START"}]
     for node_id, fn in CALLS:
         nodes.append({"id": node_id, "node_type": "SERVICE_TASK", "attributes": {"platform_call": {"function": fn}}})
+    nodes.append({"id": "notify_gate", "node_type": "EXCLUSIVE_GATEWAY"})
+    # T-2727 V8: the notify step is a platform step of tenant.notify_admin.
     nodes.append({"id": "notify", "node_type": "SERVICE_TASK", "attributes": {
-        "notify": {"template_key": "tenant_registered", "recipient": {"var": "admin_email"}}}})
+        "platform_call": {"function": "tenant.notify_admin"}}})
     nodes.append({"id": "end", "node_type": "END"})
-    return {"id": "d1", "name": "platform.register_tenant", "version": "1", "status": "ACTIVE", "graph": {"nodes": nodes}}
+    return {"id": "d1", "name": "platform.register_tenant", "version": "2", "status": "ACTIVE", "graph": {"nodes": nodes}}
 
 
 def registry():
@@ -99,15 +107,15 @@ class StepA(unittest.TestCase):
         d["graph"]["nodes"][3]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_notify_without_recipient_or_template_fails(self):
+    def test_a2_notify_without_its_function_fails(self):
         d = definition()
-        del d["graph"]["nodes"][6]["attributes"]["notify"]["recipient"]
+        d["graph"]["nodes"][10]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
         d = copy.deepcopy(definition())
-        d["graph"]["nodes"][6]["attributes"]["notify"]["template_key"] = None
+        d["graph"]["nodes"][10]["attributes"]["platform_call"]["function"] = "tenant.provision"
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_node_count_is_eight(self):
+    def test_a2_node_count_is_twelve(self):
         d = definition()
         d["graph"]["nodes"].append({"id": "extra", "node_type": "END"})
         self.assertFalse(self.verdict("A2", d))
@@ -144,8 +152,10 @@ class StepsBToH(unittest.TestCase):
                 for n in nodes]
         return {"items": [], "steps": rows}
 
-    V1 = ["start", "validate", "create", "provision", "bind_realm", "grant_first_admins", "notify", "end"]
-    V2 = V1[:-1] + ["notify_file", "end"]
+    V1 = ["start", "validate", "create", "provision", "record_lifecycle", "record_onboarding", "bind_realm",
+          "grant_first_admins", "install_default_modules", "notify", "end"]
+    DRAFT = ["start", "validate", "create", "provision", "bind_realm", "grant_first_admins", "notify"]
+    V2 = DRAFT + ["notify_file", "end"]
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
@@ -204,7 +214,7 @@ class StepsBToH(unittest.TestCase):
 
     def test_e3_the_failed_step_is_named(self):
         rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][4]["last_failure_kind"] = "refused"
+        rows["steps"][6]["last_failure_kind"] = "refused"
         self.assertTrue(self.verdict("E3", rows))
         self.assertFalse(self.verdict("E3", self.log(self.V1)))
         self.assertTrue(self.verdict("E2", {"status": "ERROR"}))
@@ -212,14 +222,14 @@ class StepsBToH(unittest.TestCase):
 
     def test_e6_a_second_attempt_is_shown(self):
         rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][4]["attempts"] = 2
+        rows["steps"][6]["attempts"] = 2
         self.assertTrue(self.verdict("E6", rows))
         self.assertFalse(self.verdict("E6", self.log(self.V1, {"bind_realm": "failed"})))
 
     def test_f_the_edited_version_has_the_file_step_and_g_the_rollback_does_not(self):
         self.assertTrue(self.verdict("F8", self.log(self.V2)))
         self.assertFalse(self.verdict("F8", self.log(self.V1)))
-        self.assertTrue(self.verdict("G5", self.log(self.V1)))
+        self.assertTrue(self.verdict("G5", self.log(self.DRAFT + ["end"])))
         self.assertFalse(self.verdict("G5", self.log(self.V2)))
 
     def test_f1_the_draft_graph_is_the_shipped_one_plus_a_file_step_without_a_path(self):
