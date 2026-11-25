@@ -128,15 +128,26 @@ class Signup(unittest.TestCase):
         body = {"error": "demo_cap_reached", "limit": "demo_cap_reached"}
         rows = runner.run_assertions(self.steps["S6"]["expect"], 409, body)
         self.assertFalse(all(r["ok"] for r in rows))
-        self.assertIn("demo_cap_reached", json.dumps(body))
         self.assertIn("demo_cap_reached", self.process["description"])
+        # the verdict line the runner writes for the step carries the closed reason
+        r = self._runner()
+        r.process, r.run_id, r.token_refreshes, r.lines = self.process, "r1", 0, []
+        r.write_line = r.lines.append
+        r.save_context = lambda: None
+        r._execute = lambda step, do, record: [(409, body, json.dumps(body))]
+        self.assertFalse(r.run_step(self.steps["S6"], "steps"))
+        self.assertEqual("fail", r.lines[0]["verdict"])
+        self.assertIn("demo_cap_reached", r.lines[0]["error"])
 
     def test_the_tenant_admin_signs_in_and_holds_tenant_admin(self):
         s10, s11 = self.steps["S10"], self.steps["S11"]
         self.assertEqual("${signup_password}", s10["do"]["login"]["password"])
-        self.assertEqual("uat-tmp-${run_id}", s10["do"]["login"]["realm"])
+        # the realm is what the provisioner issued (decision 0072), read from the registry, never the slug
+        self.assertEqual("${tenant_realm}", s10["do"]["login"]["realm"])
+        self.assertEqual({"tenant_realm": "$.idp_realm_id"}, self.steps["S7"]["save"])
+        self.assertIn("tenant_realm", s10["requires"])
         self.assertEqual("session", s11["bearer"])
-        self.assertEqual(["signup_made"], s10["requires"])
+        self.assertEqual(["signup_made", "tenant_realm"], s10["requires"])
         self.assertTrue(self.ok("S10", {"signed_in": True}, 200))
         self.assertFalse(self.ok("S10", {"signed_in": False}, 401))
         self.assertTrue(self.ok("S11", {"roles": ["TENANT_ADMIN"]}, 200))
@@ -145,7 +156,8 @@ class Signup(unittest.TestCase):
 
     def _runner(self):
         r = runner.Runner.__new__(runner.Runner)
-        r.ctx, r.secrets, r.secret_values = {"run_id": "r1", "signup_password": "pw-Canary-1"}, {}, set()
+        r.ctx, r.secrets, r.secret_values = {"run_id": "20261125T024731Z-5b87c4", "signup_password": "pw-Canary-1",
+                                             "tenant_realm": "t-0123456789abcdef0123"}, {}, set()
         r.base_url = "http://x"
         return r
 
@@ -176,7 +188,7 @@ class Signup(unittest.TestCase):
             r, rec = self._runner(), {}
             status, body, _ = r._login(self.steps["S10"], self.steps["S10"]["do"], rec)
             self.assertEqual((200, {"signed_in": True}), (status, body))
-            self.assertIn("/realms/uat-tmp-r1/protocol/openid-connect/token", seen["url"])
+            self.assertIn("/realms/t-0123456789abcdef0123/protocol/openid-connect/token", seen["url"])
             self.assertIn("tok-Canary-2", r.secret_values)
             self.assertNotIn("tok-Canary-2", json.dumps(rec))
             self.assertNotIn("tok-Canary-2", json.dumps(r.ctx))
@@ -205,6 +217,38 @@ class Signup(unittest.TestCase):
         self.assertEqual(401, status)
         self.assertFalse(self.ok("S10", body, status))
         self.assertNotIn("session", r.secrets)
+
+    def test_a_literal_login_password_and_a_non_https_idp_are_refused(self):
+        import copy
+        import os
+
+        step = copy.deepcopy(self.steps["S10"])
+        step["do"]["login"]["password"] = "plain-literal"
+        with self.assertRaises(runner.ConfigError):
+            runner.validate_step(step, "S10")
+        old = os.environ.get("BPM_IDP_BASE_URL")
+        os.environ["BPM_IDP_BASE_URL"] = "http://idp.example"
+        try:
+            with self.assertRaises(runner.RunnerError):
+                self._runner()._login(self.steps["S10"], self.steps["S10"]["do"], {})
+        finally:
+            if old is None:
+                os.environ.pop("BPM_IDP_BASE_URL")
+            else:
+                os.environ["BPM_IDP_BASE_URL"] = old
+
+    def test_the_file_is_blocked_so_it_is_not_run_and_not_green(self):
+        import io
+
+        why = runner.blocked_reason(self.process)
+        for task in ("T-2748", "T-2728", "provisioner"):
+            self.assertIn(task, why)
+        out = io.StringIO()
+        runner.cmd_dry_run(type("A", (), {"files": [str(FILE)], "repo": str(FILE.parents[3])})(), out)
+        text = out.getvalue()
+        self.assertIn("SKIPPED", text)
+        self.assertIn(f"not run: {len(self.process['steps'])} step(s)", text)
+        self.assertNotIn("pass", text.replace("PASS (every file is blocked", "").lower().replace("passed", ""))
 
 
 if __name__ == "__main__":

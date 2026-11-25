@@ -1039,6 +1039,9 @@ class Runner:
                 what = first["what"]
                 label = f"expected {first['expected']} got {first['actual']}" if what == "status" else \
                     f"expected {what} {first['expected']} got {first['actual']}"
+                reason = body.get("error") if isinstance(body, dict) else None
+                if isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]{1,64}", reason):
+                    label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1180,6 +1183,8 @@ class Runner:
         name = spec.get("as") or "session"
         self.secret_values.add(password)
         idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        if urllib.parse.urlsplit(idp).scheme != "https":
+            raise RunnerError("login: BPM_IDP_BASE_URL must be https (the password is sent to it)")
         form = urllib.parse.urlencode({"grant_type": "password", "client_id": "letflow-web",
                                        "username": user, "password": password}).encode()
         record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/token")
@@ -2354,6 +2359,8 @@ def validate_step(step, where) -> None:
         if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
                                                   for k in ("realm", "username", "password")):
             raise ConfigError(f"{where}: login needs a realm, a username and a password")
+        if "${" not in spec["password"]:
+            raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2520,7 +2527,7 @@ def load_chain(path) -> tuple:
         process = load_process(found)
         why = blocked_reason(process)
         if why:
-            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (never run)", flush=True)
+            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (not run: {len(process.get('steps') or [])} step(s))", flush=True)
             continue
         processes.append(process)
     if not processes:
@@ -2779,7 +2786,7 @@ def cmd_dry_run(args, out=None) -> int:
         doc = json.loads(path.read_text(encoding="utf-8"))
         why = blocked_reason(doc)
         if why:
-            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (never run)", file=out)
+            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (not run: {len(doc.get('steps') or [])} step(s))", file=out)
         else:
             runnable.append(path)
     files = runnable
