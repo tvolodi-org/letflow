@@ -1,0 +1,281 @@
+{
+  "id": "BP-PLATFORM-02-self-service-signup",
+  "bp_entry": "BP-PLATFORM-02",
+  "title": "Self-service sign-up: a stranger asks for a workspace, with no manual or infra step",
+  "description": "The owner's acceptance scenario (T-2749, G10b, acceptance map item 11 'self-service demo tenant'). The runner calls the PUBLIC sign-up routes without a token (actor 'anonymous'), with a throwaway address in the mail trap (Mailpit) and a uat-tmp-* company name. Part 1 (this file, runs on today's build): S1 the sign-up is switched on and its config is public; S2 a request without accepted terms is refused 422 invalid_request naming terms_accepted; S3 a request with a malformed address is refused 422; S4 a good request is answered 202 check_your_mail; S5 the verification mail reaches the trap (wait_mail: the body and the token never reach the log). Part 2 (see later_steps) needs the sign-up fields slug, user name and password of T-2748 and the one-time provisioner wiring on QA: until they exist the whole file is blocked_by them and the runner reports it as NOT RUN, never as a pass and never as a failure. D-195: the scenario goes from the sign-up to a signed-in tenant admin with no step that waits for a human; a step that does is a defect and a red scenario, named in the verdict line. No qoimeks-qa or qoimeks-client1-qa tenant is touched. The verification link is opened by the SPA page, so the runner does not read the body of the mail. Part 2 is executable: S6 posts the full sign-up (company name, user name, password from the input signup_password, slug uat-tmp-<run_id>) and expects 202 with the tenant URL; a closed refusal such as demo_cap_reached (409 limit, the cap reached) fails S6 and the verdict line names it (the cap is never filled on purpose; the regression test drives S6 with that answer). S7 the platform administrator reads the registry entry and expects status active with no human step (D-195). S8 slug taken and S9 reserved slug are refused. S10 signs in as the NEW tenant admin (password grant in the new realm uat-tmp-<run_id>; the token is a secret, never logged) and S11 reads GET /api/v1/me/access with that token and expects the role TENANT_ADMIN. The cleanup deactivates ONLY the tenant uat-tmp-<run_id> and always runs (200 or 404 when the sign-up made nothing), so a sign-up that created the tenant but failed an assertion is still reconciled; the platform residue check (actor admin on the platform tenant) fails the run on a leftover active uat-tmp-* tenant. Removing blocked_by is an acceptance line of T-2748 / T-2728 and the provisioner wiring: the task that builds the last piece removes it. The realm is read from the registry entry (idp_realm_id), never derived from the slug.",
+  "later_steps": [
+    "L5b: purge of the tenant after the deactivation, only when T-2747 exists"
+  ],
+  "tenant": "${tenant}",
+  "inputs": [
+    "signup_password"
+  ],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {
+      "signup_password": "<set by the starter at run time>"
+    },
+    "blocked_by": "T-2748 (sign-up screens and fields), T-2728 (platform routes 3/4) and the QA provisioner wiring (infra draft, owner's go): the task that builds the last piece removes this marker and the scenario goes green in the same PR"
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "S1",
+      "actor": "anonymous",
+      "says": "Anyone may read the public sign-up config: it is switched on and offers the three languages. If it answers 404 the sign-up is not enabled on this build: RED, reason 'sign-up not enabled'.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/config"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.languages": {
+            "contains": "en"
+          }
+        }
+      }
+    },
+    {
+      "id": "S2",
+      "actor": "anonymous",
+      "says": "A request that does not accept the terms is refused 422 and names the field.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "email": "uat-tmp-${run_id}@example.test",
+          "language": "en",
+          "terms_accepted": false
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "S3",
+      "actor": "anonymous",
+      "says": "A malformed address is refused 422.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "email": "not-an-address",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "S4",
+      "actor": "anonymous",
+      "says": "A good request is answered 202 check_your_mail, whether or not the address is known.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "email": "uat-tmp-${run_id}@example.test",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.status": "check_your_mail"
+        }
+      }
+    },
+    {
+      "id": "S5",
+      "actor": "anonymous",
+      "says": "The verification mail reaches the throwaway address in the mail trap, with no human step. Only recipient, subject and message id are read.",
+      "do": {
+        "wait_mail": {
+          "recipient": "uat-tmp-${run_id}@example.test",
+          "subject": "Confirm your e-mail address",
+          "within_s": 60,
+          "interval_s": 2
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": []
+    },
+    {
+      "id": "S6",
+      "actor": "anonymous",
+      "says": "The full sign-up: company name, user name, password, desired slug. Answered 202 with the tenant URL of the new workspace. A red here, once unblocked, means the build lacks the sign-up fields (T-2748) or the provisioner is not configured.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "user_name": "uat-tmp-admin",
+          "email": "uat-tmp-${run_id}@example.test",
+          "password": "${signup_password}",
+          "slug": "uat-tmp-${run_id}",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.status": "check_your_mail",
+          "$.tenant_url": {
+            "regex": "uat-tmp-"
+          }
+        }
+      },
+      "save": {
+        "signup_made": "yes",
+        "tenant_url": "$.tenant_url"
+      }
+    },
+    {
+      "id": "S7",
+      "actor": "admin",
+      "says": "With no human step the new tenant exists and is active (the platform administrator reads the registry entry). D-195: if it waits for a person it is RED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-${run_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "signup_made"
+      ],
+      "save": {
+        "tenant_realm": "$.idp_realm_id"
+      }
+    },
+    {
+      "id": "S8",
+      "actor": "anonymous",
+      "says": "The slug is taken: a second sign-up for the same slug is refused with the code slug_taken.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "user_name": "uat-tmp-admin",
+          "email": "uat-tmp-2-${run_id}@example.test",
+          "password": "${signup_password}",
+          "slug": "uat-tmp-${run_id}",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect_refused": "slug_taken",
+      "requires": [
+        "signup_made"
+      ]
+    },
+    {
+      "id": "S9",
+      "actor": "anonymous",
+      "says": "A reserved word as the slug is refused 422.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "user_name": "uat-tmp-admin",
+          "email": "uat-tmp-3-${run_id}@example.test",
+          "password": "${signup_password}",
+          "slug": "admin",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "S10",
+      "actor": "anonymous",
+      "says": "Sign in as the NEW tenant admin in the realm the registry names (the provisioner issues it, it is not the slug), with the password given at sign-up and no step by a person (D-195). No token in the log.",
+      "do": {
+        "login": {
+          "realm": "${tenant_realm}",
+          "username": "uat-tmp-admin",
+          "password": "${signup_password}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.signed_in": true
+        }
+      },
+      "requires": [
+        "signup_made",
+        "tenant_realm"
+      ]
+    },
+    {
+      "id": "S11",
+      "actor": "anonymous",
+      "bearer": "session",
+      "bearer_base": "tenant_url",
+      "says": "The tenant opens for its new administrator: the access list answers 200 with the role TENANT_ADMIN.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me/access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.roles": {
+            "contains": "TENANT_ADMIN"
+          }
+        }
+      },
+      "requires": [
+        "signup_made"
+      ]
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "says": "Deactivate only the throwaway tenant this run may have made (slug uat-tmp-<run_id>, never a permanent one). Runs after a failed sign-up too: 404 means nothing was made.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-${run_id}/deactivate"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      }
+    }
+  ]
+}

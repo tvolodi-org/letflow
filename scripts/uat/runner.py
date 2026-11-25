@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import secrets
@@ -62,7 +63,13 @@ TOKEN_CMD_TIMEOUT_S = 60
 INBOX_PAGES_MAX = 10
 RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
-DO_KINDS = ("api", "wait_task", "wait_mail", "assert_only", "repeat", "parallel")
+# A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
+ANONYMOUS_ACTOR = "anonymous"
+DO_KINDS = ("api", "wait_task", "wait_mail", "login", "assert_only", "repeat", "parallel")
+# The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
+# password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
+IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
+REALM_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 # The mail trap (Mailpit) a wait_mail step reads: the address of the trap, how long a search may take and
 # how many messages of the search answer are looked at (G18).
 MAIL_TRAP_URL_DEFAULT = "http://127.0.0.1:8025"
@@ -291,7 +298,7 @@ def wait_time_ok(value) -> bool:
     if isinstance(value, bool):
         return False
     if isinstance(value, (int, float)):
-        return True
+        return math.isfinite(value)
     if not isinstance(value, str):
         return False
     text = value.strip()
@@ -300,10 +307,9 @@ def wait_time_ok(value) -> bool:
     if _PLACEHOLDER.fullmatch(text):
         return bool(_PLACEHOLDER.fullmatch(text).group(1).strip())
     try:
-        float(text)
+        return math.isfinite(float(text))
     except ValueError:
         return False
-    return True
 
 
 # -- JSON path and assertions -------------------------------------------------------------------
@@ -673,6 +679,7 @@ class Runner:
         self.instance_docs = {}
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
+        self.blocked_saves = {}  # name -> why: the values only a blocked (never run) step would have saved
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
         self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
@@ -793,8 +800,14 @@ class Runner:
     def token_for(self, role: str) -> str:
         return self._token_of(self.actor_spec(role), role)
 
-    def request(self, role, method, path, body=None, headers=None, http_as=None):
+    def request(self, role, method, path, body=None, headers=None, http_as=None, bearer=None, bearer_base=None):
         hdrs = dict(headers or {})
+        if bearer:
+            value = self.secrets.get(bearer)
+            if not value:
+                raise RunnerError(f"bearer {bearer}: no session yet (an earlier login step must make it)")
+            hdrs["Authorization"] = "Bearer " + value
+            return http_call(method, (bearer_base or self.base_url) + path, hdrs, body)
         if http_as:
             value = self.secrets.get(http_as)
             if not value:
@@ -804,6 +817,9 @@ class Runner:
                 raise RunnerError(f"http_as {http_as}: --old-base-url is not set")
             hdrs["Authorization"] = "Bearer " + value
             return http_call(method, self.old_base_url + path, hdrs, body)
+        if role == ANONYMOUS_ACTOR:
+            # The public routes (the sign-up): no token, no Authorization header, the address of the run.
+            return http_call(method, self.base_url + path, hdrs, body)
         base = self.actor_base(role)
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
         result = http_call(method, base + path, hdrs, body)
@@ -845,6 +861,7 @@ class Runner:
                 for call in calls:
                     if call.get("actor") and not call.get("http_as"):
                         roles.add(call["actor"])
+        roles.discard(ANONYMOUS_ACTOR)  # the anonymous caller has no user and no token
         return sorted(roles)
 
     # -- preflight ----------------------------------------------------------------------------
@@ -996,6 +1013,13 @@ class Runner:
         response = None
         secret_step = self._handles_secret(step)
         try:
+            if blocked_reason(step):
+                # a step that waits for a piece that is not built: reported, never run, never a pass
+                return self._blocked_line(record, started, step, blocked_reason(step))
+            waits = [n for n in step.get("requires", []) if n not in self.ctx and n in self.blocked_saves]
+            if waits:
+                # it needs a value that only a blocked step would have saved: blocked too, never skipped
+                return self._blocked_line(record, started, step, self.blocked_saves[waits[0]])
             missing = [n for n in step.get("requires", []) if n not in self.ctx]
             if missing:
                 record.update(verdict="skipped", error="requires " + ", ".join(missing))
@@ -1004,7 +1028,7 @@ class Runner:
             if present:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
-            create = self._tenant_create(step)
+            create = None if step.get("refusal_probe") else self._tenant_create(step)
             if create is not None:
                 reason = self._create_skip_reason(step, create)
                 if reason:
@@ -1023,6 +1047,16 @@ class Runner:
                 what = first["what"]
                 label = f"expected {first['expected']} got {first['actual']}" if what == "status" else \
                     f"expected {what} {first['expected']} got {first['actual']}"
+                reason = None
+                if isinstance(body, dict):
+                    # the closed reason: a `limit` code (error "conflict" + limit "demo_cap_reached") wins over `error`
+                    for key in ("limit", "error"):
+                        cand = body.get(key)
+                        if isinstance(cand, str) and re.fullmatch(r"[a-z0-9_]{1,64}", cand):
+                            reason = cand
+                            break
+                if reason:
+                    label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1040,9 +1074,22 @@ class Runner:
             record.update(verdict="error", error=f"{type(err).__name__}: {err}")
             return self._finish(record, started, False)
 
+    def _blocked_line(self, record, started, step, why):
+        """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
+        The names it would have saved are blocked as well, so the steps that need them are not run either."""
+        record.update(verdict="blocked", error="not run: blocked by " + why)
+        for name in step.get("save") or {}:
+            self.blocked_saves.setdefault(name, why)
+        return self._finish(record, started, True)
+
+    def _blocked_names(self, text) -> list:
+        """-> the names of a `${...}` text that only a blocked step would have saved (and no step has)."""
+        names = [m.group(1).strip() for m in _PLACEHOLDER.finditer(str(text))]
+        return [n for n in names if n not in self._watch_context() and n in self.blocked_saves]
+
     @staticmethod
     def _handles_secret(step) -> bool:
-        if step.get("http_as"):
+        if step.get("http_as") or step.get("bearer") or "login" in (step.get("do") or {}):
             return True
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
@@ -1135,6 +1182,8 @@ class Runner:
             return [self._wait_task(step, do, record)]
         if "wait_mail" in do:
             return [self._wait_mail(step, do, record)]
+        if "login" in do:
+            return [self._login(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
@@ -1143,13 +1192,80 @@ class Runner:
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        info = self._call(role, spec, http_as)
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        extra = {"bearer": step.get("bearer"), "bearer_base": base}
+        info = self._call(role, spec, http_as, **extra)
+        if "poll" in step:
+            info = self._poll_call(step, do, role, spec, http_as, info, record, extra)
         record.update(method=info["method"], path=info["path"])
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
 
-    def _call(self, role, spec, http_as=None):
+    def _login(self, step, do, record):
+        """Sign in as a user of a realm that exists only since this run started. -> (200, {"signed_in": true}, "{}")
+        or (401, ...) when the identity provider refuses. The token is a secret (never in the log, never in the
+        context); a step that names it as "bearer" calls the API with it."""
+        spec = substitute(do["login"], self.ctx)
+        realm, user, password = spec.get("realm"), spec.get("username"), spec.get("password")
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("login: the realm is not a valid slug")
+        if not (isinstance(user, str) and user and isinstance(password, str) and password):
+            raise RunnerError("login: needs username and password")
+        name = spec.get("as") or "session"
+        self.secret_values.add(password)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        if urllib.parse.urlsplit(idp).scheme != "https":
+            raise RunnerError("login: BPM_IDP_BASE_URL must be https (the password is sent to it)")
+        form = urllib.parse.urlencode({"grant_type": "password", "client_id": "letflow-web",
+                                       "username": user, "password": password}).encode()
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/token")
+        try:
+            req = urllib.request.Request(f"{idp}/realms/{realm}/protocol/openid-connect/token", data=form,
+                                         method="POST", headers={"Content-Type": "application/x-www-form-urlencoded",
+                                                                 "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+        except (OSError, ValueError) as err:
+            raise RunnerError(f"login: the identity provider did not answer ({type(err).__name__})") from None
+        token = None
+        if status == 200:
+            try:
+                token = json.loads(text).get("access_token")
+            except (ValueError, AttributeError):
+                token = None
+        if not isinstance(token, str) or not token:
+            return (status if status != 200 else 502), {"signed_in": False}, "{}"
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
+        """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
+        runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
+        answer is the one the step is judged on; `polls` says how often the read ran."""
+        conf = substitute(step["poll"], self.ctx)
+        within = self._wait_time(conf, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(conf, "interval_s", 2)
+        deadline = time.monotonic() + within
+        polls = 1
+        while not all(r["ok"] for r in self._assert_calls(step, do, [info["result"]], False)):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(interval)
+            info = self._call(role, spec, http_as, **(extra or {}))
+            polls += 1
+        record["polls"] = polls
+        return info
+
+    def _call(self, role, spec, http_as=None, bearer=None, bearer_base=None):
         """One HTTP call of a step (thread safe): the substituted request and the answer."""
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
@@ -1159,7 +1275,8 @@ class Runner:
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
-        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as))
+        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
+                              bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
 
     def _repeat(self, role, spec, times, http_as, record):
@@ -1315,9 +1432,12 @@ class Runner:
             return float(default)
         value = spec[key]
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             raise RunnerError(f"wait_mail {key} must be a number, got {value!r}") from None
+        if not math.isfinite(number):
+            raise RunnerError(f"wait_mail {key} must be a finite number, got {value!r}")
+        return number
 
     def _find_mail(self, trap, recipient, subject, contains=False):
         """-> (message id, None) when the trap holds a mail to the recipient with the subject; (None, why) otherwise.
@@ -1488,12 +1608,17 @@ class Runner:
             steps_ok = False
             self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
                              "error": "inputs missing: " + ", ".join(missing)})
+        failed_step = None
         for step in process["steps"] if steps_ok else []:
             if steps_ok:
                 steps_ok = self.run_step(step, "step")
+                if not steps_ok:
+                    failed_step = step["id"]
+            elif blocked_reason(step) or any(n in self.blocked_saves for n in step.get("requires", [])):
+                self.run_step(step, "step")  # a blocked step is reported as blocked, whatever failed before it
             else:
                 self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
-                                 "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
+                                 "verdict": "skipped", "error": f"an earlier step failed ({failed_step})", "ms": 0})
         if steps_ok:
             try:
                 for name, expr in (process.get("outputs") or {}).items():
@@ -1611,7 +1736,10 @@ class Runner:
             if group["tenant"] not in wanted and not other:
                 continue  # the process of this tenant turned the check off
             out.append({"tenant": group["tenant"], "base_url": group["base_url"], "actors": group["actors"],
-                        "plain": any(not spec.get("tenant") for spec in group["actors"].values()),
+                        # the document check only where the process keeps the check on for the tenant: the
+                        # platform tenant holds no business documents (its own check is the platform one)
+                        "plain": group["tenant"] in wanted
+                        and any(not spec.get("tenant") for spec in group["actors"].values()),
                         "platform": sorted(other, key=lambda r: (0 if "platform" in r else 1, r))})
         return out
 
@@ -1730,6 +1858,8 @@ class Runner:
             if entry["tenant"] == tenant and entry["instance_id"] not in [i["instance_id"] for i in out]:
                 out.append(entry)
         for name in watch["instances"]:
+            if self._blocked_names(name):
+                continue  # the step that saves it was never run (blocked): there is no instance to watch
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
@@ -2219,7 +2349,10 @@ class Runner:
             f"- steps: {'pass' if steps_ok else 'FAIL'}   cleanup: {'pass' if cleanup_ok else 'FAIL'}",
             f"- cleanup mode: {self.cleanup_mode}",
             f"- tenant residue: {'pass' if residue_ok else 'FAIL'}",
-            f"- verdict: **{'PASS' if ok else 'FAIL'}**",
+            f"- steps not run (blocked_by): {sum(1 for r in self.records if r.get('verdict') == 'blocked')}",
+            f"- verdict: **{'PASS' if ok else 'FAIL'}**"
+            + (f" ({sum(1 for r in self.records if r.get('verdict') == 'blocked')} steps NOT RUN, blocked)"
+               if any(r.get('verdict') == 'blocked' for r in self.records) else ""),
         ]
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
@@ -2292,6 +2425,13 @@ def validate_step(step, where) -> None:
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
+    elif kind == "login":
+        spec = do["login"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "username", "password")):
+            raise ConfigError(f"{where}: login needs a realm, a username and a password")
+        if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
+            raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2324,11 +2464,30 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: parallel is a list of 2 to 6 calls")
         for call in calls:
             validate_call(call, where)
+    if "poll" in step:
+        conf = step["poll"]
+        if kind not in ("api", "assert_only") or not isinstance(conf, dict) or (
+                kind == "api" and str(do["api"]).upper() != "GET") or "expect" not in step:
+            raise ConfigError(f"{where}: poll is an object on a GET step with an expect")
+        for key in ("within_s", "interval_s"):
+            if key in conf and not wait_time_ok(conf[key]):
+                raise ConfigError(f"{where}: poll {key} must be a number")
     for key in ("requires", "skip_if"):
         if key in step and not (isinstance(step[key], list) and all(isinstance(n, str) for n in step[key])):
             raise ConfigError(f"{where}: {key} is a list of names")
+    if "blocked_by" in step and not (isinstance(step["blocked_by"], str) and step["blocked_by"].strip()):
+        raise ConfigError(f"{where}: blocked_by is a non-empty text (what the step waits for)")
+    if "refusal_probe" in step and step["refusal_probe"] is not True:
+        raise ConfigError(f"{where}: refusal_probe can only be true")
+    if "refusal_probe" in step and "expect_refused" not in step:
+        raise ConfigError(f"{where}: refusal_probe belongs on an expect_refused step")
     if "http_as" in step and step["http_as"] != "shared_access":
         raise ConfigError(f"{where}: http_as can only be shared_access")
+    if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
+        raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
+                                      and step.get("bearer")):
+        raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
     if "http_as" not in step and not step.get("actor"):
         raise ConfigError(f"{where}: every step needs id, actor and do")
     if "expect_refused" in step and "expect" in step:
@@ -2456,7 +2615,7 @@ def load_chain(path) -> tuple:
         process = load_process(found)
         why = blocked_reason(process)
         if why:
-            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (never run)", flush=True)
+            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (not run: {len(process.get('steps') or [])} step(s))", flush=True)
             continue
         processes.append(process)
     if not processes:
@@ -2650,6 +2809,9 @@ def refuse_retired(retired_map, tenant, actors, base_urls=(), docs=()):
 
 
 def blocked_reason(doc):
+    if isinstance(doc, dict) and "do" in doc:  # a step: its own blocked_by marker
+        reason = doc.get("blocked_by")
+        return reason if isinstance(reason, str) and reason.strip() else None
     block = doc.get("dry_run") if isinstance(doc, dict) else None
     reason = block.get("blocked_by") if isinstance(block, dict) else None
     return reason if isinstance(reason, str) and reason.strip() else None
@@ -2715,12 +2877,12 @@ def cmd_dry_run(args, out=None) -> int:
         doc = json.loads(path.read_text(encoding="utf-8"))
         why = blocked_reason(doc)
         if why:
-            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (never run)", file=out)
+            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (not run: {len(doc.get('steps') or [])} step(s))", file=out)
         else:
             runnable.append(path)
     files = runnable
     if not files:
-        print("dry-run: PASS (every file is blocked: nothing to run)", file=out)
+        print("dry-run: NOT RUN (every file is blocked: nothing was run, this is not a pass)", file=out)
         return 0
     entries = []
     for path in files:
@@ -2872,11 +3034,12 @@ def main_run(args) -> int:
         needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
+        needed.discard(ANONYMOUS_ACTOR)  # the anonymous caller needs no mapping
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
         for p in processes:
             if p["id"] in overrides:
-                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None}
+                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None, ANONYMOUS_ACTOR}
                 if need - overrides[p["id"]]["actors"].keys():
                     raise ConfigError(f"{p['id']}: actors missing for its tenant: " + ", ".join(sorted(need - overrides[p["id"]]["actors"].keys())))
         check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)
