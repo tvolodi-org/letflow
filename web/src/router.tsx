@@ -4,6 +4,8 @@ import { ProtectedRoute } from '@/auth/ProtectedRoute'
 import { P, RequirePermission, type Permission } from '@/auth/access'
 import OidcCallbackPage from '@/pages/OidcCallbackPage'
 import { LoginRoute } from '@/pages/LoginPage'
+import SignupPage from '@/pages/signup/SignupPage'
+import SignupResultPage from '@/pages/signup/SignupResultPage'
 import { AuthenticatedShellRoot } from '@/components/layout/AuthenticatedShellRoot'
 // ISS-0822: ProcessModulesPage import removed — Letflow.Routers.ProcessModules is
 // deferred to S5 (process-module packaging); no backend is mounted and the page
@@ -109,6 +111,16 @@ export const appRoutes: RouteObject[] = [
     // with the flag off nothing links to it.
     path: '/login',
     element: <LoginRoute />,
+  },
+  {
+    // T-2748: public self-service sign-up (form and the page the mailed link opens). Outside ProtectedRoute;
+    // the server answers 404 on /api/signup/config while LETFLOW_SIGNUP_ENABLED is off, and the form says so.
+    path: '/signup',
+    element: <SignupPage />,
+  },
+  {
+    path: '/signup/verify',
+    element: <SignupResultPage />,
   },
   {
     // BilimBaga T4a: public certificate check keyed by the one-time public handle;

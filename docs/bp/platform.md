@@ -536,7 +536,11 @@ Off by default. A visitor reads the sign-up configuration, submits a sign-up req
    Result: 202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down
 3. **visitor**: call `POST /api/signup/verify`, function `Letflow.Signup`
    Result: 200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)
-4. **user**: call `POST /api/login-discovery`, function `Letflow.LoginDirectory.lookup_by_keys`, `Letflow.LoginDiscovery.decide`
+4. **visitor**: call `GET /api/signup/slug`, function `Letflow.Signup`
+   Result: 200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)
+5. **visitor**: call `POST /api/signup/status`, function `Letflow.Signup`
+   Result: 200 pending, ready or failed with a closed reason (the mailed token is the credential)
+6. **user**: call `POST /api/login-discovery`, function `Letflow.LoginDirectory.lookup_by_keys`, `Letflow.LoginDiscovery.decide`
    Result: 202 neutral, 200 single disclosed match, 429 rate limited; never 400/415/422/500 for malformed input
 
 **Refusals.**
