@@ -128,6 +128,7 @@ STANDARD_BP_DOC_TEST = [
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
+# G-04: the canary/taint harness (detector with seeded failing cases; HTTP surfaces).
 # G-11: the route inventory and the secret scanner must run on the REAL tree, not only on the
 # fake checkouts their own tests use.
 STANDARD_SECURITY_PROBE_TESTS = [
@@ -150,6 +151,11 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
     "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
     "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
+    "test/letflow/security_probe/g04_canary_detector_test.exs",
+    "test/letflow/security_probe/g04_http_surfaces_test.exs",
+    "test/letflow/security_probe/g04_outbound_surfaces_test.exs",
+    "test/letflow/security_probe/g04_dlq_surface_test.exs",
+    "test/letflow/security_probe/g04_artifact_surfaces_test.exs",
     "test/letflow/security_probe/g14_refusal_mapping_matrix_test.exs",
 ]
 # T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole

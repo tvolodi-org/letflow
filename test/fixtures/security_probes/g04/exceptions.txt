@@ -1,0 +1,18 @@
+# G-04 exceptions list (docs/security-probes/G-04-design.md §3). Decisions, not a snapshot.
+# id | type | canary_kind | surface | case | part | reason | decided by
+# Every change to this file is security-relevant. E-09 is withdrawn (not copied).
+E-01 | legit | email, name | S1 | * | body_2xx_authorised | the 2xx read of the record that owns the value, by a caller the case declares authorised | T-2735
+E-02 | legit | email, name | S10 | * | event_variables, read_answer | a start or completion variable is business data stored by design in the instance events | T-2735
+E-03 | legit | email, name | S5 | * | before_after_state | the audit before/after state of the record whose field it is | T-2735
+E-04 | legit | email, name | S7 | C-12 | request_body | a variable of a subscribed event in the payload sent to the tenant's own webhook | T-2735
+E-05 | legit | email, name | S9 | C-14, C-15 | any | the recipient address and a template field rendered for that recipient | T-2735
+E-06 | legit | email, name | S11 | C-20 | any | the tenant's own data export of its own records | T-2735
+E-07 | legit | name | S8 | C-32 | any | the evidence line of the UAT step that created the named record | T-2735
+E-08 | legit | header | S1, S5 | C-24 | body_2xx_authorised, before_after_state | the User-Agent stored in the problem report the user filed | T-2735
+E-10 | legit | credential_url, header | S7 | C-10, C-11, C-13 | request_headers | the outbound request to the host the credential was configured for | T-2735
+B-02 | baseline | credential_url | S*:dlq_entries | C-10 | any | FINDING (first run on main): a webhook delivery that exhausts into the DLQ stores the target URL WITH its userinfo and query token in dlq_entries (the T-2606 class: a credential URL kept in a failure record). Not fixed in the probe task; the fix is to store the origin only | T-2628
+B-03 | baseline | credential_url | S14 | C-33/scripts/qoimeks_qa2_fixture_count.sh | any | FINDING (first run on main, L3 class): the script echoes the URL it was given (QA_URL / SERVICE_TASK_*_BASE_URL) with its userinfo and query token on stdout or stderr. Not fixed in the probe task; the fix is to print the origin only | T-2628
+B-04 | baseline | credential_url | S14 | C-33/scripts/qoimeks_qa2_fixture_ledger3.sh | any | FINDING (first run on main, L3 class): the script echoes the URL it was given (QA_URL / SERVICE_TASK_*_BASE_URL) with its userinfo and query token on stdout or stderr. Not fixed in the probe task; the fix is to print the origin only | T-2628
+B-05 | baseline | credential_url | S14 | C-33/scripts/seed_meridian_definition.sh | any | FINDING (first run on main, L3 class): the script echoes the URL it was given (QA_URL / SERVICE_TASK_*_BASE_URL) with its userinfo and query token on stdout or stderr. Not fixed in the probe task; the fix is to print the origin only | T-2628
+B-06 | baseline | credential_url | S14 | C-33/scripts/seed_swiftroute_definition.sh | any | FINDING (first run on main, L3 class): the script echoes the URL it was given (QA_URL / SERVICE_TASK_*_BASE_URL) with its userinfo and query token on stdout or stderr. Not fixed in the probe task; the fix is to print the origin only | T-2628
+B-07 | baseline | credential_url | S14 | C-33/scripts/seed_swiftroute_incident_definition.sh | any | FINDING (first run on main, L3 class): the script echoes the URL it was given (QA_URL / SERVICE_TASK_*_BASE_URL) with its userinfo and query token on stdout or stderr. Not fixed in the probe task; the fix is to print the origin only | T-2628
