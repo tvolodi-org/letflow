@@ -176,6 +176,12 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
 
       {out, rc} = run(c, extra)
       assert rc == rc_expected, out
+
+      # the credentials actually supplied on THIS path (real tokens on the rc 0/1 paths) never appear
+      for {_var, tok} <- extra, tok != "" do
+        refute out =~ tok, "path #{i}: #{tok}"
+      end
+
       refute out =~ canary, "path #{i}"
       # what the workflow step copies into the step summary is a subset of this output
       log_file = Path.join(System.tmp_dir!(), "qa_chain_#{i}.log")
@@ -183,6 +189,11 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
       on_exit(fn -> File.rm(log_file) end)
       {summary, _} = System.cmd("grep", ["-E", "QA tenants behind the build|REFUSED", log_file])
       refute summary =~ canary
+
+      for {_var, tok} <- extra, tok != "" do
+        refute summary =~ tok, "summary path #{i}: #{tok}"
+        refute File.read!(log_file) =~ "Bearer " <> tok
+      end
     end
   end
 
