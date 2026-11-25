@@ -16,6 +16,7 @@ import { tenantsApi } from '@/api/tenants'
 import { queryKeys } from '@/api/queryKeys'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/hooks/useToast'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 
@@ -70,6 +71,8 @@ export default function EditTenantPage() {
   const [initialized, setInitialized] = useState(false)
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
   const [warningBanner, setWarningBanner] = useState<string | null>(null)
+  const [confirmStatusChange, setConfirmStatusChange] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   const tenantQuery = useQuery({
     queryKey: queryKeys.admin.tenantDetail(slug ?? ''),
@@ -109,6 +112,26 @@ export default function EditTenantPage() {
       } else {
         setErrorBanner('An unexpected error occurred. Please try again.')
       }
+    },
+  })
+
+  const isActive = String(tenantQuery.data?.status).toLowerCase() === 'active'
+  const changeStatus = useMutation({
+    mutationFn: () => (isActive ? tenantsApi.deactivate(slug ?? '') : tenantsApi.reactivate(slug ?? '')),
+    onSuccess: () => {
+      setConfirmStatusChange(false)
+      setStatusError(null)
+      qc.invalidateQueries({ queryKey: queryKeys.admin.tenants() })
+      qc.invalidateQueries({ queryKey: queryKeys.admin.tenantDetail(slug ?? '') })
+      toast.success(isActive ? 'Tenant deactivated' : 'Tenant reactivated')
+    },
+    onError: (err: unknown) => {
+      const status = (err as { status?: number })?.status
+      setStatusError(
+        status === 409
+          ? 'The platform tenant cannot be deactivated.'
+          : 'Could not change the tenant status. Please try again.',
+      )
     },
   })
 
@@ -226,6 +249,34 @@ export default function EditTenantPage() {
         <label style={labelStyle}>Slug</label>
         <span data-testid="edit-tenant-slug" style={readOnlyValueStyle}>{original.slug}</span>
       </div>
+
+      <div style={fieldGroupStyle}>
+        <label style={labelStyle}>Status</label>
+        <span data-testid="edit-tenant-status" style={readOnlyValueStyle}>{isActive ? 'active' : 'inactive'}</span>
+        <span data-testid="edit-tenant-status-action" style={{ display: 'inline-block', marginTop: '.5rem' }}>
+          <Button
+            variant={isActive ? 'danger' : 'secondary'}
+            size="sm"
+            onClick={() => { setStatusError(null); setConfirmStatusChange(true) }}
+          >
+            {isActive ? 'Deactivate' : 'Reactivate'}
+          </Button>
+        </span>
+      </div>
+
+      <ConfirmDialog
+        open={confirmStatusChange}
+        title={isActive ? 'Deactivate tenant?' : 'Reactivate tenant?'}
+        body={isActive
+          ? `Users of ${original.slug} will no longer be able to sign in until it is reactivated.`
+          : `Users of ${original.slug} will be able to sign in again.`}
+        confirmText={isActive ? 'Deactivate' : 'Reactivate'}
+        confirmVariant={isActive ? 'danger' : 'primary'}
+        isLoading={changeStatus.isPending}
+        error={statusError}
+        onConfirm={() => changeStatus.mutate()}
+        onCancel={() => setConfirmStatusChange(false)}
+      />
 
       <div style={fieldGroupStyle}>
         <label style={labelStyle}>IDP Realm ID</label>
