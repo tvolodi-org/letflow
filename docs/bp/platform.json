@@ -28,10 +28,10 @@
           "GET /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:211",
           "web/src/router.tsx:165",
           "web/src/router.tsx:129",
-          "lib/letflow/routers/tenants.ex:426"
+          "lib/letflow/routers/tenants.ex:433"
         ],
         "result": "the paginated list of all tenants"
       },
@@ -39,17 +39,16 @@
         "actor": "PLATFORM_ADMIN",
         "forms": [],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/tenants.ex:398"
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/tenants.ex:397"
         ],
-        "result": "201 with the tenant record; 409 slug already exists; 422 validation failed; 500 when provisioning fails (no rollback, see moduledoc OQ-5)"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; provisioning runs as steps of the instance, a failed step shows as instance ERROR on the timeline, not as a 5xx"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -64,11 +63,11 @@
           "PATCH /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:222",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:219",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:475",
-          "lib/letflow/routers/tenants.ex:509"
+          "lib/letflow/routers/tenants.ex:482",
+          "lib/letflow/routers/tenants.ex:516"
         ],
         "result": "200 with the tenant record; unknown slug 404"
       }
@@ -192,16 +191,16 @@
       {
         "n": 1,
         "path": "POST /api/v1/onboarding, the 'Register tenant' screen (web/src/router.tsx:161)",
-        "calls": "lib/letflow/routers/onboarding.ex:516 Identity.create_tenant, :599 provision_and_migrate; then the onboarding record",
-        "today": "validates the form, creates the tenant and its schema directly, answers with the onboarding record",
+        "calls": "lib/letflow/routers/onboarding.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "validates the form and starts platform.register_tenant, answers 202 with the instance id (T-2704)",
         "becomes": "a start of platform.register_tenant, answer 202 with the instance id (G3)",
         "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
       },
       {
         "n": 2,
         "path": "POST /api/v1/tenants (permission TenantsManage)",
-        "calls": "lib/letflow/routers/tenants.ex:404 Identity.create_tenant, :417 provision_and_migrate",
-        "today": "creates the tenant and provisions it directly, answers 201 (500 on provisioning failure, no rollback)",
+        "calls": "lib/letflow/routers/tenants.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "starts platform.register_tenant, answers 202 with the instance id and the slug (the tenant id is the output of the tenant.create step, read it from GET /tenants/:slug) (T-2704)",
         "becomes": "the API start of the same definition, answer 202 with instance id and tenant id; the 201 scenarios change (G17)",
         "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
       },
@@ -259,9 +258,9 @@
           "POST /api/v1/tenants/:slug/deactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
+          "lib/letflow/routers/tenants.ex:223",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "200 with status inactive; platform tenant: 409; unknown: 404"
       },
@@ -277,9 +276,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:234",
+          "lib/letflow/routers/tenants.ex:231",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:710"
+          "lib/letflow/routers/tenants.ex:717"
         ],
         "result": "200 active again; purged tenant 409 'tenant was purged'"
       },
@@ -295,9 +294,9 @@
           "POST /api/v1/tenants/:slug/purge"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:230",
+          "lib/letflow/routers/tenants.ex:227",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:724"
+          "lib/letflow/routers/tenants.ex:731"
         ],
         "result": "200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown, platform tenant or no lifecycle row 404"
       }
@@ -352,9 +351,9 @@
           "PUT /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:255",
+          "lib/letflow/routers/tenants.ex:254",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 {tenant_id, slug, hostname, onboarding_id, changed}"
       },
@@ -370,9 +369,9 @@
           "DELETE /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:259",
+          "lib/letflow/routers/tenants.ex:258",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 with hostname null"
       }
@@ -423,8 +422,8 @@
           "GET /api/v1/tenants/:slug/script-policy"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:240",
-          "lib/letflow/routers/tenants.ex:564"
+          "lib/letflow/routers/tenants.ex:239",
+          "lib/letflow/routers/tenants.ex:570"
         ],
         "result": "200 platform_policy_map"
       },
@@ -438,8 +437,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/kill-switch"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:244",
-          "lib/letflow/routers/tenants.ex:576"
+          "lib/letflow/routers/tenants.ex:243",
+          "lib/letflow/routers/tenants.ex:582"
         ],
         "result": "200; entry on tenant chain (nil actor) and platform chain (operator id)"
       },
@@ -453,8 +452,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/solo-audited"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:250",
-          "lib/letflow/routers/tenants.ex:607"
+          "lib/letflow/routers/tenants.ex:249",
+          "lib/letflow/routers/tenants.ex:613"
         ],
         "result": "200; the platform-owned solo_audited object"
       }
@@ -501,21 +500,20 @@
           "admin/onboarding/new"
         ],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:189",
+          "lib/letflow/routers/onboarding.ex:187",
           "web/src/router.tsx:161",
           "web/src/router.tsx:162",
-          "lib/letflow/routers/onboarding.ex:285",
-          "lib/letflow/routers/onboarding.ex:510",
-          "lib/letflow/routers/onboarding.ex:564"
+          "lib/letflow/routers/onboarding.ex:254",
+          "lib/letflow/routers/onboarding.ex:490",
+          "lib/letflow/routers/onboarding.ex:506"
         ],
-        "result": "created record with login state; field errors 422; duplicate host or realm refused"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); the screen then opens the instance timeline; an identical replay answers the same 202; field errors 422; duplicate host, realm or slug with different values 409; provisioning runs as steps of the instance (a failed step shows as instance ERROR, not as a 5xx); the tenant is not yet loginable without a realm"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -528,10 +526,10 @@
           "GET /api/v1/onboarding/:id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:193",
+          "lib/letflow/routers/onboarding.ex:191",
           "web/src/router.tsx:163",
           "web/src/router.tsx:164",
-          "lib/letflow/routers/onboarding.ex:1026"
+          "lib/letflow/routers/onboarding.ex:703"
         ],
         "result": "the onboarding record and its state"
       },
@@ -545,7 +543,7 @@
           "GET /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/onboarding.ex:207",
           "web/src/router.tsx:161"
         ],
         "result": "the record of the host given in ?hostname="
@@ -558,8 +556,8 @@
           "POST /api/v1/onboarding/:id/bind-realm"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "the realm bound, or a reason when it cannot be"
       },
@@ -571,7 +569,7 @@
           "GET /api/v1/onboarding/:id/pending-admins"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:201"
+          "lib/letflow/routers/onboarding.ex:199"
         ],
         "result": "pending administrator grants"
       },
@@ -583,7 +581,7 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:205"
+          "lib/letflow/routers/onboarding.ex:203"
         ],
         "result": "the grant revoked"
       }
@@ -1499,8 +1497,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "201 the promoted definition; 403 insufficient permissions; invalid source: invalid_promotion_source; any other source tenant: the zero-detail 404"
       }
@@ -1614,9 +1612,9 @@
           "GET /api/v1/platform-problem-reports"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/tenants.ex:211",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/onboarding.ex:207",
           "lib/letflow/routers/platform_status.ex:25",
           "lib/letflow/routers/platform_module_rollouts.ex:44",
           "lib/letflow/routers/platform_migrations.ex:88",
@@ -1645,10 +1643,10 @@
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:230",
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/onboarding.ex:189"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:227",
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/onboarding.ex:187"
         ],
         "result": "403 on harmless write probes (an unknown slug, an empty body); nothing changes"
       },
@@ -1660,8 +1658,8 @@
           "GET /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:275"
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:274"
         ],
         "result": "an unmatched sub-path under the tenants mount answers the same 403 as a matched one"
       },
@@ -1722,8 +1720,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "404 for an unknown id and for another tenant's id; the same body"
       }
@@ -1871,9 +1869,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:234",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:231",
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "409 platform tenant cannot be deactivated; 409 tenant was purged"
       }
@@ -1881,7 +1879,7 @@
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:702)",
+      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:708)",
       "403 tenant_inactive for the tenant's own callers (lib/letflow/plugs/tenant_status.ex:106, lib/letflow/plugs/auth_pipeline.ex:213)",
       "409 after purge"
     ],
@@ -1919,10 +1917,10 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:201",
-          "lib/letflow/routers/onboarding.ex:205",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:199",
+          "lib/letflow/routers/onboarding.ex:203",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "realm bind refused for a duplicate realm; pending grants listed and revoked"
       }

@@ -38,7 +38,6 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformTenant
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
-  alias Letflow.TenantProvisioning
 
   @platform_like %{
     "is_platform" => true,
@@ -244,24 +243,9 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
   end
 
   describe "(e) a body id equal to the pin" do
-    defp cleanup_tenant!(tenant_id) do
-      on_exit(fn ->
-        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-        case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-          {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-          {:error, :invalid_tenant_id} -> :ok
-        end
-
-        Repo.delete_all(
-          from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
-        )
-
-        Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
-      end)
-    end
-
-    test "POST /tenants creates a tenant with a different id and leaves the pin unchanged", ctx do
+    test "POST /tenants with a body id equal to the pin starts the process and leaves the pin unchanged",
+         ctx do
+      Letflow.Support.RegisterTenantProcessFixture.seed!(ctx.p.schema_name)
       pin_before = PlatformTenant.configured_id()
       slug = "scope-create-#{Ecto.UUID.generate()}"
 
@@ -281,13 +265,13 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
           Letflow.Routers.Tenants.init([])
         )
 
-      assert resp.status == 201
-      created_id = Jason.decode!(resp.resp_body)["id"]
-      cleanup_tenant!(created_id)
-
-      refute created_id == ctx.p.tenant_id
-      refute String.downcase(created_id) == pin_before
-      refute PlatformTenant.platform_tenant?(created_id)
+      assert resp.status == 202
+      body = Jason.decode!(resp.resp_body)
+      # The route starts the register-tenant process (T-2704); it creates nothing itself,
+      # and the supplied id is not a start variable, so the pin cannot be reached.
+      assert is_binary(body["instance_id"])
+      refute Map.has_key?(body, "id")
+      refute Repo.exists?(from(t in Tenant, where: t.slug == ^slug))
       assert PlatformTenant.configured_id() == pin_before
     end
 
