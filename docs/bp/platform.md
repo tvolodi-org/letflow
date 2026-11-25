@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 24 direct, 0 definition.
+The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 23 direct, 0 definition, 1 n/a.
 
 ## The processes of the area
 
@@ -34,7 +34,7 @@ The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 
 | BP-PLATFORM-21 | SECURITY: platform actions are separated by credential and by approval (onboarding realm, script kill switch) | Binding an identity realm and flipping the script kill switch need an OIDC sign-in of the operator, are audited on the platform chain wit... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | yes | see report |
 | BP-PLATFORM-22 | SECURITY: coverage list of the D-170 kinds for the platform area (token, host, upload, old address, voice/webhook, crafted writes) | Lists each security process kind the owner named (D-170) with its status and, where the kind is owned by another area, the area. | anyone (no token, wrong token, other-tenant token) | partial | direct | no | yes | see report |
 | BP-PLATFORM-23 | Check a certificate by its public handle (no login) | Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public pa... | anyone (no login) | partial | direct | no | no | see report |
-| BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | direct | yes | no | see report |
+| BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | n/a | yes | no | see report |
 
 ## BP-PLATFORM-01 -- Register a tenant (company) directly and look it up
 
@@ -961,7 +961,7 @@ A platform administrator can trust that a platform process is executed by its st
 **Status.**
 
 - implementation: `partial`
-- UAT: runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by stays direct: the checker accepts only direct or definition:<key>, and this entry is a proof, not a process the engine runs), not a business process of a tenant
+- UAT: runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by is n/a: this entry is a proof, not a process the engine runs), not a business process of a tenant
 - security: no
 
 **Gaps.**

@@ -14,6 +14,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 import runner  # noqa: E402
+import check_catalog  # noqa: E402
 
 FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-24-definition-drives-execution.json"
 
@@ -65,11 +66,13 @@ class Scenario(unittest.TestCase):
         self.assertEqual(["file", "validate", "mail"], order(b))
 
     def test_the_log_must_follow_the_definition_order(self):
-        self.assertTrue(self.ok("A6", log(["validate", "mail", "file"])))
-        self.assertFalse(self.ok("A6", log(["file", "validate", "mail"])))
+        self.assertTrue(self.ok("A6", log(["validate"])))
+        self.assertFalse(self.ok("A6", log(["file"])))
         self.assertTrue(self.ok("B6", log(["file", "validate", "mail"])))
         self.assertFalse(self.ok("B6", log(["validate", "mail", "file"])))
-        self.assertTrue(self.ok("B10", log(["validate", "mail", "file"])))
+        self.assertTrue(self.ok("B10", log(["validate", "hold", "mail", "file"])))
+        self.assertFalse(self.ok("B10", log(["validate", "mail", "file"])))
+        self.assertFalse(self.ok("B10", log(["file", "validate", "hold", "mail"])))
 
     def test_removed_step_leaves_no_mail_entry_and_added_step_runs_once(self):
         self.assertTrue(self.ok("C5", log(["validate", "file"])))
@@ -79,9 +82,9 @@ class Scenario(unittest.TestCase):
         self.assertFalse(self.ok("D5", log(["validate", "validate_again", "validate_again", "mail", "file"])))
 
     def test_a_failed_step_fails_the_log_check(self):
-        body = log(["validate", "mail", "file"])
-        body["steps"][2]["result"] = "failed"
-        self.assertFalse(self.ok("A6", body))
+        body = log(["validate", "hold", "mail", "file"])
+        body["steps"][3]["result"] = "failed"
+        self.assertFalse(self.ok("B10", body))
 
     def test_another_template_and_recipient(self):
         g = self.steps["E1"]["do"]["body"]["graph"]
@@ -92,8 +95,43 @@ class Scenario(unittest.TestCase):
         self.assertEqual("Set a new password", wait["subject"])
         self.assertTrue(wait["recipient"].startswith("dpadm-"))
 
+    def test_pinning_holds_a_running_instance_across_the_activation_of_b(self):
+        ids = [s["id"] for s in self.process["steps"]]
+        # A stops at a HUMAN_TASK; B is activated while A waits; only then A's task is completed.
+        hold = [n for n in self.steps["A1"]["do"]["body"]["graph"]["nodes"] if n["id"] == "hold"][0]
+        self.assertEqual("HUMAN_TASK", hold["node_type"])
+        self.assertLess(ids.index("A5"), ids.index("B3"))
+        self.assertLess(ids.index("B3"), ids.index("B8"))
+        self.assertLess(ids.index("B8"), ids.index("B8b"))
+        self.assertLess(ids.index("B8b"), ids.index("B8c"))
+        self.assertEqual("ACTIVE", self.steps["B8"]["expect"]["json"]["$.status"])
+        self.assertEqual("${defA}", self.steps["B8c"]["expect"]["json"]["$.definition_id"])
+        self.assertEqual("COMPLETED", self.steps["B8c"]["expect"]["json"]["$.status"])
+        self.assertNotEqual("COMPLETED", self.steps["A5"]["expect"]["json"].get("$.status"))
+
+    def test_the_added_call_has_its_own_idempotency_key(self):
+        # The catalogue key of platform.validate_registration is the slug alone: two calls on one slug collide.
+        nodes = {n["id"]: n for n in self.steps["D1"]["do"]["body"]["graph"]["nodes"]}
+        first = nodes["validate"]["attributes"]["platform_call"]
+        again = nodes["validate_again"]["attributes"]["platform_call"]
+        self.assertNotEqual(first["args"]["slug"], again["args"]["slug"])
+        self.assertIn("slug2", again["reads"])
+        start = self.steps["D3"]["do"]["body"]["initial_variables"]
+        self.assertNotEqual(start["slug"], start["slug2"])
+
+    def test_executed_by_n_a_is_a_third_kind_of_the_catalog(self):
+        self.assertEqual(("n/a", "n/a", None), check_catalog.parse_executed_by({"executed_by": "n/a"}))
+        counts = check_catalog.executed_by_counts([{"executed_by": "n/a"}, {}, {"executed_by": "definition:x"}])
+        self.assertEqual({"direct": 1, "definition": 1, "n/a": 1}, counts)
+        _v, kind, problem = check_catalog.parse_executed_by({"executed_by": "nothing"})
+        self.assertIsNone(kind)
+        self.assertIn("n/a", problem)
+        bp = json.loads((HERE.parents[2] / "docs" / "bp" / "platform.json").read_text())
+        row = [e for e in bp if e["id"] == "BP-PLATFORM-24"][0]
+        self.assertEqual("n/a", row["executed_by"])
+
     def test_pinning_reads_the_definition_id_of_the_first_instance(self):
-        self.assertTrue(self.ok("B8", {"definition_id": "x"}) is False)
+        self.assertTrue(self.ok("B8", {"definition_id": "x", "status": "ACTIVE"}) is False)
         self.assertEqual("${defA}", self.steps["B8"]["expect"]["json"]["$.definition_id"])
         self.assertEqual("${defB}", self.steps["B9"]["expect"]["json"]["$.definition_id"])
 

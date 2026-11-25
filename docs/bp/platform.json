@@ -2140,9 +2140,9 @@
       "scripts/uat/tests/test_bp_platform_24.py"
     ],
     "scenario": "test/uat/processes/BP-PLATFORM-24-definition-drives-execution.json",
-    "uat": "runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by stays direct: the checker accepts only direct or definition:<key>, and this entry is a proof, not a process the engine runs), not a business process of a tenant",
+    "uat": "runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by is n/a: this entry is a proof, not a process the engine runs), not a business process of a tenant",
     "status": "partial",
     "gap": "the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated",
-    "executed_by": "direct"
+    "executed_by": "n/a"
   }
 ]
