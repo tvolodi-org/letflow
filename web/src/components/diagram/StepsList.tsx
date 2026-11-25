@@ -6,6 +6,7 @@ import type { InstancePath } from '@/utils/canvas/instancePath'
 import { StatusPill } from '@/components/ui/StatusPill'
 import type { GraphDiff } from '@/utils/canvas/graphDiff'
 import { DIFF_PILL, STATE_PILL } from './diagramConfig'
+import { stepCaption } from './nodeSummary'
 import { useDiagramText } from './useDiagramText'
 
 export function readingOrder(nodes: LaidOutNode[], edges: LaidOutEdge[]): LaidOutNode[] {
@@ -44,7 +45,7 @@ export interface StepsListProps {
 export function StepsList({ nodes, edges, path, selectedId, onSelect, diff }: StepsListProps) {
   const intl = useIntl()
   const t = useDiagramText()
-  const labelOf = new Map(nodes.map((n) => [n.id, n.label ?? t.typeName(n.nodeType)]))
+  const labelOf = new Map(nodes.map((n) => [n.id, n.label ?? stepCaption(n.nodeType, n.attributes) ?? t.typeName(n.nodeType)]))
   return (
     <ol className="lf-pd-steps" aria-label={intl.formatMessage({ id: 'processDiagram.stepsLabel' })} data-testid="diagram-steps">
       {readingOrder(nodes, edges).map((n, i) => {
