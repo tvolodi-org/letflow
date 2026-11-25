@@ -116,7 +116,7 @@ key. The later D-180 slice may add nullable lineage/binding data without changin
 |---|---|
 | `lib/letflow/platform_functions/catalog.ex` | the compiled catalogue: `list/1` (only the entries the caller's tenant may use), `fetch/1`, `permission_atoms/0`, `entry_map/1`. A duplicate or malformed entry is a COMPILE error |
 | `lib/letflow/platform_functions/entry.ex` | the entry shape: typed inputs with a source class, typed outputs, the permission, the side effects, the idempotency key, the platform-tenant flag |
-| `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules` |
+| `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules`, `tenant.notify_admin` (T-2727 V8) |
 | `lib/letflow/platform_functions/guard.ex` | the RUN-TIME fence: the tenant (INV-10), the catalogue entry, exclusive step routes, foreign sources, the signature, and the activator's CURRENT permission (a loss flags the row `needs_reactivation`) |
 | `lib/letflow/definitions/graph.ex` | graph validation refuses a `platform_call` node that also carries `endpoint`, `service_id` or `script_key` with `:conflicting_platform_call_routes` |
 | `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, exclusive step routes, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |
@@ -191,6 +191,32 @@ Decision (e) is otherwise unchanged: a PERSON still needs the entry's permission
 authority is not a role, holds no permission atom, and cannot be reached from a route that has a user. A source-scan
 pin keeps its constructor and its start function inside `Letflow.TenantProvisioner`. The design, with the step table
 (failure and repeat per step), the start key and the 202 + poll consumer, is `docs/platform-register-tenant-v2.md`.
+
+## Update 2026-11-25: the system-authority start is built (T-2727, gap G17c)
+
+The five conditions of the amendment above are code now. This is an Update of the amendment, not a new decision.
+
+* **C1 -- one definition.** `Letflow.PlatformProcesses.SystemStart` is a struct with ONE constructor, `for_route/1`, over the
+  closed list `[:admin_v1_tenants_create, :signup_provisioning]`. `Letflow.Definitions.StartPermission.check/4` admits it only
+  when ALL hold: the definition's name is `platform.register_tenant`; the start prefix is the platform prefix; the derived
+  permission atoms are exactly `[:TenantsManage]` and so is the declared one; the definition starts no SUB_PROCESS child; the
+  definition declares the v2 variables `requested_tenant_id`, `tenant_type` and `notify_admin`. Anything else, and any value
+  that is not a `%SystemStart{}`, answers as an unknown definition and writes nothing.
+* **C2 -- audit.** The `instance.create` audit row of a system start carries `actor_id: nil`, `actor_kind: "system"` and
+  `started_via` (the route) in `after_state`. The engine start opt is `system_start:`; only the start gate and the audit row read it.
+* **C3 -- no trusted value.** The start variables are chosen by `PlatformProcesses.register_tenant_system_variables/1`; no request key
+  names an actor, a role or a route. `admin_email` is data (the grant stays pending until the first sign-in).
+* **C4 -- limits in front.** The front gate (demo cap, both budgets, the `tenant_admissions` reservation) and the route rewire are the
+  consumer half (T-2728, G17d); this change adds the table and the step that reads it, and rewires NO route.
+* **C5 -- gates.** Every touched file is under a `[sensitive]` prefix.
+
+This keeps today's behaviour behind the definition: **no new way to create a tenant.** The one-definition restriction applies to the
+NEW system-start authority only (`system_check` in `start_permission.ex`: one definition name, the platform prefix, an exact
+permission set, no child). The retained creation paths are unchanged: `TenantProvisioner` still calls
+`Identity.create_provisioned_tenant` directly, and the dispatcher and `Guard.authorize_dispatch` check tenant, signature and
+permissions without restricting the definition name. This change adds no restriction to those paths and no new one beside them;
+`tenant.create` is a further caller of the same primitive, reachable only from an active, signed definition in the platform tenant. A source-scan pin (`system_start_callers_test.exs`) keeps `SystemStart` and `start_register_tenant_system/3`
+inside the allowed files.
 
 ## Residual risks, stated plainly
 

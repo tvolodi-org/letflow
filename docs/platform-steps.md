@@ -29,9 +29,12 @@ and the dispatcher are gap G1a (T-2589).
 | `tenant.validate` | `Impl.TenantValidate` | Read-only: checks the slug and the display name (byte bound, reserved slug) and that the slug is free or the same registration. Writes nothing. |
 | `tenant.create` | `Impl.TenantCreate` | Writes the tenant row of the global registry. A repeat of the same call returns the first result (it adopts the tenant that carries the slug); a slug that belongs to ANOTHER tenant is refused, and so is a tenant that was purged. |
 | `tenant.provision` | `Impl.TenantProvision` | Creates the tenant's schema, replays its migrations, seeds its roles and its HMAC key, and activates the tenant. A repeat changes nothing. A tenant that was purged is refused before the first write. |
+| `tenant.record_lifecycle` | `Impl.TenantRecordLifecycle` | (v2, T-2727) Writes the tenant's `tenant_lifecycles` row from its admission row (`tenant_admissions`). A repeat writes nothing; no admission and no `requested_tenant_id` is a no-op; `requested_tenant_id` without an admission fails closed (`platform_call_lifecycle_failed`). |
+| `tenant.record_onboarding` | `Impl.TenantRecordOnboarding` | (v2, T-2727) Writes the onboarding record (the hostname). No hostname is a no-op; the same hostname is a repeat; another hostname for the tenant is `platform_call_hostname_mismatch`; a taken one `platform_call_hostname_taken`. |
 | `tenant.bind_realm` | `Impl.TenantBindRealm` | Binds the identity provider's realm to the tenant. A repeat binds nothing a second time; a different realm for a bound tenant is refused. |
 | `tenant.grant_first_admins` | `Impl.TenantGrantFirstAdmins` | Stores the pending grant of the tenant's first administrator in the tenant's own schema. A repeat stores nothing a second time. |
 | `tenant.install_default_modules` | `Impl.TenantInstallDefaultModules` | Installs the tenant's default modules. A repeat installs nothing a second time (the installer answers `:already_installed`). |
+| `tenant.notify_admin` | `Impl.TenantNotifyAdmin` | Sends the `tenant_registered` notice to `admin_email` through the notification dispatcher (the G14 allow-list at dispatch, the send cap, one delivery row with no address). A repeat after a sent notice sends nothing (the delivery log is asked first). T-2727 V8. |
 
 `tenant.validate` has a body since T-2704 (`Impl.TenantValidate`): the read-only first step of the
 chain. It checks the byte bound, the reserved slugs and that the slug is free or belongs to the same
@@ -434,6 +437,37 @@ So the variable belongs to the DEPLOYMENT, not to the build:
 |---|---|
 | QA host | `LETFLOW_START_PLATFORM_STEP_RUNNER=true` in BOTH host-local files: `$APP_DIR/qa.env` (the file `deploy/redeploy-qa.sh` sources) and `$APP_DIR/deploy/.env` (the compose `env_file` of `deploy/docker-compose.qa.yml`, the file the app container boots with). `qa.env` alone does not reach the container. `deploy/redeploy-qa.sh` refuses to deploy when either file does not carry it exactly `true`; the runbook is `docs/runbooks/qa-platform-step-runner.md`. |
 | Production | Unset means off, and the row in `docs/runbooks/production-readiness.md` §Settings says so, so an install that forgot it does not start with the runner off unnoticed. Turning it on in production is the owner's decision. |
+
+### The engine runs a notification step (T-2810)
+
+A SERVICE_TASK that carries a `notify` attribute (and nothing else that routes it) is route
+`:notify`. Before T-2810 entering such a node fell to the HTTP branch, failed to parse and ended
+the instance in ERROR. Now the engine arms the SAME durable row as a platform step
+(`platform_step_dispatches`, `function_name` = `notify.send`, `inputs` empty) and
+`Letflow.Engine.NotifyStepRunner` runs it on the same ticker, in EVERY tenant schema (a
+notification step is a tenant step, unlike a platform call). The advance, the failure landing and
+the DLQ retry are the platform step's own (`apply_platform_step_result/3`, `fail_platform_step/2`,
+`Letflow.Instances.StepRetry`); the DLQ entry type is `notify_step`. The poller is the one gated by
+`LETFLOW_START_PLATFORM_STEP_RUNNER`.
+
+| path | trigger | effect | replay | logged / stored |
+|---|---|---|---|---|
+| success, mail | the row is due | the template is sent, the delivery row is written, the instance continues by the edges | the delivery log is asked FIRST (`already_done`): nothing is sent twice | row `advanced`; delivery row: key, locale, status, trigger (no address, no body) |
+| success, file | the row is due | the rendered template is written into the tenant's area, the instance continues | same: a written file for this template and instance is not written again | row `advanced`; the file row |
+| recipient variable absent or not an address | the row is due | refused with `notify_recipient_missing` / `notify_recipient_invalid`: ERROR + EXECUTION_ERROR + `notify_step` DLQ entry | the DLQ retry runs the step once more | row `given_up`, `last_failure_kind` = the code |
+| template unknown | the row is due | refused (`notify_template_unknown`), same landing | retryable | same |
+| destination off the allow-list | the row is due | refused at DISPATCH (`notify_destination_not_allowed`): the list is read at every attempt | retryable once the list allows it | same |
+| send failure | the adapter fails | `notify_failed`: ERROR + DLQ | the retry sends (the log has no `sent` row yet) | same |
+| the tenant's send cap | over the cap | nothing is sent (`notify_skipped`): ERROR + DLQ | retryable later | same |
+| worker dies after the send, before its result | the lease (5 min) expires | the next claim takes the row over (attempt cap 5) | `already_done`: nothing is sent a second time | attempt count grows |
+| retry from the DLQ | an operator | runs the row once (the cap does not stop it), lifts the ERROR and resumes the instance exactly once | a second retry answers `already_done` | the same row |
+
+No address, name or body is written to a log, an audit row, the step row, a DLQ row or an answer
+(INV-4): the recipient and the values are read from the instance's variables at run time. Open
+point: the delivery log is keyed by template + instance, so two steps of the SAME template in one
+instance count as one delivery; give them different templates. T-2727's `tenant.notify_admin`
+platform function is untouched; a later version of the registration definition may use this
+generic step instead.
 
 ### What is not built yet
 

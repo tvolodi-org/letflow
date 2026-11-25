@@ -209,7 +209,9 @@ defmodule Letflow.Engine.PlatformStepRunner do
         as: :d,
         join: p in InstanceProjection,
         on: p.instance_id == d.instance_id,
-        where: d.status == ^status and p.status == :active,
+        where:
+          d.status == ^status and p.status == :active and
+            d.function_name != ^Letflow.Engine.NotifyStepRunner.function_name(),
         where:
           exists(
             from(t in TokenRecord,

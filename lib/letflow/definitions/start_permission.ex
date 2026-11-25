@@ -64,6 +64,7 @@ defmodule Letflow.Definitions.StartPermission do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.PlatformTenant
+  alias Letflow.PlatformProcesses.SystemStart
 
   # The atom that stands for a DECLARED permission the platform does not know:
   # no caller holds it, so a start with it is refused. It is not a permission
@@ -158,10 +159,19 @@ defmodule Letflow.Definitions.StartPermission do
   as a direct start. A child that calls a platform function therefore holds the
   parent's start to the same permission, and so does a child that DECLARES one.
   """
-  @spec check(map() | term(), map() | nil, [map()]) :: :ok | {:error, :not_found}
-  def check(definition, auth_context, children \\ [])
+  @spec check(map() | term(), map() | nil, [map()], keyword()) :: :ok | {:error, :not_found}
+  def check(definition, auth_context, children \\ [], opts \\ []) when is_list(opts) do
+    # T-2727 (pilot gap G17c): a start that carries a `%SystemStart{}` has NO person behind it. It is
+    # admitted by `system_check/4` only (one definition, platform prefix, exact permission, no child,
+    # v2 contract); a system start that is not admitted is refused, whatever `auth_context` says.
+    case Keyword.get(opts, :system_start) do
+      nil -> check_person(definition, auth_context, children)
+      %SystemStart{} = system_start -> system_check(system_start, definition, children, opts)
+      _other -> {:error, :not_found}
+    end
+  end
 
-  def check(definition, auth_context, children) when is_map(definition) do
+  defp check_person(definition, auth_context, children) when is_map(definition) do
     derived = required_permission_atoms(definition, children)
     declared = declared_atoms(definition, children)
 
@@ -177,7 +187,63 @@ defmodule Letflow.Definitions.StartPermission do
     end
   end
 
-  def check(_definition, _auth_context, _children), do: :ok
+  defp check_person(_definition, _auth_context, _children), do: :ok
+
+  # The conditions of C1 (`docs/platform-register-tenant-v2.md` section 6.2): ALL must hold, else the
+  # answer is the one for an unknown definition and nothing is written.
+  defp system_check(%SystemStart{definition_name: name}, definition, children, opts)
+       when is_map(definition) do
+    prefix = Keyword.get(opts, :prefix)
+
+    ok? =
+      Map.get(definition, :name) == name and
+        name == "platform.register_tenant" and
+        is_binary(prefix) and PlatformTenant.platform_prefix?(prefix) and
+        children == [] and
+        not sub_process_node?(definition) and
+        required_permission_atoms(definition, children) == [:TenantsManage] and
+        declared_atoms(definition, children) == [:TenantsManage] and
+        v2_contract?(definition, prefix)
+
+    if ok? do
+      :ok
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp system_check(_system_start, _definition, _children, _opts), do: {:error, :not_found}
+
+  # The resolved `children` skip a child that cannot be resolved, so `children == []` alone holds
+  # for a dangling SUB_PROCESS reference: the graph itself is read too (a system start has no
+  # person behind it, so no node may start another definition).
+  defp sub_process_node?(definition) do
+    graph = Map.get(definition, :graph)
+    nodes = if is_map(graph), do: Map.get(graph, "nodes"), else: nil
+
+    case nodes do
+      list when is_list(list) ->
+        Enum.any?(list, &(is_map(&1) and Map.get(&1, "node_type") == "SUB_PROCESS"))
+
+      _other ->
+        true
+    end
+  end
+
+  # The v2 start contract: the definition declares the three variables the system start needs.
+  @v2_keys ["requested_tenant_id", "tenant_type", "notify_admin"]
+  defp v2_contract?(%{id: id}, prefix) do
+    case Letflow.Definitions.variable_schema_entries(id, prefix: prefix) do
+      {:ok, entries} ->
+        keys = Enum.map(entries, & &1.variable_key)
+        Enum.all?(@v2_keys, &(&1 in keys))
+
+      _error ->
+        false
+    end
+  end
+
+  defp v2_contract?(_definition, _prefix), do: false
 
   defp required_permission_atoms(%{graph: graph_map}, children) do
     own =

@@ -21,6 +21,9 @@ import { useIntl } from 'react-intl'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
+import { useGuideStore } from '@/stores/guideStore'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 import type { ApiError, NotificationTemplateEntry } from '@/types/api'
 import {
   fileNameProblem,
@@ -67,6 +70,7 @@ const SOURCE_OPTIONS: { value: string; labelKey: string }[] = [
 export function NotifyStepEditor({ step, catalogue, onChange }: NotifyStepEditorProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
+  const guideLabel = definitionsMessages[useUiLocale()].guideNotifyLink
   const { entries, loading, error, onRetry } = catalogue
   const entry = entries.find((x) => x.template_key === step.templateKey) ?? null
   const placeholders = entry ? entry.placeholders : null
@@ -123,6 +127,9 @@ export function NotifyStepEditor({ step, catalogue, onChange }: NotifyStepEditor
 
   return (
     <div className="lf-pd-edit__notify" data-testid="notify-step-editor">
+      <Button variant="secondary" size="sm" data-testid="notify-guide-link" onClick={() => useGuideStore.getState().openGuide('sec-notification-step')}>
+        {guideLabel}
+      </Button>
       <Select
         label={e('processDiagram.edit.notify.channel')}
         value={step.channel}

@@ -21,6 +21,11 @@ export interface DefinitionsMessages {
   noEditPermission: string
   importButton: string
   newDefinition: string
+  guideButton: string
+  guideTitle: string
+  guideClose: string
+  guideUnavailable: string
+  guideNotifyLink: string
   searchPlaceholder: string
   searching: string
   status: string
@@ -74,6 +79,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'No edit permission',
     importButton: 'Import',
     newDefinition: '+ New process',
+    guideButton: 'Guide',
+    guideTitle: 'Designer guide',
+    guideClose: 'Close',
+    guideUnavailable: 'The guide is not available.',
+    guideNotifyLink: 'How a notification step works',
     searchPlaceholder: 'Search processes...',
     searching: 'Searching…',
     status: 'Status',
@@ -125,6 +135,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'Нет разрешения на изменение',
     importButton: 'Импорт',
     newDefinition: '+ Новый процесс',
+    guideButton: 'Руководство',
+    guideTitle: 'Руководство по редактору процессов',
+    guideClose: 'Закрыть',
+    guideUnavailable: 'Руководство недоступно.',
+    guideNotifyLink: 'Как работает шаг уведомления',
     searchPlaceholder: 'Поиск процессов...',
     searching: 'Поиск…',
     status: 'Статус',
@@ -176,6 +191,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'Өзгертуге рұқсат жоқ',
     importButton: 'Импорттау',
     newDefinition: '+ Жаңа процесс',
+    guideButton: 'Нұсқаулық',
+    guideTitle: 'Процесс редакторының нұсқаулығы',
+    guideClose: 'Жабу',
+    guideUnavailable: 'Нұсқаулық қолжетімсіз.',
+    guideNotifyLink: 'Хабарландыру қадамы қалай жұмыс істейді',
     searchPlaceholder: 'Процестерді іздеу...',
     searching: 'Іздеу…',
     status: 'Күйі',

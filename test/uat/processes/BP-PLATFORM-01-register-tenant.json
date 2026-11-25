@@ -45,7 +45,7 @@
     {
       "id": "A2",
       "actor": "admin",
-      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node carries a template and a recipient variable.",
+      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node included (tenant.notify_admin sends the tenant_registered template; T-2727 V8).",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/${definition_id}"
@@ -53,8 +53,8 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.graph.nodes[7].node_type": "END",
-          "$.graph.nodes[8]": {
+          "$.graph.nodes[11].node_type": "END",
+          "$.graph.nodes[12]": {
             "absent": true
           },
           "$.graph.nodes[0].node_type": "START",
@@ -64,13 +64,18 @@
           "$.graph.nodes[2].attributes.platform_call.function": "tenant.create",
           "$.graph.nodes[3].id": "provision",
           "$.graph.nodes[3].attributes.platform_call.function": "tenant.provision",
-          "$.graph.nodes[4].id": "bind_realm",
-          "$.graph.nodes[4].attributes.platform_call.function": "tenant.bind_realm",
-          "$.graph.nodes[5].id": "grant_first_admins",
-          "$.graph.nodes[5].attributes.platform_call.function": "tenant.grant_first_admins",
-          "$.graph.nodes[6].id": "notify",
-          "$.graph.nodes[6].attributes.notify.template_key": "tenant_registered",
-          "$.graph.nodes[6].attributes.notify.recipient.var": "admin_email"
+          "$.graph.nodes[4].id": "record_lifecycle",
+          "$.graph.nodes[4].attributes.platform_call.function": "tenant.record_lifecycle",
+          "$.graph.nodes[5].id": "record_onboarding",
+          "$.graph.nodes[5].attributes.platform_call.function": "tenant.record_onboarding",
+          "$.graph.nodes[6].id": "bind_realm",
+          "$.graph.nodes[6].attributes.platform_call.function": "tenant.bind_realm",
+          "$.graph.nodes[7].id": "grant_first_admins",
+          "$.graph.nodes[7].attributes.platform_call.function": "tenant.grant_first_admins",
+          "$.graph.nodes[8].id": "install_default_modules",
+          "$.graph.nodes[8].attributes.platform_call.function": "tenant.install_default_modules",
+          "$.graph.nodes[10].id": "notify",
+          "$.graph.nodes[10].attributes.platform_call.function": "tenant.notify_admin"
         }
       },
       "requires": [
@@ -91,8 +96,11 @@
           "$.items[1].name": "tenant.bind_realm",
           "$.items[2].name": "tenant.create",
           "$.items[3].name": "tenant.grant_first_admins",
-          "$.items[5].name": "tenant.provision",
-          "$.items[6].name": "tenant.validate",
+          "$.items[5].name": "tenant.notify_admin",
+          "$.items[6].name": "tenant.provision",
+          "$.items[7].name": "tenant.record_lifecycle",
+          "$.items[8].name": "tenant.record_onboarding",
+          "$.items[9].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },
@@ -265,7 +273,7 @@
     {
       "id": "C2",
       "actor": "admin",
-      "says": "C. The step log lists the six steps in order, each completed (who/when/duration are on the row; no value is on it).",
+      "says": "C. The step log lists the nine steps in order, each completed (who/when/duration are on the row; no value is on it).",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id1}/timeline"
@@ -283,19 +291,25 @@
           "$.steps[2].result": "completed",
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].node_id": "record_lifecycle",
           "$.steps[4].result": "completed",
-          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].node_id": "record_onboarding",
           "$.steps[5].result": "completed",
-          "$.steps[6].node_id": "notify",
+          "$.steps[6].node_id": "bind_realm",
           "$.steps[6].result": "completed",
+          "$.steps[7].node_id": "grant_first_admins",
+          "$.steps[7].result": "completed",
+          "$.steps[8].node_id": "install_default_modules",
+          "$.steps[8].result": "completed",
+          "$.steps[9].node_id": "notify",
+          "$.steps[9].result": "completed",
           "$.steps[1].started_at": {
             "exists": true
           },
           "$.steps[1].duration_ms": {
             "exists": true
           },
-          "$.steps[7].node_id": "end"
+          "$.steps[10].node_id": "end"
         }
       },
       "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
@@ -404,9 +418,9 @@
         "json": {
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
-          "$.steps[4].result": "failed",
-          "$.steps[4].last_failure_kind": {
+          "$.steps[6].node_id": "bind_realm",
+          "$.steps[6].result": "failed",
+          "$.steps[6].last_failure_kind": {
             "exists": true
           }
         }
@@ -473,8 +487,8 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.steps[4].node_id": "bind_realm",
-          "$.steps[4].attempts": {
+          "$.steps[6].node_id": "bind_realm",
+          "$.steps[6].attempts": {
             "regex": "^[2-9]$"
           }
         }

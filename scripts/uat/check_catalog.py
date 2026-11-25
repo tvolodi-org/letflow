@@ -65,6 +65,8 @@ REF_RE = re.compile(r"^(.+):(\d+)$")
 # A missing field means `direct`: the existing maps are not rewritten by this tool.
 EXECUTED_BY_DIRECT = "direct"
 EXECUTED_BY_DEFINITION = "definition:"
+# A proof experiment (not a process the engine runs, e.g. the definition-drives-execution proof): counted apart.
+EXECUTED_BY_NA = "n/a"
 # A process key: the name of a definition (`stock_receipt`, `platform.register_tenant`). The
 # engine accepts any name of 1..255 characters; the tool refuses the shapes that could not
 # name a definition at all (spaces, a leading dot, an empty key).
@@ -133,6 +135,8 @@ def parse_executed_by(entry: dict) -> tuple[str | None, str | None, str | None]:
     value = raw.strip()
     if value == EXECUTED_BY_DIRECT:
         return value, "direct", None
+    if value == EXECUTED_BY_NA:
+        return value, "n/a", None
     if value.startswith(EXECUTED_BY_DEFINITION):
         key = value[len(EXECUTED_BY_DEFINITION):]
         if not key:
@@ -144,13 +148,13 @@ def parse_executed_by(entry: dict) -> tuple[str | None, str | None, str | None]:
             )
         return value, "definition", None
     return value, None, (
-        f"executed_by {value!r} must be {EXECUTED_BY_DIRECT!r} or 'definition:<process_key>'"
+        f"executed_by {value!r} must be {EXECUTED_BY_DIRECT!r}, {EXECUTED_BY_NA!r} or 'definition:<process_key>'"
     )
 
 
 def executed_by_counts(entries: list[dict]) -> dict[str, int]:
     """How many entries are `direct` and how many are `definition:` (a wrong form counts as neither)."""
-    counts = {"direct": 0, "definition": 0}
+    counts = {"direct": 0, "definition": 0, "n/a": 0}
     for entry in entries:
         _value, kind, _problem = parse_executed_by(entry)
         if kind in counts:
@@ -381,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
         result = check_area(root, a, every_entry, orphans, errors)
         result["executed_by"] = executed_by_counts(all_entries[a])
         results.append(result)
-    totals = {"direct": 0, "definition": 0}
+    totals = {"direct": 0, "definition": 0, "n/a": 0}
     for r in results:
         for kind in totals:
             totals[kind] += r["executed_by"][kind]
@@ -401,8 +405,10 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"EXECUTED BY {r['area']}: {r['executed_by']['direct']} direct, "
                 f"{r['executed_by']['definition']} definition"
+                + (f", {r['executed_by']['n/a']} n/a" if r["executed_by"]["n/a"] else "")
             )
-        print(f"EXECUTED BY total: {totals['direct']} direct, {totals['definition']} definition")
+        print(f"EXECUTED BY total: {totals['direct']} direct, {totals['definition']} definition"
+              + (f", {totals['n/a']} n/a" if totals["n/a"] else ""))
         for line in errors:
             print(line)
         print("check_catalog: " + ("FAIL" if failed else "PASS"))

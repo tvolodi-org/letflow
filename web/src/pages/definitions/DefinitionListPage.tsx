@@ -23,6 +23,8 @@ import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { fillFeedback, useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { definitionsMessages } from './definitionsMessages'
+import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
+import { useGuideStore } from '@/stores/guideStore'
 
 
 export default function DefinitionListPage() {
@@ -291,6 +293,9 @@ export default function DefinitionListPage() {
       title={dm.title}
       actions={
         <div className="lf-page-layout__actions-row">
+          <Button variant="secondary" size="sm" data-testid="btn-guide" onClick={() => useGuideStore.getState().openGuide()}>
+            {dm.guideButton}
+          </Button>
           {hasDesignerRole && (
             <>
               <Button variant="secondary" size="sm" data-testid="btn-import-definition" onClick={handleImport}>
@@ -540,6 +545,7 @@ export default function DefinitionListPage() {
           </div>
         </div>
       )}
+      <DesignerGuidePanel />
     </PageLayout>
   )
 }

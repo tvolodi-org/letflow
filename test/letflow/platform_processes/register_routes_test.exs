@@ -251,6 +251,23 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
             for [schema] <- schemas,
                 do: Repo.query!(~s|DROP SCHEMA IF EXISTS "#{schema}" CASCADE|)
 
+            # The v2 chain also installs the default modules: every registry row that
+            # references the tenant (solution pack installs, artefact bases, ...) goes first.
+            %{rows: referencing} =
+              Repo.query!("""
+              SELECT cl.relname, att.attname
+              FROM pg_constraint con
+              JOIN pg_class cl ON cl.oid = con.conrelid
+              JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+              WHERE con.contype = 'f' AND con.confrelid = 'tenants'::regclass
+              """)
+
+            for [table, column] <- referencing do
+              Repo.query!(~s|DELETE FROM "#{table}" WHERE "#{column}" = $1|, [
+                Ecto.UUID.dump!(tenant.id)
+              ])
+            end
+
             Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
           end)
         end
@@ -466,17 +483,101 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
            ) == []
   end
 
-  test "POST /tenants with a tenant_type is refused rather than dropped silently", ctx do
+  test "T-2727 V8: POST /tenants tenant_type reaches the persisted row on the v2 definition",
+       ctx do
     seed!(ctx)
+    slug = TenantSlugFixture.unique_slug("t2727-type")
 
     conn =
       post(ctx, "/api/v1/tenants", %{
-        "slug" => TenantSlugFixture.unique_slug("t2704-type"),
+        "slug" => slug,
         "display_name" => "Typed",
         "tenant_type" => "production"
       })
 
-    assert conn.status == 422, conn.resp_body
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["tenant_type"] == "production"
+
+    Enum.each(1..14, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+    tenant = Repo.get_by(Tenant, slug: slug)
+    assert tenant, "the create step must have stored the tenant"
+    drop_on_exit(tenant)
+    assert tenant.tenant_type == "production"
+  end
+
+  test "T-2727 V8: a tenant_type outside the enum is a 422 before anything starts", ctx do
+    seed!(ctx)
+
+    conn =
+      post(ctx, "/api/v1/tenants", %{
+        "slug" => TenantSlugFixture.unique_slug("t2727-bad"),
+        "display_name" => "Bad",
+        "tenant_type" => "gold"
+      })
+
+    assert conn.status in [400, 422], conn.resp_body
+  end
+
+  test "T-2727 V8: route 2 WITH admin_email builds notify_admin true; WITHOUT it false and completes",
+       ctx do
+    seed!(ctx)
+
+    with_mail = Map.put(form("/api/v1/onboarding"), "admin_email", "owner-t2727@example.com")
+    conn = post(ctx, "/api/v1/onboarding", with_mail)
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["notify_admin"] == true
+
+    without_mail = form("/api/v1/onboarding")
+    conn = post(ctx, "/api/v1/onboarding", without_mail)
+    assert conn.status == 202, conn.resp_body
+    instance_id = json(conn)["instance_id"]
+    assert started_variables(ctx, instance_id)["notify_admin"] == false
+
+    Enum.each(1..16, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+
+    projection =
+      Repo.get_by!(InstanceProjection, [instance_id: instance_id],
+        prefix: ctx.platform.schema_name
+      )
+
+    for slug <- [with_mail["slug"], without_mail["slug"]],
+        tenant = Repo.get_by(Tenant, slug: slug),
+        do: drop_on_exit(tenant)
+
+    refute projection.status == :error, inspect(projection.error_detail)
+  end
+
+  defp started_variables(ctx, instance_id) do
+    [event] = started_events(ctx, instance_id)
+    payload = event.payload
+    Map.get(payload, "variables") || Map.get(payload, "initial_variables") || payload
+  end
+
+  defp drop_on_exit(tenant) do
+    on_exit(fn ->
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+      id = Ecto.UUID.dump!(tenant.id)
+
+      %{rows: schemas} =
+        Repo.query!("SELECT schema_name FROM tenant_schemas WHERE tenant_id = $1", [id])
+
+      Repo.query!("DELETE FROM tenant_schemas WHERE tenant_id = $1", [id])
+      for [schema] <- schemas, do: Repo.query!(~s|DROP SCHEMA IF EXISTS "#{schema}" CASCADE|)
+
+      %{rows: referencing} =
+        Repo.query!("""
+        SELECT cl.relname, att.attname
+        FROM pg_constraint con
+        JOIN pg_class cl ON cl.oid = con.conrelid
+        JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+        WHERE con.contype = 'f' AND con.confrelid = 'tenants'::regclass
+        """)
+
+      for [table, column] <- referencing,
+          do: Repo.query!(~s|DELETE FROM "#{table}" WHERE "#{column}" = $1|, [id])
+
+      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
+    end)
   end
 
   test "REQ-442: a login_disclosure_mode in the create body is not a start variable", ctx do
@@ -617,7 +718,7 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
   end
 
   describe "SF-08: the audit read does not carry the registration values" do
-    test "PROCESS_OPERATOR and TENANT_AUDITOR read no value from /audit; PLATFORM_ADMIN does",
+    test "no reader gets a registration value from /audit, PLATFORM_ADMIN included",
          ctx do
       seed!(ctx)
       email = "owner-t2704-audit@example.com"
@@ -650,20 +751,205 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
         refute conn.resp_body =~ realm, "#{role} /audit leaks the realm"
       end
 
+      # T-2727 V9 (design row A1): the STORED row carries no registration value, so the
+      # authorised operator's audit read shows the placeholder too.
       admin = audit.(ctx.token)
       assert admin.status == 200
-      assert admin.resp_body =~ email
+      assert json(admin)["items"] != []
+      refute admin.resp_body =~ email
+      refute admin.resp_body =~ realm
     end
   end
 
-  test "POST /tenants with a tenant_type is refused also for an already started slug", ctx do
+  test "T-2727 V16: a replay that adds a tenant_type to a start without one is a 409", ctx do
     seed!(ctx)
-    slug = TenantSlugFixture.unique_slug("t2704-typed-replay")
+    slug = TenantSlugFixture.unique_slug("t2727-typed-replay")
     body = %{"slug" => slug, "display_name" => "Typed replay"}
 
     assert post(ctx, "/api/v1/tenants", body).status == 202
 
     conn = post(ctx, "/api/v1/tenants", Map.put(body, "tenant_type", "production"))
-    assert conn.status == 422, conn.resp_body
+    assert conn.status == 409, conn.resp_body
+  end
+
+  describe "T-2727 V8: the v2 run, end to end through the runner" do
+    alias Letflow.OutboundDestinations
+
+    defp activate_v1!(ctx) do
+      alias Letflow.Support.PlatformCallFixture, as: Fx
+      prefix = ctx.platform.schema_name
+      admin = Fx.user!(prefix, "v1-activator")
+      Fx.platform_admin!(prefix, admin)
+      v1 = Letflow.PlatformProcesses.Definition
+
+      {:ok, draft} =
+        Letflow.Definitions.create_with_variable_schemas(
+          Map.put(v1.attrs(), :created_by, admin.id),
+          v1.variable_schemas(),
+          prefix: prefix
+        )
+
+      activator =
+        Letflow.Definitions.Activator.from_auth_context(
+          %{user_id: admin.id, roles: ["PLATFORM_ADMIN"]},
+          true
+        )
+
+      OutboundDestinations.open_channels(prefix, admin.id, draft.graph)
+      {:ok, _} = Letflow.Definitions.activate(draft.id, prefix: prefix, activator: activator)
+      admin
+    end
+
+    defp run_all(ctx, instance_id) do
+      Enum.each(1..20, fn _ -> PlatformStepRunner.run_due(ctx.platform.schema_name) end)
+
+      Repo.get_by!(InstanceProjection, [instance_id: instance_id],
+        prefix: ctx.platform.schema_name
+      )
+    end
+
+    # T-2727 V8 branch A (design `docs/design/provision-realm-and-invite-paths.md` row N2): the
+    # `notify` step is a platform step of `tenant.notify_admin`; the real runner sends the
+    # registration notice through the Notifier adapter and the instance COMPLETES.
+    test "with admin_email and hostname: the mail is delivered and the instance COMPLETES", ctx do
+      alias Letflow.LoginDiscoveryNotifierDouble, as: Double
+      alias Letflow.Notifications.Delivery
+      alias Letflow.Test.SmtpHelpers, as: S
+
+      seed!(ctx)
+      prefix = ctx.platform.schema_name
+      # The seed opened the mail CHANNEL; the recipient DOMAIN is a human entry (G2 (c)).
+      {:ok, _entry} = OutboundDestinations.add(prefix, nil, "email", "example.com")
+
+      S.put_app_env!(Letflow.LoginDiscovery.Notifier,
+        adapter: Double,
+        timeout_ms: 100,
+        max_concurrent: 5
+      )
+
+      Double.set_owner(self())
+      on_exit(&Double.reset/0)
+
+      email = "owner-t2727-v8@example.com"
+      body = "/api/v1/onboarding" |> form() |> Map.put("admin_email", email)
+
+      conn = post(ctx, "/api/v1/onboarding", body)
+      assert conn.status == 202, conn.resp_body
+      instance_id = json(conn)["instance_id"]
+      assert started_variables(ctx, instance_id)["notify_admin"] == true
+
+      projection = run_all(ctx, instance_id)
+      tenant = Repo.get_by(Tenant, slug: body["slug"])
+      assert tenant, "the create step must have stored the tenant"
+      drop_on_exit(tenant)
+
+      assert projection.status == :completed,
+             inspect({projection.status, projection.error_detail})
+
+      assert_receive {:deliver_message, message}, 2000
+      assert message.to == email
+
+      record = Repo.get_by(OnboardingRecord, slug: body["slug"])
+      assert record, "the hostname must have produced the onboarding record"
+      assert record.hostname == body["hostname"]
+
+      [delivery] =
+        Repo.all(
+          from(d in Delivery, where: d.trigger_ref == ^instance_id),
+          prefix: prefix
+        )
+
+      assert delivery.template_key == "tenant_registered"
+      assert delivery.status == "sent"
+      refute inspect(delivery) =~ email, "the delivery row carries no address (INV-4)"
+
+      # A further cycle runs nothing again: one mail only.
+      Enum.each(1..3, fn _ -> PlatformStepRunner.run_due(prefix) end)
+      refute_receive {:deliver_message, _again}, 200
+    end
+
+    test "without admin_email: notify_admin false, the instance COMPLETES with no mail and no error",
+         ctx do
+      seed!(ctx)
+      body = form("/api/v1/onboarding")
+      conn = post(ctx, "/api/v1/onboarding", body)
+      assert conn.status == 202, conn.resp_body
+      instance_id = json(conn)["instance_id"]
+      assert started_variables(ctx, instance_id)["notify_admin"] == false
+
+      projection = run_all(ctx, instance_id)
+      if tenant = Repo.get_by(Tenant, slug: body["slug"]), do: drop_on_exit(tenant)
+
+      assert projection.status == :completed,
+             inspect({projection.status, projection.error_detail})
+
+      assert Repo.get_by(OnboardingRecord, slug: body["slug"])
+    end
+
+    test "on v1 active the operator builder sends none of the v2 keys, and the start completes",
+         ctx do
+      activate_v1!(ctx)
+
+      body =
+        "/api/v1/tenants"
+        |> form()
+        |> Map.put("admin_email", "owner-v1@example.com")
+
+      conn = post(ctx, "/api/v1/tenants", body)
+      assert conn.status == 202, conn.resp_body
+      vars = started_variables(ctx, json(conn)["instance_id"])
+
+      for key <- ["tenant_type", "notify_admin", "requested_tenant_id"],
+          do: refute(Map.has_key?(vars, key), "v1 start must not carry #{key}")
+
+      assert vars["slug"] == body["slug"]
+    end
+
+    test "V14a: a request started on v1 replays after v2 is activated: the first instance, no 409",
+         ctx do
+      admin = activate_v1!(ctx)
+      body = form("/api/v1/tenants")
+
+      first = post(ctx, "/api/v1/tenants", body)
+      assert first.status == 202, first.resp_body
+
+      assert {:ok, %{outcome: :created}} =
+               Letflow.PlatformProcesses.Seed.seed(
+                 prefix: ctx.platform.schema_name,
+                 activator_user_id: admin.id
+               )
+
+      again = post(ctx, "/api/v1/tenants", body)
+      assert again.status == 202, again.resp_body
+      assert json(again)["instance_id"] == json(first)["instance_id"]
+      assert json(again)["replayed"] == true
+
+      changed = post(ctx, "/api/v1/tenants", Map.put(body, "display_name", "Other"))
+      assert changed.status == 409, changed.resp_body
+    end
+
+    for {field, value} <- [
+          {"admin_email", "owner-t2727-v16@example.com"},
+          {"idp_realm_id", "t2727v16realm"}
+        ] do
+      test "V16: #{field} absent then present, and present then absent, is a 409 on route 2 (hostname is required there; its absent/present replay is the system start's, in system_start_test.exs)",
+           ctx do
+        seed!(ctx)
+        field = unquote(field)
+        value = unquote(value)
+
+        absent = "/api/v1/onboarding" |> form() |> Map.delete(field)
+        assert post(ctx, "/api/v1/onboarding", absent).status == 202
+        added = post(ctx, "/api/v1/onboarding", Map.put(absent, field, value))
+        assert added.status == 409, added.resp_body
+
+        present = Map.put(form("/api/v1/onboarding"), field, value)
+        assert post(ctx, "/api/v1/onboarding", present).status == 202
+        removed = post(ctx, "/api/v1/onboarding", Map.delete(present, field))
+        assert removed.status == 409, removed.resp_body
+
+        assert post(ctx, "/api/v1/onboarding", present).status == 202
+      end
+    end
   end
 end

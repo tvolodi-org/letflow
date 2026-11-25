@@ -124,6 +124,8 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
   defp run_registration!(instance_id, platform_schema) do
     Enum.reduce_while(1..12, nil, fn _cycle, _status ->
       PlatformStepRunner.run_due(platform_schema)
+      # T-2810: the notification step of the definition is run by its own runner.
+      Letflow.Engine.NotifyStepRunner.run_due(platform_schema)
 
       projection =
         Repo.get_by!(InstanceProjection, [instance_id: instance_id], prefix: platform_schema)
@@ -240,9 +242,8 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
       assert is_binary(instance_id)
 
       # Every step that creates, provisions, binds and grants runs for real. The LAST node of
-      # the definition is the notification step, which the engine does not run yet (the apply of
-      # its node answers `config_parse_failed`, a gap outside this test): the instance may stop
-      # in ERROR AT THAT NODE and nowhere earlier, so a failing create, provision, bind or grant
+      # the definition is the notification step (T-2810: run by `NotifyStepRunner`): it may stop
+      # the instance in ERROR AT THAT NODE (a mail that cannot be sent in this test) and nowhere earlier, so a failing create, provision, bind or grant
       # step still fails this test.
       assert run_registration!(instance_id, platform_schema) in [:completed, :error]
 
@@ -250,8 +251,8 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
         Repo.get_by!(InstanceProjection, [instance_id: instance_id], prefix: platform_schema)
 
       if projection.status == :error do
-        assert projection.error_detail["affected"]["node_id"] == "grant_first_admins"
-        assert projection.error_detail["details"]["failure_kind"] == "apply_refused"
+        assert projection.error_detail["affected"]["node_id"] == "notify"
+        assert projection.error_detail["details"]["failure_kind"] =~ ~r/\Anotify_/
       end
 
       %Tenant{id: new_tenant_id} = Repo.get_by!(Tenant, slug: slug)
