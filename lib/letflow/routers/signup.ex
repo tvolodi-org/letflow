@@ -71,13 +71,19 @@ defmodule Letflow.Routers.Signup do
   end
 
   # T-2748: live slug availability for the form. Rate-limited per client address by the same hourly cap logic
-  # is NOT applied (a read with no write); the answer holds no per-address state. Cache-control no-store.
+  # is NOT applied; it shares the public-read per-address token bucket (429 when drained). Cache-control no-store.
   get "/slug" do
-    conn = fetch_query_params(conn)
-    slug = Map.get(conn.query_params, "slug")
-    status = Signup.slug_status(slug)
-    emit(:slug_check)
-    respond(conn, 200, %{status: Atom.to_string(status)})
+    conn = Letflow.Plugs.PublicReadRateLimit.call(conn, [])
+
+    if conn.halted do
+      emit(:rate_limited_read)
+      conn
+    else
+      conn = fetch_query_params(conn)
+      status = Signup.slug_status(Map.get(conn.query_params, "slug"))
+      emit(:slug_check)
+      respond(conn, 200, %{status: Atom.to_string(status)})
+    end
   end
 
   post "/" do
@@ -120,19 +126,24 @@ defmodule Letflow.Routers.Signup do
 
   post "/verify" do
     {conn, params} = read_json(conn)
+    retry? = Map.get(params, "retry") == true
 
-    case Signup.verify(
-           Map.get(params, "token"),
-           DateTime.utc_now(),
-           Map.get(params, "retry") == true
-         ) do
-      :ok ->
-        emit(:verified)
-        respond(conn, 200, %{status: "verified"})
+    # SF-13: the visitor's retry re-drives outbound provisioning calls: it shares the per-address read bucket.
+    conn = if retry?, do: Letflow.Plugs.PublicReadRateLimit.call(conn, []), else: conn
 
-      {:error, :invalid} ->
-        emit(:verify_invalid)
-        respond(conn, 400, %{error: "invalid_or_expired_link"})
+    if conn.halted do
+      emit(:rate_limited_read)
+      conn
+    else
+      case Signup.verify(Map.get(params, "token"), DateTime.utc_now(), retry?) do
+        :ok ->
+          emit(:verified)
+          respond(conn, 200, %{status: "verified"})
+
+        {:error, :invalid} ->
+          emit(:verify_invalid)
+          respond(conn, 400, %{error: "invalid_or_expired_link"})
+      end
     end
   end
 

@@ -195,7 +195,19 @@ defmodule Letflow.Signup.Provisioning do
   # The tenant exists (a crash or a mail failure after the create): only the welcome mail is left.
   defp process(%Request{step: "tenant_created"} = row, cfg), do: send_welcome(row, cfg)
 
+  # The host must carry an allowed suffix BEFORE a realm exists for it: otherwise the tenant create refuses it
+  # later and every sign-up leaves an orphan realm (no realm is created for a host the create would refuse).
   defp process(%Request{step: "ready_for_provisioning"} = row, cfg) do
+    case TenantProvisioner.Request.hostname(
+           hostname(row, cfg),
+           TenantProvisioner.Config.allowed_hostname_suffixes()
+         ) do
+      {:ok, _host} -> create_realm_step(row, cfg)
+      {:error, _field} -> {:permanent, :invalid_tenant}
+    end
+  end
+
+  defp create_realm_step(row, cfg) do
     case RealmProvisioner.create_realm(row, cfg) do
       {:ok, _kind, realm} ->
         row =
@@ -377,7 +389,10 @@ defmodule Letflow.Signup.Provisioning do
         )
       )
 
-    if row && row.last_error in @retryable do
+    # SF-13: the visitor never refills the platform's budget: `step_attempts` is NOT reset, so every run of
+    # every visitor retry draws on the same `max_attempts` total; an exhausted budget is permanent for them.
+    if (row && row.last_error in @retryable) and row.last_error != "attempts_exhausted" and
+         row.step_attempts < Signup.config().max_attempts do
       step =
         cond do
           row.credential_sent_at -> "credential_sent"
@@ -386,7 +401,7 @@ defmodule Letflow.Signup.Provisioning do
         end
 
       Repo.update_all(from(r in Request, where: r.tenant_id == ^tenant_id),
-        set: [state: "provisioning", step: step, step_attempts: 0, claimed_at: nil]
+        set: [state: "provisioning", step: step, claimed_at: nil]
       )
 
       :ok

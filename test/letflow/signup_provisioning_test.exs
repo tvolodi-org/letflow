@@ -292,6 +292,70 @@ defmodule Letflow.SignupProvisioningTest do
     end
   end
 
+  describe "visitor retry is bounded; host checked before the realm (T-2748, SF-13)" do
+    defp failed_row!(attrs) do
+      r = ready_row()
+      token = "bound-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(
+        from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set:
+          [
+            token_hash: :crypto.hash(:sha256, token),
+            token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+            state: "failed",
+            step: "provisioning_failed"
+          ] ++ attrs
+      )
+
+      {r, token}
+    end
+
+    test "P23 a visitor retry does not reset the attempt budget; an exhausted budget is refused" do
+      enable!(max_attempts: 5)
+      {r, token} = failed_row!(last_error: "unavailable", step_attempts: 5)
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state == "failed"
+      assert row(r.tenant_id).step_attempts == 5
+      assert Provisioning.retry_failed(r.tenant_id) == :not_retryable
+
+      {r2, _} = failed_row!(last_error: "attempts_exhausted", step_attempts: 1)
+      assert Provisioning.retry_failed(r2.tenant_id) == :not_retryable
+
+      {r3, _} = failed_row!(last_error: "unavailable", step_attempts: 2)
+      assert Provisioning.retry_failed(r3.tenant_id) == :ok
+      assert row(r3.tenant_id).step_attempts == 2
+    end
+
+    test "P24 a host outside the allowed suffixes creates no realm" do
+      r = ready_row(slug: "my-co")
+      stub = stub_created(r.tenant_id)
+      configure!(stub, hostname_domain: "other.example.test")
+
+      assert Provisioning.run(r.tenant_id) == {:failed, "invalid_tenant"}
+      assert Stub.posts(stub) == []
+      assert row(r.tenant_id).state == "failed"
+      assert row(r.tenant_id).last_error == "invalid_tenant"
+    end
+
+    test "P25 GET /slug and the verify retry answer 429 once the address bucket is drained" do
+      enable!()
+      ip = {198, 51, 100, 77}
+
+      statuses =
+        for _ <- 1..40, do: request(:get, "/api/signup/slug?slug=my-co", nil, ip: ip).status
+
+      assert 200 in statuses
+      assert 429 in statuses
+
+      assert request(:post, "/api/signup/verify", %{"token" => "x", "retry" => true}, ip: ip).status ==
+               429
+    end
+  end
+
   describe "failure leaves a visible state and a cleanup path" do
     test "P8 5xx is retried within the budget, then the row is failed with a fixed code" do
       r = ready_row()
