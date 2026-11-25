@@ -375,10 +375,28 @@ defmodule Letflow.Routers.Definitions do
   end
 
   defp validate_with_optional_graph(conn, id, graph) when is_map(graph) do
-    render_validation(
-      conn,
-      Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
-    )
+    # T-2811: an optional `variable_schemas` list (the variables declared on the screen, not saved
+    # yet) is what the preview checks the graph against; a malformed one is a 422, never a 500.
+    case preview_variable_schema_entries(Map.get(conn.body_params, "variable_schemas")) do
+      {:ok, nil} ->
+        render_validation(
+          conn,
+          Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
+        )
+
+      {:ok, entries} ->
+        opts = Keyword.put(conn.assigns.scoped_opts, :declared_variables, entries)
+        render_validation(conn, Definitions.validate_graph_preview(id, graph, opts))
+
+      {:error, :invalid_variable_schemas} ->
+        Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      {:error, :variable_schemas_too_large} ->
+        Response.unprocessable(
+          conn,
+          "variable_schemas has too many entries or a variable_key exceeds the maximum length"
+        )
+    end
   end
 
   defp validate_with_optional_graph(conn, _id, _not_a_map) do
@@ -436,8 +454,31 @@ defmodule Letflow.Routers.Definitions do
   # inherit get_by_id/2's not-found collapse (OQ-2)".
 
   defp handle_get_by_id(conn, raw_id) do
-    render_get_by_id(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
+    render_get_by_id_with_variables(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
   end
+
+  # T-2811: the single-definition read also lists the DECLARED VARIABLES (key, json_schema, description)
+  # so the designer can show and extend them; the list and search reads stay as they were.
+  defp render_get_by_id_with_variables(conn, {:ok, definition}) do
+    declared =
+      case Definitions.variable_schema_entries(definition.id, conn.assigns.scoped_opts) do
+        {:ok, entries} ->
+          Enum.map(entries, fn e ->
+            %{
+              "variable_key" => e.variable_key,
+              "json_schema" => e.json_schema,
+              "description" => e.description
+            }
+          end)
+
+        _ ->
+          []
+      end
+
+    Response.ok(conn, Map.put(definition_map(definition), "variable_schemas", declared))
+  end
+
+  defp render_get_by_id_with_variables(conn, other), do: render_get_by_id(conn, other)
 
   defp render_get_by_id(conn, {:ok, definition}),
     do: Response.ok(conn, definition_map(definition))
@@ -965,6 +1006,30 @@ defmodule Letflow.Routers.Definitions do
   defp optional_string(nil), do: {:ok, nil}
   defp optional_string(value) when is_binary(value), do: {:ok, value}
   defp optional_string(_invalid), do: {:error, :invalid_optional_string}
+
+  # SF-01 / INV-8 (T-2811): the preview feeds these keys to semantic validation (edit-distance
+  # suggestions) without storing them, so the stored path's 255-byte key cap and an entry-count
+  # cap are applied BEFORE normalising and before any per-character work.
+  @max_preview_variable_keys 200
+  @max_preview_variable_key_bytes 255
+
+  defp preview_variable_schema_entries(entries) when is_list(entries) do
+    cond do
+      length(entries) > @max_preview_variable_keys ->
+        {:error, :variable_schemas_too_large}
+
+      Enum.any?(entries, fn
+        %{"variable_key" => k} when is_binary(k) -> byte_size(k) > @max_preview_variable_key_bytes
+        _ -> false
+      end) ->
+        {:error, :variable_schemas_too_large}
+
+      true ->
+        normalise_variable_schema_entries(entries)
+    end
+  end
+
+  defp preview_variable_schema_entries(other), do: normalise_variable_schema_entries(other)
 
   # Per-element shape (variable_key present+string, json_schema present) has
   # no FieldConstraint vocabulary, so it is checked here -- mirrors

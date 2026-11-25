@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { definitionsApi, type GraphValidationViolation } from '@/api/definitions'
-import type { DefinitionGraph } from '@/types/api'
+import type { DeclaredVariable, DefinitionGraph } from '@/types/api'
 
 export const VALIDATE_DEBOUNCE_MS = 700
 
@@ -29,13 +29,16 @@ export type DraftCheck =
 
 export const isBlocking = (v: GraphValidationViolation) => !ADVISORY_CODES.has(v.code)
 
-export function useValidateDraft(definitionId: string | undefined, graph: DefinitionGraph, enabled: boolean, delayMs = VALIDATE_DEBOUNCE_MS) {
+/** T-2811: `variables` are the declared variables of the screen (unsaved ones included); undefined = the stored ones. */
+export function useValidateDraft(definitionId: string | undefined, graph: DefinitionGraph, enabled: boolean, delayMs = VALIDATE_DEBOUNCE_MS, variables?: DeclaredVariable[]) {
   const [check, setCheck] = useState<DraftCheck>({ phase: 'idle' })
   const latest = useRef(graph)
   latest.current = graph
+  const latestVars = useRef(variables)
+  latestVars.current = variables
   const inFlight = useRef(false)
   const pending = useRef(false)
-  const mutation = useMutation({ mutationFn: (g: DefinitionGraph) => definitionsApi.validate(definitionId!, g) })
+  const mutation = useMutation({ mutationFn: (g: DefinitionGraph) => (latestVars.current ? definitionsApi.validate(definitionId!, g, latestVars.current) : definitionsApi.validate(definitionId!, g)) })
   const mutateAsync = mutation.mutateAsync
 
   const run = useCallback(async () => {
@@ -46,6 +49,7 @@ export function useValidateDraft(definitionId: string | undefined, graph: Defini
     }
     inFlight.current = true
     const sent = latest.current
+    const sentVars = latestVars.current
     setCheck({ phase: 'checking' })
     let result: DraftCheck
     try {
@@ -57,7 +61,7 @@ export function useValidateDraft(definitionId: string | undefined, graph: Defini
     }
     inFlight.current = false
     // A newer draft exists: this answer is about an older graph and is dropped; check the new one.
-    if (latest.current !== sent || pending.current) {
+    if (latest.current !== sent || latestVars.current !== sentVars || pending.current) {
       pending.current = false
       void run()
       return
@@ -69,7 +73,7 @@ export function useValidateDraft(definitionId: string | undefined, graph: Defini
     if (!enabled || !definitionId) return
     const timer = setTimeout(() => void run(), delayMs)
     return () => clearTimeout(timer)
-  }, [graph, enabled, definitionId, delayMs, run])
+  }, [graph, variables, enabled, definitionId, delayMs, run])
 
   return { check, recheck: run }
 }

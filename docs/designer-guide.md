@@ -88,14 +88,18 @@ script at the same time.
 
 <a id="sec-notification-step"></a>
 ## 5. The notification step
-<!-- labels: pd.edit.notify.useNotification, pd.edit.notify.channel, pd.edit.notify.channel.email, pd.edit.notify.channel.file, pd.edit.notify.template, pd.edit.notify.recipient, pd.edit.notify.values, pd.edit.notify.problem.template_missing, pd.edit.notify.problem.recipient_missing -->
+<!-- labels: pd.edit.notify.useNotification, pd.edit.notify.channel, pd.edit.notify.channel.email, pd.edit.notify.channel.file, pd.edit.notify.template, pd.edit.notify.recipient, pd.edit.notify.values, pd.edit.notify.problem.template_missing, pd.edit.notify.problem.recipient_missing, pd.edit.vars.title, pd.edit.vars.addEntry, pd.edit.vars.add -->
 
 A service task can send a notification instead of calling a function. Press **Send a notification**, then fill in:
 
 * **Channel**: **E-mail** or **File**. A file notification also needs a **File name**: a plain name, not a path.
 * **Template**: choose from the registered templates (**Choose a template**). Templates are not written here.
 * **Recipient variable**: the name of a process variable that holds the address. A fixed address is never stored in
-  the definition.
+  the definition. It is picked from a list of the variables of the process. If the variable is not in the list, choose
+  **+ Add a variable…**, type its name and type, and press **Add variable**: it is declared at once and picked. The
+  same list sits under **Process variables** at the top of the Edit-diagram screen (name, type, where it comes from:
+  start form, earlier step, or added here and not saved yet); the same picker is used for every value that comes from
+  "a variable of the process". A variable the process does not declare is an error that says so and names this fix.
 * **Values**: what each placeholder of the template receives, from a variable of the process or a fixed value.
 
 If something is missing the editor says, for example, "Choose a template for the notification." or

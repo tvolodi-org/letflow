@@ -219,7 +219,7 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     fireEvent.click(node)
     expect(await screen.findByTestId('edit-platform-call')).toBeInTheDocument()
     await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.provision')).toBeInTheDocument())
-    expect(await screen.findByTestId('platform-arg-var-tenant_id')).toHaveValue('tenant_id')
+    expect(within(await screen.findByTestId('platform-arg-var-tenant_id')).getByRole('combobox')).toHaveValue('tenant_id')
   })
 
   it('S5 the notify step in the edit view has the function picker with tenant.notify_admin and its arguments', async () => {
@@ -228,7 +228,7 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     expect(node).toHaveTextContent('notify')
     fireEvent.click(node)
     await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.notify_admin')).toBeInTheDocument())
-    expect(await screen.findByTestId('platform-arg-var-admin_email')).toHaveValue('admin_email')
+    expect(within(await screen.findByTestId('platform-arg-var-admin_email')).getByRole('combobox')).toHaveValue('admin_email')
   })
 
   it('S6 a fresh open of the shipped definition shows no "unsaved local draft" banner (Viewer and Editor views)', async () => {

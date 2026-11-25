@@ -146,6 +146,49 @@ const ROUTES: FixtureRoute[] = [
   { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/platform-functions'), reply: () => ({ status: 200, body: PLATFORM_FUNCTIONS }) },
 ]
 
+/** T-2811 (designer D1): a DRAFT whose notification step reads the recipient from `admin_email`, a variable the definition
+ *  does not declare. The fake validate route is the server's rule in miniature: it answers the undeclared-variable finding
+ *  until the body's `variable_schemas` list names the variable. */
+export const UNDECLARED_DEF: ProcessDefinition = {
+  id: 'def-harness-undeclared-recipient',
+  name: 'notify_admin',
+  version: '1.0.0',
+  description: 'A notification to the administrator.',
+  status: 'DRAFT',
+  created_by: 'harness',
+  created_at: '2026-11-25T09:00:00Z',
+  updated_at: '2026-11-25T09:00:00Z',
+  variable_schemas: [{ variable_key: 'tenant_name', json_schema: { type: 'string' } }],
+  graph: {
+    nodes: [
+      n('start', 'START', 'Start'),
+      n('notify', 'SERVICE_TASK', 'Notify', { notify: { channel: 'email', template_key: 'tenant_registered', recipient: { var: 'admin_email' }, values: {} } }),
+      n('end', 'END', 'End'),
+    ],
+    edges: [
+      { id: 'e1', source: 'start', target: 'notify' },
+      { id: 'e2', source: 'notify', target: 'end' },
+    ],
+  },
+}
+
+const UNDECLARED_ROUTES: FixtureRoute[] = [
+  {
+    match: (p, m) => m === 'POST' && p.endsWith('/validate'),
+    reply: (_state, _path, body) => {
+      const vars = (body as { variable_schemas?: { variable_key: string }[] } | undefined)?.variable_schemas ?? []
+      if (vars.some((v) => v.variable_key === 'admin_email')) return { status: 200, body: { status: 'valid', findings: [], definition_id: UNDECLARED_DEF.id } }
+      return {
+        status: 422,
+        body: { title: 'definition graph failed validation', status: 422, errors: [{ code: 'step_mapping_variable_undeclared', message: "Node 'notify' reads mapping admin_email: the variable is not among the definition's declared variable schemas" }] },
+      }
+    },
+  },
+  { match: (p, m) => m === 'GET' && p.endsWith(`/definitions/${UNDECLARED_DEF.id}`), reply: () => ({ status: 200, body: UNDECLARED_DEF }) },
+  { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/notification-templates/catalogue'), reply: () => ({ status: 200, body: TEMPLATES }) },
+  { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/platform-functions'), reply: () => ({ status: 200, body: PLATFORM_FUNCTIONS }) },
+]
+
 const PAGE_AUTH = {
   session: { token: 'harness', tenant_id: 'harness-platform', tenant_type: 'platform' } as unknown as UserSession,
   isAuthenticated: true,
@@ -315,6 +358,42 @@ export const registerTenantDesignerScreens: HarnessScreen[] = [
     initialPath: `/definitions/${DEF.id}`,
     routePattern: '/definitions/:id',
     routes: ROUTES,
+    render: () => (
+      <AuthContext.Provider value={PAGE_AUTH}>
+        <AccessStateProvider state={accessState('platformAdmin')}>
+          <DefinitionEditorPage />
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
+  // T-2811 screenshots: the editor with the undeclared recipient (the error names the fix) and after the variable is declared.
+  {
+    name: 'pd-variables-error',
+    routes: UNDECLARED_ROUTES,
+    render: () =>
+      frame(UNDECLARED_DEF.name, {
+        def: UNDECLARED_DEF,
+        demo: {
+          selected: { kind: 'node', id: 'notify' },
+          violations: [{ code: 'step_mapping_variable_undeclared', message: "Node 'notify' reads mapping admin_email: the variable is not among the definition's declared variable schemas" }],
+        },
+      }),
+  },
+  {
+    name: 'pd-variables-declared',
+    routes: UNDECLARED_ROUTES,
+    render: () =>
+      frame(UNDECLARED_DEF.name, {
+        def: { ...UNDECLARED_DEF, variable_schemas: [...(UNDECLARED_DEF.variable_schemas ?? []), { variable_key: 'admin_email', json_schema: { type: 'string' } }] },
+        demo: { selected: { kind: 'node', id: 'notify' }, violations: [] },
+      }),
+  },
+  // T-2811: a draft with an undeclared recipient variable, through the REAL page: the user declares the variable.
+  {
+    name: 'pd-variables-page',
+    initialPath: `/definitions/${UNDECLARED_DEF.id}`,
+    routePattern: '/definitions/:id',
+    routes: UNDECLARED_ROUTES,
     render: () => (
       <AuthContext.Provider value={PAGE_AUTH}>
         <AccessStateProvider state={accessState('platformAdmin')}>

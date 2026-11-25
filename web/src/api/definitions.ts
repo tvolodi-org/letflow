@@ -5,6 +5,7 @@ import type {
   CursorPage,
   DefinitionStatus,
   DefinitionGraph,
+  DeclaredVariable,
 } from '@/types/api'
 
 export interface PromoteResult {
@@ -67,9 +68,13 @@ export const definitionsApi = {
   // same validators and persists nothing (the process designer's live check).
   // Resolves clean (200); THROWS an ApiError (422, details: GraphValidationViolation[])
   // when the graph fails REQ-372's semantic checks. See §3.3 of the design doc.
-  validate: (id: string, graph?: DefinitionGraph) =>
+  // T-2811: `variableSchemas` are the variables declared on the screen and not saved yet; the check runs against them.
+  validate: (id: string, graph?: DefinitionGraph, variableSchemas?: DeclaredVariable[]) =>
     graph
-      ? client.post<GraphValidationResponse>(`/api/v1/definitions/${id}/validate`, { graph })
+      ? client.post<GraphValidationResponse>(
+          `/api/v1/definitions/${id}/validate`,
+          variableSchemas ? { graph, variable_schemas: variableSchemas } : { graph },
+        )
       : client.post<GraphValidationResponse>(`/api/v1/definitions/${id}/validate`),
 
   deprecate: (id: string) =>

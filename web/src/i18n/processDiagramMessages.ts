@@ -222,6 +222,44 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.platform.useFunction': ['Use a platform function', 'Использовать платформенную функцию', 'Платформалық функцияны қолдану'],
   'processDiagram.edit.platform.useScript': ['Use a script instead', 'Использовать скрипт', 'Орнына скрипт қолдану'],
   'processDiagram.edit.announce.platformSelected': ['The step now calls the platform function {name}', 'Шаг теперь вызывает платформенную функцию {name}', 'Қадам енді платформалық функцияны шақырады: {name}'],
+  // T-2811 (designer D1): the variables of the process, declared on the Edit-diagram screen.
+  'processDiagram.edit.vars.title': ['Process variables', 'Переменные процесса', 'Процесс айнымалылары'],
+  'processDiagram.edit.vars.lede': [
+    'A variable holds a value the steps use, such as the address of a recipient. Declare it here, then pick it in a step.',
+    'Переменная хранит значение, которое используют шаги, например адрес получателя. Объявите её здесь и выберите в шаге.',
+    'Айнымалы қадамдар қолданатын мәнді, мысалы алушының мекенжайын сақтайды. Оны осында жариялап, қадамда таңдаңыз.',
+  ],
+  'processDiagram.edit.vars.empty': [
+    'No variables yet. Add one to use it in a step.',
+    'Переменных пока нет. Добавьте переменную, чтобы использовать её в шаге.',
+    'Айнымалылар әлі жоқ. Қадамда қолдану үшін қосыңыз.',
+  ],
+  'processDiagram.edit.vars.name': ['Name', 'Имя', 'Атауы'],
+  'processDiagram.edit.vars.type': ['Type', 'Тип', 'Түрі'],
+  'processDiagram.edit.vars.source': ['Comes from', 'Откуда', 'Қайдан келеді'],
+  'processDiagram.edit.vars.source.start': ['Start form', 'Форма запуска', 'Бастау формасы'],
+  'processDiagram.edit.vars.source.step': ['Earlier step', 'Предыдущий шаг', 'Алдыңғы қадам'],
+  'processDiagram.edit.vars.source.added': ['Added here, not saved yet', 'Добавлена здесь, ещё не сохранена', 'Осында қосылған, әлі сақталмаған'],
+  'processDiagram.edit.vars.add': ['Add variable', 'Добавить переменную', 'Айнымалы қосу'],
+  'processDiagram.edit.vars.cancel': ['Cancel', 'Отмена', 'Бас тарту'],
+  'processDiagram.edit.vars.choose': ['Choose a variable', 'Выберите переменную', 'Айнымалыны таңдаңыз'],
+  'processDiagram.edit.vars.addEntry': ['+ Add a variable…', '+ Добавить переменную…', '+ Айнымалы қосу…'],
+  'processDiagram.edit.vars.notDeclared': ['not declared', 'не объявлена', 'жарияланбаған'],
+  'processDiagram.edit.vars.refusal.name_invalid': [
+    'Use a plain name: no dot, no spaces at the ends, and not starting with _sys.',
+    'Простое имя: без точки, без пробелов по краям и не начинается с _sys.',
+    'Қарапайым атау: нүктесіз, шеттерінде бос орынсыз және _sys-пен басталмайды.',
+  ],
+  'processDiagram.edit.vars.refusal.name_taken': [
+    'This variable is already declared. Pick it from the list.',
+    'Такая переменная уже объявлена. Выберите её из списка.',
+    'Бұл айнымалы жарияланған. Тізімнен таңдаңыз.',
+  ],
+  'processDiagram.edit.vars.undeclaredFix': [
+    'Declare this variable under "Process variables" above, or pick another one in the step.',
+    'Объявите эту переменную в разделе «Переменные процесса» выше или выберите другую в шаге.',
+    'Бұл айнымалыны жоғарыдағы «Процесс айнымалылары» бөлімінде жариялаңыз немесе қадамда басқасын таңдаңыз.',
+  ],
   // T-2600 (pilot gap G5b): the notification step of a service step — the channel, the template picker, the
   // recipient and the values.
   'processDiagram.edit.notify.channel': ['Channel', 'Канал', 'Арна'],
