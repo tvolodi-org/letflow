@@ -2,7 +2,7 @@
  *
  * Collects onboarding inputs for a new tenant and submits to POST /api/v1/onboarding.
  * Role guard: redirects to /instances if session does not include platform-admin role.
- * On success navigates to OnboardingResultPage with the created record in router state.
+ * On success navigates to the instance page of the started registration process (T-2704).
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -234,13 +234,10 @@ export default function RegisterTenantPage() {
     }
 
     try {
-      const created = await submitOnboarding(formValues)
-      // The backend is synchronous: the 201 already carries the final record,
-      // so go straight to the result page (no progress polling).
-      navigate(
-        `/admin/onboarding/${created.id}/result?hostname=${encodeURIComponent(formValues.hostname)}`,
-        { state: { record: created, formValues } },
-      )
+      const started = await submitOnboarding(formValues)
+      // The route starts the registration process and answers 202 with its instance id (T-2704):
+      // the instance page shows the timeline of its steps.
+      navigate(`/instances/${encodeURIComponent(started.instance_id)}`)
     } catch (err) {
       if (err instanceof OnboardingApiError) {
         const resolved = resolveApiErrorMessage(err)

@@ -21,7 +21,7 @@ import { DiagramNode, type DiagramFlowNode } from './DiagramNode'
 import { DiagramEdge, cutLabel, type DiagramFlowEdge } from './DiagramEdge'
 import { StepsList } from './StepsList'
 import { NodeDetails } from './NodeDetails'
-import { summariseNode } from './nodeSummary'
+import { stepCaption, summariseNode } from './nodeSummary'
 import { useDiagramText } from './useDiagramText'
 
 const nodeTypes = { diagram: DiagramNode }
@@ -144,7 +144,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
   const labelOf = useCallback(
     (id: string) => {
       const n = layout.nodes.find((x) => x.id === id)
-      return n ? n.label ?? t.typeName(n.nodeType) : id
+      return n ? n.label ?? stepCaption(n.nodeType, n.attributes) ?? t.typeName(n.nodeType) : id
     },
     [layout.nodes, t],
   )
@@ -153,7 +153,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
     () =>
       layout.nodes.map((n) => {
         const st = path?.nodes.get(n.id)?.state
-        const label = n.label ?? t.typeName(n.nodeType)
+        const label = n.label ?? stepCaption(n.nodeType, n.attributes) ?? t.typeName(n.nodeType)
         const typeName = t.typeName(n.nodeType)
         const stateName = st ? t.stateName(st) : undefined
         const dk = diff?.nodes.get(n.id)?.kind

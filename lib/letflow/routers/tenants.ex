@@ -18,7 +18,7 @@ defmodule Letflow.Routers.Tenants do
 
   | Handler     | Method/path                          | Domain fn(s) called                                                                                    | Auth            | Response                    |
   |-------------|---------------------------------------|---------------------------------------------------------------------------------------------------------|-----------------|-----------------------------|
-  | create      | `POST /tenants`                       | `TenantCreate.create_tenant/1` -> `TenantProvision.provision_and_migrate/1` | `:TenantsManage` | 201, `tenant_map/1`         |
+  | create      | `POST /tenants`                       | `PlatformProcesses.start_register_tenant/2` (T-2704) | `:TenantsManage` | 202, `{instance_id, status, slug}` |
   | list        | `GET /tenants`                        | `Identity.list_tenants/1`                                                                                | `:TenantsManage` | 200, paginated `tenant_map`  |
   | get         | `GET /tenants/:slug`                  | `Identity.get_tenant_by_slug/1`                                                                          | `:TenantsManage` | 200, `tenant_map/1`         |
   | patch       | `PATCH /tenants/:slug`                | `Identity.get_tenant_by_slug/1` then `Identity.patch_tenant/3`                                           | `:TenantsManage` | 200, `tenant_map/1`         |
@@ -114,19 +114,13 @@ defmodule Letflow.Routers.Tenants do
 
   ## Relationship to REQ-076 (AC7)
 
-  `POST /tenants` (this requirement) and REQ-076's onboarding endpoint are
-  two HTTP entry points into the same underlying provisioning sequence —
-  `Letflow.TenantOnboarding.provision_and_migrate/1` (ISS-0778) — not two
-  divergent tenant-creation code paths. This one is the PLATFORM_ADMIN-driven
-  direct-creation path; REQ-076's is the self-service signup path. Both call
-  the same `Letflow.PlatformFunctions.Impl.TenantProvision.provision_and_migrate/1`
-  (the home of that sequence since T-2590, pilot gap G1b; the platform step
-  `tenant.provision` calls it too), which itself sequences
-  `Letflow.TenantProvisioning.provision_tenant_schema/1`,
-  `Letflow.TenantProvisioning.replay_migrations/2`, and (ISS-0778)
-  `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups/1`;
-  neither route reimplements schema creation, migration replay, or role
-  seeding itself.
+  Since T-2704 (pilot gap G17b) neither `POST /tenants` nor REQ-076's `POST /onboarding` creates or
+  provisions a tenant itself: both start the `platform.register_tenant` process
+  (`Letflow.PlatformProcesses.start_register_tenant/2`) and answer 202 with the instance id. The
+  steps of that definition (`tenant.create`, `tenant.provision`, ...) are the one place that writes
+  the tenant row and sequences `Letflow.TenantProvisioning.provision_tenant_schema/1`,
+  `replay_migrations/2` and the role seeding. `tenant_type` is not an input of the process yet, so a
+  `tenant_type` in the create body is refused with 422 instead of being dropped silently.
 
   ## Deactivation-status statement (AC5)
 
@@ -202,8 +196,7 @@ defmodule Letflow.Routers.Tenants do
   alias Letflow.EventStore.PlatformEvents
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
-  alias Letflow.PlatformFunctions.Impl.TenantCreate
-  alias Letflow.PlatformFunctions.Impl.TenantProvision
+  alias Letflow.PlatformProcesses.RouteStart
   alias Letflow.PlatformTenant
   alias Letflow.Scripts
   alias Letflow.TenantProvisioning
@@ -398,29 +391,43 @@ defmodule Letflow.Routers.Tenants do
     }
   ]
 
+  # T-2704 (pilot gap G17b): the route does not create or provision. It starts the active
+  # `platform.register_tenant` definition (the ONE start function) and answers 202 with the
+  # instance id. A slug that is taken is still a 409 before anything starts.
   defp handle_create(conn) do
     case Validation.validate(@create_schema, conn.body_params) do
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
 
       {:ok, attrs} ->
-        case TenantCreate.create_tenant(attrs) do
-          {:ok, tenant} -> provision_and_respond(conn, tenant)
-          {:error, :duplicate_slug} -> Response.conflict(conn, "slug already exists")
-          {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
-        end
-    end
-  end
+        slug = Map.fetch!(attrs, "slug")
 
-  # OQ-5: no compensating rollback of the just-created tenant row on a
-  # provisioning/replay failure -- see moduledoc. Do NOT "fix" this by adding a
-  # delete here: it orphans a real Postgres schema (ISS-0230/GH#468). The
-  # recovery path is REQ-076's, not this function's.
-  defp provision_and_respond(conn, tenant) do
-    with {:ok, _registration} <- TenantProvision.provision_and_migrate(tenant.id) do
-      Response.created(conn, tenant_map(tenant))
-    else
-      _provisioning_or_replay_error -> Response.internal_error(conn)
+        form = %{
+          slug: slug,
+          name: Map.fetch!(attrs, "display_name"),
+          realm_id: Map.get(attrs, "idp_realm_id")
+        }
+
+        cond do
+          # The registration process has no tenant_type input yet (the tenant is created as
+          # "test"): a value that would be dropped silently is refused instead, before the replay check
+          # (a stateless input rule: the answer does not depend on what already started).
+          Map.has_key?(attrs, "tenant_type") ->
+            Response.unprocessable(
+              conn,
+              "tenant_type is not supported by the registration process"
+            )
+
+          # A replay of an existing start is answered by the engine BEFORE any state precheck.
+          RouteStart.started?(form) ->
+            RouteStart.respond(conn, form)
+
+          match?({:ok, _tenant}, Identity.get_tenant_by_slug(slug)) ->
+            Response.conflict(conn, "slug already exists")
+
+          true ->
+            RouteStart.respond(conn, form)
+        end
     end
   end
 
