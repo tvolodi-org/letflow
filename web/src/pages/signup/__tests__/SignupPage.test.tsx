@@ -150,4 +150,18 @@ describe('SignupPage', () => {
     expect(await screen.findByText(/sign-up is not open/i)).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('signup-form')).toBeNull())
   })
+
+  it('a harness preset renders a state without typing and skips the live check', async () => {
+    api.config.mockResolvedValue(CONFIG)
+    render(
+      <MemoryRouter>
+        <SignupPage preset={{ company: 'My Co', slug: 'my-co', slugState: 'taken', outcome: { kind: 'rate_limited', retryAfterSeconds: 5 } }} />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('signup-form')
+    expect(input(/company name/i).value).toBe('My Co')
+    expect(screen.getByTestId('signup-error').dataset.kind).toBe('rate_limited')
+    expect(screen.getByText(/already taken|not free|taken/i)).toBeInTheDocument()
+    expect(api.slug).not.toHaveBeenCalled()
+  })
 })

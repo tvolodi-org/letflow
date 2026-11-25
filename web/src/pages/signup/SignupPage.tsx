@@ -34,25 +34,37 @@ type FieldKey = 'company' | 'user' | 'email' | 'slug' | 'password' | 'terms'
 
 const SLUG_DEBOUNCE_MS = 300
 
-function SignupForm() {
+/** Initial values for the dev harness only (a preset renders a state that otherwise needs typing); the real route passes none. */
+export interface SignupPreset {
+  company?: string
+  userName?: string
+  email?: string
+  slug?: string
+  slugState?: SlugState
+  outcome?: SignupSubmitOutcome
+  phase?: Phase
+}
+
+function SignupForm({ preset }: { preset?: SignupPreset }) {
   const intl = useIntl()
   const locale = useUiLocale()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id: `signup.${id}` }, values)
 
   const [config, setConfig] = useState<SignupConfig | null | undefined>(undefined)
-  const [company, setCompany] = useState('')
-  const [userName, setUserName] = useState('')
-  const [email, setEmail] = useState('')
-  const [slug, setSlug] = useState('')
-  const [slugTouched, setSlugTouched] = useState(false)
+  const [company, setCompany] = useState(preset?.company ?? '')
+  const [userName, setUserName] = useState(preset?.userName ?? '')
+  const [email, setEmail] = useState(preset?.email ?? '')
+  const [slug, setSlug] = useState(preset?.slug ?? '')
+  const [slugTouched, setSlugTouched] = useState(preset?.slug !== undefined)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [terms, setTerms] = useState(false)
   const [slugState, setSlugState] = useState<SlugState>('idle')
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({})
-  const [outcome, setOutcome] = useState<SignupSubmitOutcome | null>(null)
-  const [phase, setPhase] = useState<Phase>('form')
+  const [outcome, setOutcome] = useState<SignupSubmitOutcome | null>(preset?.outcome ?? null)
+  const [phase, setPhase] = useState<Phase>(preset?.phase ?? 'form')
   const checkSeq = useRef(0)
+  const presetSlugState = useRef(preset?.slugState)
 
   useEffect(() => {
     let cancelled = false
@@ -66,6 +78,10 @@ function SignupForm() {
 
   // Live availability: debounced, and a late answer for an older value is dropped.
   useEffect(() => {
+    if (presetSlugState.current !== undefined && slug === preset?.slug) {
+      setSlugState(presetSlugState.current)
+      return
+    }
     if (slug === '') {
       setSlugState('idle')
       return
@@ -82,6 +98,7 @@ function SignupForm() {
       })
     }, SLUG_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the preset is read once, at mount
   }, [slug])
 
   const onCompany = (value: string) => {
@@ -258,10 +275,10 @@ function SignupForm() {
   )
 }
 
-export default function SignupPage() {
+export default function SignupPage({ preset }: { preset?: SignupPreset } = {}) {
   return (
     <SignupIntlProvider>
-      <SignupForm />
+      <SignupForm preset={preset} />
     </SignupIntlProvider>
   )
 }

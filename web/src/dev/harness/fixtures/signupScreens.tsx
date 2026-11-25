@@ -16,10 +16,13 @@ const config = (passwordRequired: boolean): FixtureRoute => ({
         },
 })
 
-const slug: FixtureRoute = {
+const slugAnswer = (status: string): FixtureRoute => ({
   match: (path, method) => path === '/api/signup/slug' && method === 'GET',
-  reply: () => ({ status: 200, body: { status: 'available' } }),
-}
+  reply: () => ({ status: 200, body: { status } }),
+})
+const slug = slugAnswer('available')
+
+const FILLED = { company: 'My Company', userName: 'Aigul Bek', email: 'aigul@known-co.test', slug: 'my-company' }
 
 const verify = (status: number): FixtureRoute => ({
   match: (path, method) => path === '/api/signup/verify' && method === 'POST',
@@ -47,4 +50,30 @@ export const signupScreens: HarnessScreen[] = [
     render: () => <SignupResultPage tokenOverride={TOKEN} />,
   },
   { name: 'signup-result-invalid', routes: [verify(400)], render: () => <SignupResultPage tokenOverride={TOKEN} /> },
+  // Presets: states that otherwise need typing (live check answers, the five submit errors, the mail notice).
+  { name: 'signup-slug-available', routes: [config(false), slug], render: () => <SignupPage preset={{ ...FILLED, slugState: 'available' }} /> },
+  { name: 'signup-slug-taken', routes: [config(false), slugAnswer('taken')], render: () => <SignupPage preset={{ ...FILLED, slugState: 'taken' }} /> },
+  { name: 'signup-slug-reserved', routes: [config(false), slugAnswer('reserved')], render: () => <SignupPage preset={{ ...FILLED, slug: 'admin', slugState: 'reserved' }} /> },
+  { name: 'signup-slug-invalid', routes: [config(false), slug], render: () => <SignupPage preset={{ ...FILLED, slug: 'Bad_Slug!' }} /> },
+  {
+    name: 'signup-error-rate-limited',
+    routes: [config(false), slug],
+    render: () => <SignupPage preset={{ ...FILLED, slugState: 'available', outcome: { kind: 'rate_limited', retryAfterSeconds: 60 } }} />,
+  },
+  {
+    name: 'signup-error-unavailable',
+    routes: [config(false), slug],
+    render: () => <SignupPage preset={{ ...FILLED, slugState: 'available', outcome: { kind: 'unavailable' } }} />,
+  },
+  {
+    name: 'signup-error-email',
+    routes: [config(false), slug],
+    render: () => <SignupPage preset={{ ...FILLED, slugState: 'available', outcome: { kind: 'email_not_accepted' } }} />,
+  },
+  {
+    name: 'signup-error-slug-taken',
+    routes: [config(false), slugAnswer('taken')],
+    render: () => <SignupPage preset={{ ...FILLED, slugState: 'taken', outcome: { kind: 'slug_taken' } }} />,
+  },
+  { name: 'signup-sent', routes: [config(false), slug], render: () => <SignupPage preset={{ ...FILLED, phase: 'sent' }} /> },
 ]
