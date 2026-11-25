@@ -4,6 +4,8 @@
 export const PROCESS_DIAGRAM_LOCALES = ['en', 'ru', 'kk'] as const
 export type ProcessDiagramLocale = (typeof PROCESS_DIAGRAM_LOCALES)[number]
 
+import { DESIGNER_ERROR_MESSAGES, DESIGNER_ERROR_PREFIX } from './designerErrorMessages'
+
 type Triple = readonly [en: string, ru: string, kk: string]
 
 const UI: Record<string, Triple> = {
@@ -405,8 +407,13 @@ const UI: Record<string, Triple> = {
   'processDiagram.waiting.waitingFor': ["waiting {elapsed}", "ожидает {elapsed}", "күтуде: {elapsed}"],
 }
 
+const ALL: Record<string, Triple> = {
+  ...UI,
+  ...Object.fromEntries(Object.entries(DESIGNER_ERROR_MESSAGES).map(([k, v]) => [DESIGNER_ERROR_PREFIX + k, v])),
+}
+
 function pick(i: 0 | 1 | 2): Record<string, string> {
-  return Object.fromEntries(Object.entries(UI).map(([k, v]) => [k, v[i]]))
+  return Object.fromEntries(Object.entries(ALL).map(([k, v]) => [k, v[i]]))
 }
 
 export const processDiagramMessages: Record<ProcessDiagramLocale, Record<string, string>> = {

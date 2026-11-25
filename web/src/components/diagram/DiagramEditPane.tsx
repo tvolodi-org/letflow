@@ -15,12 +15,13 @@ import { useDiagramDraft, type DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, useValidateDraft, type DraftCheck } from '@/hooks/useValidateDraft'
 import type { GraphValidationViolation } from '@/api/definitions'
 import type { DefinitionGraph, ProcessDefinition } from '@/types/api'
+import { DESIGNER_ERROR_PREFIX, designerErrorKey } from '@/i18n/designerErrorMessages'
 import { nextDraftVersion, withLayoutPositions } from '@/utils/canvas/graphEdit'
 
 const DiagramEditor = lazy(() => import('./DiagramEditor'))
 type Sel = import('./DiagramEditor').Sel
 
-type SaveError = null | { kind: 'not_draft' | 'module' | 'duplicate' | 'other'; message: string }
+type SaveError = null | { kind: 'not_draft' | 'module' | 'duplicate' | 'other'; message: string; code?: string; status?: number }
 
 export interface DiagramEditPaneProps {
   def: ProcessDefinition
@@ -40,19 +41,20 @@ export interface DiagramEditPaneProps {
 }
 
 function classify(err: unknown): NonNullable<SaveError> {
-  const x = err as { status?: number; message?: string }
+  const x = err as { status?: number; message?: string; code?: string }
   const message = x?.message ?? ''
   if (x?.status === 409) {
     if (/DRAFT/.test(message)) return { kind: 'not_draft', message }
     if (/module-owned/.test(message)) return { kind: 'module', message }
     if (/already exists/.test(message)) return { kind: 'duplicate', message }
   }
-  return { kind: 'other', message }
+  return { kind: 'other', message, code: x?.code, status: x?.status }
 }
 
 export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
+  const friendly = (x: { code?: string; status?: number }) => intl.formatMessage({ id: DESIGNER_ERROR_PREFIX + designerErrorKey(x.code, x.status) })
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
   const rawDraft = useDiagramDraft(seed, def.updated_at)
   const { reset } = rawDraft
@@ -124,8 +126,11 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
   const violations = useMemo(() => {
     const checked = check.phase === 'invalid' ? check.violations : []
     const fromSave = saveProblems && saveProblems.graph === draft.graph ? saveProblems.violations : []
-    return [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
-  }, [check, saveProblems, draft.graph])
+    const all = [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
+    // A known server code is shown as its plain sentence; an unknown one keeps the server's own text.
+    return all.map((v) => (designerErrorKey(v.code) === 'fallback' ? v : { ...v, message: friendly(v) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [check, saveProblems, draft.graph, intl])
   const blocking = violations.filter(isBlocking)
 
   const blockedReason =
@@ -224,7 +229,13 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           tone="danger"
           action={error.kind === 'not_draft' ? <Button variant="secondary" size="sm" onClick={onReload} data-testid="edit-error-reload">{e('stale.reload')}</Button> : undefined}
         >
-          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: error.message }) : error.message}</span>
+          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: friendly(error) }) : error.message}</span>
+          {error.kind === 'other' && (error.code || error.message) && (
+            <details className="lf-hint" data-testid="edit-error-details">
+              <summary>{intl.formatMessage({ id: `${DESIGNER_ERROR_PREFIX}details` })}</summary>
+              <small>{[error.status, error.code].filter(Boolean).join(' ')} {error.message}</small>
+            </details>
+          )}
         </Banner>
       )}
       {savedTick && !draft.dirty && !error && <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>}
