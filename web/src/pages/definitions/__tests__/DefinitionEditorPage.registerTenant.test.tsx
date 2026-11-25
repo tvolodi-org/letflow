@@ -5,7 +5,8 @@
  * the edit pane alone with the hooks mocked. This one goes through the REAL page component, the REAL edit pane and
  * the REAL catalogue hooks, with only the network layer faked, and opens the shipped graph.
  * R1 the diagram edit view renders with the platform_call and the notify steps (no error boundary),
- * R2 a platform_call step opens its panel with the function picker, R3 the notify step opens its settings.
+ * R2 a platform_call step opens its panel with the function picker, R3 the notify step (a platform_call of
+ * tenant.notify_admin since T-2727) opens the same panel.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -59,6 +60,7 @@ vi.mock('@/api/platformFunctions', () => {
     entry('tenant.bind_realm', [inp('tenant_id', 'uuid', 'step'), inp('realm_id', 'string', 'start')], [], ['tenant_id']),
     entry('tenant.grant_first_admins', [inp('tenant_id', 'uuid', 'step'), inp('admin_email', 'string', 'start')], [], ['tenant_id']),
     entry('tenant.install_default_modules', [inp('tenant_id', 'uuid', 'step')], [], ['tenant_id']),
+    entry('tenant.notify_admin', [inp('tenant_id', 'uuid', 'step'), inp('admin_email', 'string', 'start'), inp('name', 'string', 'start'), inp('slug', 'string', 'start')], [], ['tenant_id']),
   ]
   return { platformFunctionsApi: { list: vi.fn().mockResolvedValue({ items }) } }
 })
@@ -174,10 +176,11 @@ describe('T-2738 platform.register_tenant in the real designer page', () => {
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 
-  it('R3 renders the notify step settings (does not cover the render loop)', async () => {
+  it('R3 renders the notify step panel: a platform_call of tenant.notify_admin (does not cover the render loop)', async () => {
     await openEditView()
     fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
-    await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
+    expect(await screen.findByTestId('edit-platform-call')).toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.notify_admin')).toBeInTheDocument())
     expect(screen.queryByTestId('boundary')).toBeNull()
   })
 })
@@ -199,11 +202,12 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     expect(screen.queryByText(/other attributes/i)).toBeNull()
   })
 
-  it('S3 the read-only side panel of the notify step names the template and the recipient variable', async () => {
+  // T-2727 V8: the shipped notify step is a platform step of tenant.notify_admin (it sends the tenant_registered
+  // template), so its read-only panel names that function like every other step of the graph.
+  it('S3 the read-only side panel of the notify step names its function; no "other attributes"', async () => {
     await openPage()
     fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
-    expect(await screen.findByTestId('details-notify-template')).toHaveTextContent('tenant_registered')
-    expect(screen.getByTestId('diagram-node-details')).toHaveTextContent('admin_email')
+    expect(await screen.findByTestId('details-platform-function')).toHaveTextContent('tenant.notify_admin')
     expect(screen.queryByText(/other attributes/i)).toBeNull()
   })
 
@@ -218,13 +222,13 @@ describe('T-2742 the designer shows the shipped platform_call steps', () => {
     expect(await screen.findByTestId('platform-arg-var-tenant_id')).toHaveValue('tenant_id')
   })
 
-  it('S5 the notify step in the edit view has the template picker with the registered key', async () => {
+  it('S5 the notify step in the edit view has the function picker with tenant.notify_admin and its arguments', async () => {
     await openEditView()
     const node = await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 })
     expect(node).toHaveTextContent('notify')
     fireEvent.click(node)
-    await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
-    expect(screen.getByTestId('notify-step-recipient')).toHaveValue('admin_email')
+    await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.notify_admin')).toBeInTheDocument())
+    expect(await screen.findByTestId('platform-arg-var-admin_email')).toHaveValue('admin_email')
   })
 
   it('S6 a fresh open of the shipped definition shows no "unsaved local draft" banner (Viewer and Editor views)', async () => {

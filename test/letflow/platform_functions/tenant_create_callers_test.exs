@@ -122,7 +122,7 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
   # schema. {module, function, allowed files}.
   @rules [
     {[:Letflow, :Identity], :create_tenant, [@tenant_create_impl, @seed_task]},
-    {[:Letflow, :Identity], :create_provisioned_tenant, [@provisioner_file]},
+    {[:Letflow, :Identity], :create_provisioned_tenant, [@provisioner_file, @tenant_create_impl]},
     {[:Letflow, :TenantOnboarding], :provision_and_migrate, [@tenant_provision_impl, @seed_task]},
     # AC9's recovery entry point is a second public name for the SAME schema
     # write, so it carries the SAME allowed set: a caller of either is a

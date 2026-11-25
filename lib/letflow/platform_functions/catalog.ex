@@ -42,6 +42,15 @@ defmodule Letflow.PlatformFunctions.Catalog do
   @entry_modules Application.compile_env(:letflow, :platform_functions, [])
 
   @entries @entry_modules |> Enum.flat_map(& &1.entries())
+
+  # T-2727: the entries are read at COMPILE time from modules named in the configuration, so Mix
+  # records no compile-time dependency on them. Without these resources a new entry in a family
+  # module leaves this module's compiled list stale on an incremental build, and the registry's
+  # compile check refuses the new body ("not declared in the compiled catalogue").
+  for module <- @entry_modules do
+    @external_resource module.module_info(:compile) |> Keyword.fetch!(:source) |> to_string()
+  end
+
   @entry_map Map.new(@entries, &{&1.name, &1})
 
   @permission_atoms @entries

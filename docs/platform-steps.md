@@ -29,9 +29,12 @@ and the dispatcher are gap G1a (T-2589).
 | `tenant.validate` | `Impl.TenantValidate` | Read-only: checks the slug and the display name (byte bound, reserved slug) and that the slug is free or the same registration. Writes nothing. |
 | `tenant.create` | `Impl.TenantCreate` | Writes the tenant row of the global registry. A repeat of the same call returns the first result (it adopts the tenant that carries the slug); a slug that belongs to ANOTHER tenant is refused, and so is a tenant that was purged. |
 | `tenant.provision` | `Impl.TenantProvision` | Creates the tenant's schema, replays its migrations, seeds its roles and its HMAC key, and activates the tenant. A repeat changes nothing. A tenant that was purged is refused before the first write. |
+| `tenant.record_lifecycle` | `Impl.TenantRecordLifecycle` | (v2, T-2727) Writes the tenant's `tenant_lifecycles` row from its admission row (`tenant_admissions`). A repeat writes nothing; no admission and no `requested_tenant_id` is a no-op; `requested_tenant_id` without an admission fails closed (`platform_call_lifecycle_failed`). |
+| `tenant.record_onboarding` | `Impl.TenantRecordOnboarding` | (v2, T-2727) Writes the onboarding record (the hostname). No hostname is a no-op; the same hostname is a repeat; another hostname for the tenant is `platform_call_hostname_mismatch`; a taken one `platform_call_hostname_taken`. |
 | `tenant.bind_realm` | `Impl.TenantBindRealm` | Binds the identity provider's realm to the tenant. A repeat binds nothing a second time; a different realm for a bound tenant is refused. |
 | `tenant.grant_first_admins` | `Impl.TenantGrantFirstAdmins` | Stores the pending grant of the tenant's first administrator in the tenant's own schema. A repeat stores nothing a second time. |
 | `tenant.install_default_modules` | `Impl.TenantInstallDefaultModules` | Installs the tenant's default modules. A repeat installs nothing a second time (the installer answers `:already_installed`). |
+| `tenant.notify_admin` | `Impl.TenantNotifyAdmin` | Sends the `tenant_registered` notice to `admin_email` through the notification dispatcher (the G14 allow-list at dispatch, the send cap, one delivery row with no address). A repeat after a sent notice sends nothing (the delivery log is asked first). T-2727 V8. |
 
 `tenant.validate` has a body since T-2704 (`Impl.TenantValidate`): the read-only first step of the
 chain. It checks the byte bound, the reserved slugs and that the slug is free or belongs to the same
