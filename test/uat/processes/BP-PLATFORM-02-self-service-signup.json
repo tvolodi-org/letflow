@@ -2,10 +2,8 @@
   "id": "BP-PLATFORM-02-self-service-signup",
   "bp_entry": "BP-PLATFORM-02",
   "title": "Self-service sign-up: a stranger asks for a workspace, with no manual or infra step",
-  "description": "The owner's acceptance scenario (T-2749, G10b, acceptance map item 11 'self-service demo tenant'). The runner calls the PUBLIC sign-up routes without a token (actor 'anonymous'), with a throwaway address in the mail trap (Mailpit) and a uat-tmp-* company name. Part 1 (this file, runs on today's build): S1 the sign-up is switched on and its config is public; S2 a request without accepted terms is refused 422 invalid_request naming terms_accepted; S3 a request with a malformed address is refused 422; S4 a good request is answered 202 check_your_mail; S5 the verification mail reaches the trap (wait_mail: the body and the token never reach the log). Part 2 (see later_steps) needs the sign-up fields slug, user name and password of T-2748 and the one-time provisioner wiring on QA: until they exist the scenario is RED with a named reason (sign-up not enabled, or provisioner not configured), which is the expected red and no defect. D-195: the scenario goes from the sign-up to a signed-in tenant admin with no step that waits for a human; a step that does is a defect and a red scenario, named in the verdict line. No qoimeks-qa or qoimeks-client1-qa tenant is touched. The verification link is opened by the SPA page, so the runner does not read the body of the mail. Part 2 is executable (T-2749 rework): S6 posts the full sign-up (company name, user name, password from the input signup_password, slug uat-tmp-<run_id>) and expects 202 with the tenant URL; S7 the platform administrator reads the registry entry and expects it ACTIVE with no human step (D-195); S8 slug taken and S9 reserved slug are refused; the cleanup deactivates ONLY the tenant uat-tmp-<run_id> and the platform residue check (actor admin on the platform tenant) fails the run on a leftover active uat-tmp-* tenant. Until the sign-up fields (T-2748) and the provisioner wiring exist S6 or S7 is RED with the reason 'sign-up fields not supported / provisioner not configured': the expected red. The demo-cap refusal and the sign-in as the new tenant administrator (a token of a realm that exists only after the run starts) are not executable by the runner today (L3, L4b in later_steps).",
+  "description": "The owner's acceptance scenario (T-2749, G10b, acceptance map item 11 'self-service demo tenant'). The runner calls the PUBLIC sign-up routes without a token (actor 'anonymous'), with a throwaway address in the mail trap (Mailpit) and a uat-tmp-* company name. Part 1 (this file, runs on today's build): S1 the sign-up is switched on and its config is public; S2 a request without accepted terms is refused 422 invalid_request naming terms_accepted; S3 a request with a malformed address is refused 422; S4 a good request is answered 202 check_your_mail; S5 the verification mail reaches the trap (wait_mail: the body and the token never reach the log). Part 2 (see later_steps) needs the sign-up fields slug, user name and password of T-2748 and the one-time provisioner wiring on QA: until they exist the scenario is RED with a named reason (sign-up not enabled, or provisioner not configured), which is the expected red and no defect. D-195: the scenario goes from the sign-up to a signed-in tenant admin with no step that waits for a human; a step that does is a defect and a red scenario, named in the verdict line. No qoimeks-qa or qoimeks-client1-qa tenant is touched. The verification link is opened by the SPA page, so the runner does not read the body of the mail. Part 2 is executable: S6 posts the full sign-up (company name, user name, password from the input signup_password, slug uat-tmp-<run_id>) and expects 202 with the tenant URL; a closed refusal such as demo_cap_reached (409 limit, the cap reached) fails S6 and the verdict line names it (the cap is never filled on purpose; the regression test drives S6 with that answer). S7 the platform administrator reads the registry entry and expects status active with no human step (D-195). S8 slug taken and S9 reserved slug are refused. S10 signs in as the NEW tenant admin (password grant in the new realm uat-tmp-<run_id>; the token is a secret, never logged) and S11 reads GET /api/v1/me/access with that token and expects the role TENANT_ADMIN. The cleanup deactivates ONLY the tenant uat-tmp-<run_id> and always runs (200 or 404 when the sign-up made nothing), so a sign-up that created the tenant but failed an assertion is still reconciled; the platform residue check (actor admin on the platform tenant) fails the run on a leftover active uat-tmp-* tenant. Until the sign-up fields (T-2748) and the provisioner wiring exist S6 is RED with the reason 'sign-up fields not supported / provisioner not configured': the expected red. The realm name is assumed to be the slug.",
   "later_steps": [
-    "L3: sign in as the NEW tenant admin (token of the new realm, no secret in the log) and GET /api/v1/me answers 200 with the role TENANT_ADMIN: needs a runner login step for a realm created at run time; until then the scenario does not claim it",
-    "L4b: the demo cap reached is refused with a closed reason: needs the cap filled, not executable without side effects on a shared QA",
     "L5b: purge of the tenant after the deactivation, only when T-2747 exists"
   ],
   "tenant": "${tenant}",
@@ -154,7 +152,7 @@
     {
       "id": "S7",
       "actor": "admin",
-      "says": "With no human step the new tenant exists and is ACTIVE (the platform administrator reads the registry entry). D-195: if it waits for a person it is RED.",
+      "says": "With no human step the new tenant exists and is active (the platform administrator reads the registry entry). D-195: if it waits for a person it is RED.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/uat-tmp-${run_id}"
@@ -162,7 +160,7 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "requires": [
@@ -212,23 +210,65 @@
         "status": 422,
         "code": "invalid_request"
       }
+    },
+    {
+      "id": "S10",
+      "actor": "anonymous",
+      "says": "Sign in as the NEW tenant admin in the new realm, with the password given at sign-up and no step by a person (D-195). No token in the log.",
+      "do": {
+        "login": {
+          "realm": "uat-tmp-${run_id}",
+          "username": "uat-tmp-admin",
+          "password": "${signup_password}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.signed_in": true
+        }
+      },
+      "requires": [
+        "signup_made"
+      ]
+    },
+    {
+      "id": "S11",
+      "actor": "anonymous",
+      "bearer": "session",
+      "says": "The tenant opens for its new administrator: the access list answers 200 with the role TENANT_ADMIN.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me/access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.roles": {
+            "contains": "TENANT_ADMIN"
+          }
+        }
+      },
+      "requires": [
+        "signup_made"
+      ]
     }
   ],
   "cleanup": [
     {
       "id": "c1",
       "actor": "admin",
-      "says": "Deactivate only the throwaway tenant this run made (its slug starts with uat-tmp-).",
+      "says": "Deactivate only the throwaway tenant this run may have made (slug uat-tmp-<run_id>, never a permanent one). Runs after a failed sign-up too: 404 means nothing was made.",
       "do": {
         "api": "POST",
         "path": "/api/v1/tenants/uat-tmp-${run_id}/deactivate"
       },
       "expect": {
-        "status": 200
-      },
-      "requires": [
-        "signup_made"
-      ]
+        "status": [
+          200,
+          404
+        ]
+      }
     }
   ]
 }

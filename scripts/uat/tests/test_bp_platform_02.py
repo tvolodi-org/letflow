@@ -39,7 +39,7 @@ class Signup(unittest.TestCase):
             body = step["do"].get("body") or {}
             if "password" in body:
                 self.assertEqual("${signup_password}", body["password"])
-        self.assertTrue(self.process["later_steps"])
+        self.assertEqual(1, len(self.process["later_steps"]))  # only the purge (T-2747) is left outside the run
 
     def test_signup_sends_the_owner_fields_and_expects_the_tenant_url(self):
         body = self.steps["S6"]["do"]["body"]
@@ -53,8 +53,10 @@ class Signup(unittest.TestCase):
         self.assertFalse(self.ok("S6", {"error": "signup_unavailable"}, 503))
 
     def test_new_tenant_must_be_active_without_a_human_step(self):
-        self.assertTrue(self.ok("S7", {"status": "ACTIVE"}, 200))
-        self.assertFalse(self.ok("S7", {"status": "PENDING"}, 200))
+        # the registry serialises the enum with Atom.to_string: lower case (lib/letflow/routers/tenants.ex tenant_map/1)
+        self.assertTrue(self.ok("S7", {"status": "active"}, 200))
+        self.assertFalse(self.ok("S7", {"status": "ACTIVE"}, 200))
+        self.assertFalse(self.ok("S7", {"status": "inactive"}, 200))
         self.assertFalse(self.ok("S7", {}, 404))
         self.assertEqual(["signup_made"], self.steps["S7"]["requires"])
 
@@ -67,7 +69,12 @@ class Signup(unittest.TestCase):
         self.assertEqual(1, len(self.process["cleanup"]))
         c = self.process["cleanup"][0]
         self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/deactivate", c["do"]["path"])
-        self.assertEqual(["signup_made"], c["requires"])
+        # failure path: no "requires", so a sign-up that made the tenant and then failed an assertion is reconciled;
+        # 404 (nothing was made) is accepted; the slug is the run's own exact uat-tmp- slug, never a permanent tenant
+        self.assertNotIn("requires", c)
+        self.assertEqual([200, 404], c["expect"]["status"])
+        self.assertTrue(c["do"]["path"].startswith("/api/v1/tenants/uat-tmp-"))
+        self.assertNotIn("qoimeks", c["do"]["path"])
         self.assertEqual("admin", c["actor"])
         self.assertEqual("bpm-default", self.process["dry_run"]["actors"]["admin"]["tenant"])
 
@@ -115,6 +122,89 @@ class Signup(unittest.TestCase):
         r = runner.Runner.__new__(runner.Runner)
         r.processes, r.overrides, r.fixtures = [self.process], {}, []
         self.assertEqual(["admin"], r.needed_roles())
+
+    def test_demo_cap_reached_is_a_named_red_of_the_signup_step(self):
+        # the cap is never filled on purpose: the closed answer of the provisioner fails S6 and names the reason
+        body = {"error": "demo_cap_reached", "limit": "demo_cap_reached"}
+        rows = runner.run_assertions(self.steps["S6"]["expect"], 409, body)
+        self.assertFalse(all(r["ok"] for r in rows))
+        self.assertIn("demo_cap_reached", json.dumps(body))
+        self.assertIn("demo_cap_reached", self.process["description"])
+
+    def test_the_tenant_admin_signs_in_and_holds_tenant_admin(self):
+        s10, s11 = self.steps["S10"], self.steps["S11"]
+        self.assertEqual("${signup_password}", s10["do"]["login"]["password"])
+        self.assertEqual("uat-tmp-${run_id}", s10["do"]["login"]["realm"])
+        self.assertEqual("session", s11["bearer"])
+        self.assertEqual(["signup_made"], s10["requires"])
+        self.assertTrue(self.ok("S10", {"signed_in": True}, 200))
+        self.assertFalse(self.ok("S10", {"signed_in": False}, 401))
+        self.assertTrue(self.ok("S11", {"roles": ["TENANT_ADMIN"]}, 200))
+        self.assertFalse(self.ok("S11", {"roles": ["TENANT_AUDITOR"]}, 200))
+        self.assertFalse(self.ok("S11", {}, 401))
+
+    def _runner(self):
+        r = runner.Runner.__new__(runner.Runner)
+        r.ctx, r.secrets, r.secret_values = {"run_id": "r1", "signup_password": "pw-Canary-1"}, {}, set()
+        r.base_url = "http://x"
+        return r
+
+    def test_login_keeps_the_token_secret_and_bearer_uses_it(self):
+        import io
+        import urllib.request
+
+        class Answer(io.BytesIO):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        seen = {}
+
+        def fake_open(req, timeout=None):
+            seen["url"], seen["data"] = req.full_url, req.data
+            return Answer(b'{"access_token": "tok-Canary-2"}')
+
+        original, calls = urllib.request.urlopen, []
+        urllib.request.urlopen = fake_open
+        runner_http = runner.http_call
+        runner.http_call = lambda m, u, h, b, timeout=None: calls.append((u, h)) or (200, {}, "{}")
+        try:
+            r, rec = self._runner(), {}
+            status, body, _ = r._login(self.steps["S10"], self.steps["S10"]["do"], rec)
+            self.assertEqual((200, {"signed_in": True}), (status, body))
+            self.assertIn("/realms/uat-tmp-r1/protocol/openid-connect/token", seen["url"])
+            self.assertIn("tok-Canary-2", r.secret_values)
+            self.assertNotIn("tok-Canary-2", json.dumps(rec))
+            self.assertNotIn("tok-Canary-2", json.dumps(r.ctx))
+            r.request("anonymous", "GET", "/api/v1/me/access", bearer="session")
+            self.assertEqual("Bearer tok-Canary-2", calls[0][1]["Authorization"])
+            with self.assertRaises(runner.RunnerError):
+                self._runner().request("anonymous", "GET", "/x", bearer="session")
+        finally:
+            urllib.request.urlopen = original
+            runner.http_call = runner_http
+
+    def test_login_refused_by_the_provider_is_a_failed_step_not_a_pass(self):
+        import urllib.error
+        import urllib.request
+
+        def refuse(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
+
+        original = urllib.request.urlopen
+        urllib.request.urlopen = refuse
+        try:
+            r = self._runner()
+            status, body, _ = r._login(self.steps["S10"], self.steps["S10"]["do"], {})
+        finally:
+            urllib.request.urlopen = original
+        self.assertEqual(401, status)
+        self.assertFalse(self.ok("S10", body, status))
+        self.assertNotIn("session", r.secrets)
 
 
 if __name__ == "__main__":
