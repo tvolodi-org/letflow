@@ -383,11 +383,19 @@ defmodule Letflow.Scripts.CheckCatalogTest do
     assert code == 1
 
     assert out =~
-             "BP-STOCK-01: executed_by 'engine' must be 'direct' or 'definition:<process_key>'"
+             "BP-STOCK-01: executed_by 'engine' must be 'direct', 'n/a' or 'definition:<process_key>'"
 
     assert out =~ "BP-STOCK-02: executed_by 'definition:' must name a process key"
     assert out =~ "BP-STOCK-03: executed_by 'definition:two words' must name a process key"
     assert out =~ "BP-STOCK-04: executed_by must be a text"
+  end
+
+  test "executed_by n/a is a valid third kind, counted apart", %{tmp_dir: dir} do
+    build(dir)
+    catalog(dir, [entry(%{"executed_by" => "n/a"}), entry(%{"id" => "BP-STOCK-02"})])
+    {out, code} = run(dir)
+    assert code == 0, out
+    assert out =~ "EXECUTED BY total: 1 direct, 0 definition, 1 n/a"
   end
 
   test "the report counts the direct and the definition processes", %{tmp_dir: dir} do
@@ -406,7 +414,7 @@ defmodule Letflow.Scripts.CheckCatalogTest do
 
     {out, 0} = run(dir, ["--json"])
     result = Jason.decode!(out)
-    assert result["executed_by"] == %{"direct" => 2, "definition" => 1}
-    assert [%{"executed_by" => %{"direct" => 2, "definition" => 1}}] = result["areas"]
+    assert result["executed_by"] == %{"direct" => 2, "definition" => 1, "n/a" => 0}
+    assert [%{"executed_by" => %{"direct" => 2, "definition" => 1, "n/a" => 0}}] = result["areas"]
   end
 end

@@ -126,7 +126,9 @@ defmodule Letflow.Routers.DefinitionsTest do
                  "needs_reactivation_reason",
                  "needs_reactivation_at",
                  # T-2604 (pilot gap G16): the declared test cases of the version
-                 "test_cases"
+                 "test_cases",
+                 # T-2811: the single read lists the declared variables
+                 "variable_schemas"
                ])
     end
 

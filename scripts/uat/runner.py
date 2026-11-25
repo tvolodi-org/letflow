@@ -29,6 +29,11 @@ reaches the log, the recipient and the address of the trap are masked) and a pro
 on the platform tenant (`platform_residue`: the definitions that must be back on their version and the instances
 that must not be left open).
 
+A step may sign in the first administrator of a tenant made during the run (`first_signin`: realm, recipient, mail
+subject; the temporary password is read from the trap, the forced password change is done at the identity
+provider with a password made in memory, the token is kept as a secret under `as`, default `new_admin`, and used
+by later steps with `"bearer": "new_admin"`). None of the passwords, the code or the token is ever written.
+
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
 bp_dryrun capability reads exit 2 as "this runner has no such command yet".
@@ -37,7 +42,11 @@ bp_dryrun capability reads exit 2 as "this runner has no such command yet".
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
+import hashlib
+import html
+import http.cookiejar
 import json
 import math
 import os
@@ -65,7 +74,7 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "wait_task", "wait_mail", "login", "assert_only", "repeat", "parallel")
+DO_KINDS = ("api", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -99,6 +108,20 @@ URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+
+
+# The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
+TEMP_PASSWORD_RE = r"(?i)temporary password\s*(?:is)?\s*[:=]?\s*(\S+)"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """The first sign-in reads the Location of a redirect itself (it may point to the app, not to a server)."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_NoRedirect = _NoRedirectHandler()
 
 
 class RunnerError(Exception):
@@ -639,7 +662,8 @@ class Runner:
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
-                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None):
+                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
+                 password_factory=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
@@ -676,6 +700,8 @@ class Runner:
         self.out = out or sys.stdout
         self.secrets = {}  # in memory only: a value a step saved with {"secret": path}
         self.secret_values = set()
+        # The new password of a first sign-in is made here, in memory (a test may give its own maker).
+        self.password_factory = password_factory or (lambda: "Aa1!" + secrets.token_urlsafe(18))
         self.instance_docs = {}
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
@@ -1184,6 +1210,8 @@ class Runner:
             return [self._wait_mail(step, do, record)]
         if "login" in do:
             return [self._login(step, do, record)]
+        if "first_signin" in do:
+            return [self._first_signin(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
@@ -1246,6 +1274,133 @@ class Runner:
         self.secrets[name] = token
         self.secret_values.add(token)
         return 200, {"signed_in": True}, "{}"
+
+    # -- first_signin: the first administrator of a tenant made during the run -------------------
+
+    def _first_signin(self, step, do, record):
+        """Sign in as the first administrator of a tenant created in this run: read the temporary password from
+        the mail trap, do the forced password change of the realm through the login pages of the identity
+        provider (authorization code with PKCE, as the web app does), take the access token of the NEW realm.
+
+        The temporary password, the new password (made here), the code and the token live in memory only: they
+        are registered as secrets before they are used, so the log, the context and the summary never carry them.
+        A step that names the result as "bearer" (default name "new_admin") calls the API with the token. Every
+        refusal is a typed reason (first_signin refused: <reason>); no text of a mail or of an answer of the
+        identity provider is ever put into it."""
+        spec = substitute(do["first_signin"], self.ctx)
+        realm, recipient = spec.get("realm"), str(spec.get("recipient") or "").strip()
+        name = spec.get("as") or "new_admin"
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("first_signin refused: realm_invalid")
+        if not recipient:
+            raise RunnerError("first_signin refused: recipient_missing")
+        username = str(spec.get("username") or recipient)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        parts = urllib.parse.urlsplit(idp)
+        if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost")):
+            raise RunnerError("first_signin refused: idp_not_https")
+        trap = str(spec.get("trap_url") or self.mail_trap_url or "").rstrip("/")
+        if trap_problem(trap):
+            raise RunnerError("first_signin refused: trap_unusable")
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/auth", mail_to=mask_mail_recipient(recipient))
+        within = self._wait_time(spec, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        subject = str(spec.get("subject") or "")
+        message_id, _ = self._await_mail(trap, recipient, subject, bool(spec.get("subject_contains") or not subject),
+                                         within, interval, mask_mail_recipient(recipient))
+        message = self._mail_message(trap, message_id) or {}
+        body = str(message.get("Text") or message.get("text") or "")
+        found = re.search(spec.get("password_pattern") or TEMP_PASSWORD_RE, body)
+        if not found:
+            raise RunnerError("first_signin refused: mail_without_temporary_password")
+        temporary = found.group(1)
+        self.secret_values.add(temporary)
+        new_password = self.password_factory()
+        self.secret_values.add(new_password)
+        token = self._idp_first_login(idp, realm, username, temporary, new_password, spec)
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    def _idp_first_login(self, idp, realm, username, temporary, new_password, spec):
+        """The pages of the identity provider: sign-in form, forced password change, code, token."""
+        client = str(spec.get("client_id") or "letflow-web")
+        redirect = str(spec.get("redirect_uri") or self.base_url + "/")
+        verifier = secrets.token_urlsafe(48)
+        self.secret_values.add(verifier)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), _NoRedirect)
+        endpoint = f"{idp}/realms/{realm}/protocol/openid-connect"
+
+        def go(url, form=None):
+            data = urllib.parse.urlencode(form).encode() if form is not None else None
+            req = urllib.request.Request(url, data=data, method="POST" if data is not None else "GET",
+                                         headers={"Accept": "text/html,application/json"})
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    return answer.status, answer.read().decode("utf-8", "replace"), answer.headers.get("Location")
+            except urllib.error.HTTPError as err:
+                return err.code, err.read().decode("utf-8", "replace"), err.headers.get("Location")
+            except (OSError, ValueError):
+                raise RunnerError("first_signin refused: idp_unreachable") from None
+
+        def action_of(page):
+            match = re.search(r"<form[^>]*\baction=\"([^\"]+)\"", page, re.I)
+            return urllib.parse.urljoin(endpoint + "/", html.unescape(match.group(1))) if match else None
+
+        def code_of(status, location):
+            if status in (301, 302, 303, 307) and location:
+                if location.startswith(redirect):
+                    values = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query).get("code")
+                    return values[0] if values else ""
+            return None
+
+        def follow(status, page, location):
+            for _ in range(5):  # redirects inside the identity provider
+                if status in (301, 302, 303, 307) and location and not location.startswith(redirect):
+                    status, page, location = go(urllib.parse.urljoin(endpoint + "/", location))
+                else:
+                    break
+            return status, page, location
+
+        query = urllib.parse.urlencode({"client_id": client, "response_type": "code", "scope": "openid",
+                                        "redirect_uri": redirect, "state": secrets.token_hex(8),
+                                        "code_challenge": challenge, "code_challenge_method": "S256"})
+        status, page, location = follow(*go(f"{endpoint}/auth?{query}"))
+        action = action_of(page) if status == 200 else None
+        if not action:
+            raise RunnerError("first_signin refused: login_page_missing")
+        status, page, location = follow(*go(action, {"username": username, "password": temporary}))
+        code = code_of(status, location)
+        if code is None:
+            action = action_of(page) if status == 200 else None
+            if not action or "password-new" not in page:
+                raise RunnerError("first_signin refused: temporary_password_rejected")
+            status, page, location = follow(*go(action, {"password-new": new_password,
+                                                         "password-confirm": new_password}))
+            code = code_of(status, location)
+            if code is None:
+                raise RunnerError("first_signin refused: password_policy_refused"
+                                  if status == 200 and "password-new" in page else "first_signin refused: password_change_failed")
+        if not code:
+            raise RunnerError("first_signin refused: no_code")
+        self.secret_values.add(code)
+        form = urllib.parse.urlencode({"grant_type": "authorization_code", "client_id": client, "code": code,
+                                       "redirect_uri": redirect, "code_verifier": verifier}).encode()
+        req = urllib.request.Request(f"{endpoint}/token", data=form, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+        try:
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+            token = json.loads(text).get("access_token") if status == 200 else None
+        except (OSError, ValueError, AttributeError):
+            token = None
+        if not isinstance(token, str) or not token:
+            raise RunnerError("first_signin refused: token_missing")
+        return token
 
     def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
         """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
@@ -1407,22 +1562,26 @@ class Runner:
         contains = bool(spec.get("subject_contains"))
         within = self._wait_time(spec, "within_s", 60)
         interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        message_id, polls = self._await_mail(trap, recipient, subject, contains, within, interval, shown)
+        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
+                      mail_to=shown, mail_subject=subject, mail_id=message_id)
+        answer = {"to": shown, "subject": subject, "message_id": message_id}
+        return 200, answer, json.dumps(answer, ensure_ascii=False)
+
+    def _await_mail(self, trap, recipient, subject, contains, within, interval, shown):
+        """-> (message id, polls) of the first mail to the recipient with the subject, or a timeout RunnerError."""
         deadline = time.monotonic() + within
         polls, message_id, problem = 0, None, None
         while True:
             polls += 1
             message_id, problem = self._find_mail(trap, recipient, subject, contains)
             if message_id:
-                break
+                return message_id, polls
             if time.monotonic() >= deadline:
                 detail = f" ({problem})" if problem else ""
                 raise RunnerError(f"timeout: no mail to {shown} with the subject {subject!r} "
                                   f"in {within:g} s, {polls} polls{detail}")
             time.sleep(interval)
-        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
-                      mail_to=shown, mail_subject=subject, mail_id=message_id)
-        answer = {"to": shown, "subject": subject, "message_id": message_id}
-        return 200, answer, json.dumps(answer, ensure_ascii=False)
 
     @staticmethod
     def _wait_time(spec, key, default):
@@ -2432,6 +2591,15 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: login needs a realm, a username and a password")
         if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
             raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
+    elif kind == "first_signin":
+        spec = do["first_signin"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "recipient")):
+            raise ConfigError(f"{where}: first_signin needs a realm and a recipient")
+        for key in ("password", "new_password"):
+            if key in spec:
+                raise ConfigError(f"{where}: first_signin takes no {key}: the temporary password comes from the "
+                                  "mail and the new one is made by the runner")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()

@@ -38,6 +38,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JsonEditor } from '@/components/ui/JsonEditor'
 import { Banner } from '@/components/ui/Banner'
 import { definitionsMessages } from './definitionsMessages'
+import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
+import { useGuideStore } from '@/stores/guideStore'
 
 import ProcessCanvas from '@/components/canvas/ProcessCanvas'
 import NodePalette from '@/components/canvas/NodePalette'
@@ -793,6 +795,7 @@ export default function DefinitionEditorPage() {
         background: 'var(--surface-page)',
       }}
     >
+      <DesignerGuidePanel />
       <QueryStateBoundary
         state={rendererState}
         onRetry={() => { void refetch() }}
@@ -834,6 +837,9 @@ export default function DefinitionEditorPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', minWidth: 0 }}>
+          <Button variant="secondary" size="sm" data-testid="btn-guide" onClick={() => useGuideStore.getState().openGuide()}>
+            {dm.guideButton}
+          </Button>
           {hasDesignerRole && !isNew && view === 'edit' && def?.status === 'DRAFT' && (
             <Button
               variant="primary"

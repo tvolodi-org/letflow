@@ -15,6 +15,7 @@ defmodule Letflow.PlatformProcesses.DefinitionTest do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.StartPermission
+  alias Letflow.PlatformProcesses.DefinitionV2
   alias Letflow.PlatformFunctions.Catalog
   alias Letflow.PlatformProcesses.Definition
 
@@ -210,13 +211,13 @@ defmodule Letflow.PlatformProcesses.DefinitionTest do
 
   # T-2742: the web test of the designer (`DefinitionEditorPage.registerTenant.test.tsx`) mounts the page with THIS
   # document, read from the checked-in copy. A change of `Definition.graph/0` that does not refresh the copy fails here.
-  # Refresh: MIX_ENV=test mix run --no-start -e 'File.write!("test/fixtures/platform_processes/register_tenant_graph.json", Jason.encode!(Letflow.PlatformProcesses.Definition.graph(), pretty: true) <> "\n")'
+  # Refresh: MIX_ENV=test mix run --no-start -e 'File.write!("test/fixtures/platform_processes/register_tenant_graph.json", Jason.encode!(Letflow.PlatformProcesses.DefinitionV2.graph(), pretty: true) <> "\n")'
   test "the checked-in copy the designer test mounts is the document the seed writes" do
     copy =
       "test/fixtures/platform_processes/register_tenant_graph.json"
       |> File.read!()
       |> Jason.decode!()
 
-    assert copy == Definition.graph() |> Jason.encode!() |> Jason.decode!()
+    assert copy == DefinitionV2.graph() |> Jason.encode!() |> Jason.decode!()
   end
 end

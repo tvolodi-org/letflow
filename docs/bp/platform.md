@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 23 direct, 0 definition.
+The area `platform` has 25 process(es): 19 implemented, 6 partial. Executed by: 23 direct, 0 definition, 2 n/a.
 
 ## The processes of the area
 
@@ -13,12 +13,12 @@ The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 
 |---|---|---|---|---|---|---|---|---|
 | BP-PLATFORM-01 | Register a tenant (company) directly and look it up | The platform operator creates a tenant record with its schema, lists all tenants, opens one, and edits its settings. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
 | BP-PLATFORM-02 | Suspend, reactivate and purge a tenant | The operator deactivates a tenant (its users get 403 tenant_inactive, its runtime is released), may reactivate it, and later purges its d... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
-| BP-PLATFORM-03 | Give a company its own host name (set and remove) | The operator sets or removes the company host of an existing tenant. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
-| BP-PLATFORM-04 | Set a tenant's script policy (kill switch, solo-audited) | The operator reads a tenant's script policy and flips the platform kill switch or the platform flag that allows the solo_audited mode. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
-| BP-PLATFORM-05 | Onboard a company (register, bind identity realm, pending administrators) | The operator registers a company with a slug, display name and host (optionally an identity realm and the first administrator's e-mail). | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
-| BP-PLATFORM-06 | Provision a tenant through the provisioner interface (create, suspend, resume, expire, delete) | Infrastructure's provisioner, with its own credential class (not a user role), creates a demo tenant (201 first time, 200 replay), reads... | provisioner credential (write class), provisioner credential (read class) | implemented | direct | no | no | see report |
-| BP-PLATFORM-07 | Roll a module version out to the fleet of tenants | The operator starts a fleet rollout of an installed module (the driver walks the tenant registry and applies the upgrade per tenant, halt... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
-| BP-PLATFORM-08 | Run a tenant-schema migration across all tenants (fanout) | The operator starts a platform-wide tenant migration rollout, follows its per-tenant outcomes in the console, and resumes it after a fail... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
+| BP-PLATFORM-03 | Give a company its own host name (set and remove) | The operator sets or removes the company host of an existing tenant. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
+| BP-PLATFORM-04 | Set a tenant's script policy (kill switch, solo-audited) | The operator reads a tenant's script policy and flips the platform kill switch or the platform flag that allows the solo_audited mode. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
+| BP-PLATFORM-05 | Onboard a company (register, bind identity realm, pending administrators) | The operator registers a company with a slug, display name and host (optionally an identity realm and the first administrator's e-mail). | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
+| BP-PLATFORM-06 | Provision a tenant through the provisioner interface (create, suspend, resume, expire, delete) | Infrastructure's provisioner, with its own credential class (not a user role), creates a demo tenant (201 first time, 200 replay), reads... | provisioner credential (write class), provisioner credential (read class) | implemented | direct | yes | no | see report |
+| BP-PLATFORM-07 | Roll a module version out to the fleet of tenants | The operator starts a fleet rollout of an installed module (the driver walks the tenant registry and applies the upgrade per tenant, halt... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
+| BP-PLATFORM-08 | Run a tenant-schema migration across all tenants (fanout) | The operator starts a platform-wide tenant migration rollout, follows its per-tenant outcomes in the console, and resumes it after a fail... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
 | BP-PLATFORM-09 | Retire the oldest eligible month of event history | The operator reads the retention summary, starts the retirement of the oldest eligible month (the month is system-computed, never supplie... | PLATFORM_ADMIN (platform tenant only) | partial | direct | no | no | see report |
 | BP-PLATFORM-10 | Watch the platform: health, readiness, backup status, metrics | Anyone (no login) can ask whether the build is up and which commit runs, and whether every part is ready; a scraper reads the Prometheus... | anyone (no login), PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
 | BP-PLATFORM-11 | Maintain the global service catalogue (register, rescope, publish version, retire, delete) | The operator lists every service of the global catalogue, registers a service, changes its scope or owner, publishes a new version, retir... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
@@ -34,6 +34,8 @@ The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 
 | BP-PLATFORM-21 | SECURITY: platform actions are separated by credential and by approval (onboarding realm, script kill switch) | Binding an identity realm and flipping the script kill switch need an OIDC sign-in of the operator, are audited on the platform chain wit... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | yes | see report |
 | BP-PLATFORM-22 | SECURITY: coverage list of the D-170 kinds for the platform area (token, host, upload, old address, voice/webhook, crafted writes) | Lists each security process kind the owner named (D-170) with its status and, where the kind is owned by another area, the area. | anyone (no token, wrong token, other-tenant token) | partial | direct | no | yes | see report |
 | BP-PLATFORM-23 | Check a certificate by its public handle (no login) | Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public pa... | anyone (no login) | partial | direct | no | no | see report |
+| BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | n/a | yes | no | see report |
+| BP-PLATFORM-25 | The process designer without a browser: export/import round trip, instances, step log and dead-letter retry | The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare t... | platform administrator | partial | n/a | yes | no | see report |
 
 ## BP-PLATFORM-01 -- Register a tenant (company) directly and look it up
 
@@ -107,11 +109,12 @@ The operator deactivates a tenant (its users get 403 tenant_inactive, its runtim
 **Runner scenario.**
 
 - `test/uat/processes/BP-PLATFORM-02-self-service-signup.json` (runner id `BP-PLATFORM-02-self-service-signup`)
+- `test/uat/processes/BP-PLATFORM-02-tenant-lifecycle.json` (runner id `BP-PLATFORM-02-tenant-lifecycle`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: destructive on a shared QA tenant; needs a throw-away tenant made by BP-PLATFORM-01 first
+- UAT: automated by the runner on the fixed throwaway tenant uat-tmp-fixture (create-or-reuse, never purged, never residue, left active): deactivate, no-op repeat, reactivate, unknown slug 404, company-administrator refusals; the cleanup reactivates it. The fixture does not exist on QA yet (404 on 2026-11-25): until a run with --allow-create creates it the fixture steps are skipped with 'requires fixture_id' and say nothing. NOT automated, with reasons: the deactivate of the platform tenant (a failing guard would take the platform down; covered by test/letflow/routers/tenants_test.exs), the tenant_inactive refusal of the deactivated tenant's users (the fixture has no user), and the purge steps (not runnable on QA: no lifecycle row for uat-tmp tenants, infra 2026-11-21; the step is written blocked_by qa-provisioner-config until the provisioner window)
 - security: no
 
 ## BP-PLATFORM-03 -- Give a company its own host name (set and remove)
@@ -141,12 +144,12 @@ The operator sets or removes the company host of an existing tenant. The host is
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-03-host-name.json` (runner id `BP-PLATFORM-03-host-name`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: changes routing of a real host
+- UAT: automated on uat-tmp-fixture: clean start, set (changed true), repeat (changed false), host outside the suffixes 422 format, reserved label 422, missing value 422, unknown slug 404, company-administrator refusals, remove, remove again; the cleanup removes the host. Fixture steps are skipped ('requires fixture_id') while the fixture is missing on QA. NOT automated: the 409 'hostname already bound' (needs a second tenant holding the host; covered by test/letflow/routers/tenants_hostname_test.exs)
 - security: no
 
 ## BP-PLATFORM-04 -- Set a tenant's script policy (kill switch, solo-audited)
@@ -177,12 +180,12 @@ The operator reads a tenant's script policy and flips the platform kill switch o
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-04-script-policy.json` (runner id `BP-PLATFORM-04-script-policy`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned
+- UAT: automated on uat-tmp-fixture: reset, read (platform-owned fields only), kill switch on (effective on, tenant latch untouched), repeat, 422 invalid_state and invalid_reason, solo-audit allow, unknown slug 404, company-administrator refusals; the cleanup puts both flags back. The PUTs use the password-grant token of the platform administrator (an interactive sign-in on QA). Fixture steps are skipped ('requires fixture_id') while the fixture is missing. NOT automated: the API-token refusal api_token_not_allowed (the runner has no API-token actor; covered by test/letflow/routers/tenants_script_policy_test.exs)
 - security: no
 
 ## BP-PLATFORM-05 -- Onboard a company (register, bind identity realm, pending administrators)
@@ -223,12 +226,12 @@ The operator registers a company with a slug, display name and host (optionally 
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-05-onboarding-records.json` (runner id `BP-PLATFORM-05-onboarding-records`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: creates a real tenant and realm binding
+- UAT: the registration itself is run by BP-PLATFORM-01 (T-2744, T-2608; owner order: only that scenario creates a tenant). This file automates what surrounds it, with no new tenant: empty form 422, reserved slug 422, reserved host 422, lookup without host 400, unknown host 404, unknown onboarding id 404 on read, pending administrators and bind-realm (the realm is not probed), company-administrator refusals; with the fixture it sets a host to make the onboarding record, reads it by id and by host, lists its pending administrators and removes the host. NOT automated: the bind of a real realm and the revoke of a pending administrator (they need a tenant made by the registration process with a realm: BP-PLATFORM-01 blocked_by the provisioner wiring, D-195)
 - security: no
 
 ## BP-PLATFORM-06 -- Provision a tenant through the provisioner interface (create, suspend, resume, expire, delete)
@@ -264,12 +267,12 @@ Infrastructure's provisioner, with its own credential class (not a user role), c
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-06-provisioner.json` (runner id `BP-PLATFORM-06-provisioner`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: the credential is infra's, the runner cannot hold it
+- UAT: NOT RUN, documented reason: blocked_by qa-provisioner-config (the QA provisioner credential is not configured, /admin/v1 answers 404 on QA; scheduled by infra with the operator). The runner cannot yet send a provisioner credential or call a path outside /api/ (check_processes.py): two runner tasks to open then. The file holds only the platform-side observation of the provisioned tenant, both steps blocked; dry-run skips it with that reason
 - security: no
 
 ## BP-PLATFORM-07 -- Roll a module version out to the fleet of tenants
@@ -303,12 +306,12 @@ The operator starts a fleet rollout of an installed module (the driver walks the
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-07-module-rollout-read-only.json` (runner id `BP-PLATFORM-07-module-rollout-read-only`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: a start acts on every tenant, never run on shared QA by a script
+- UAT: READ-ONLY by decision: the runner lists the rollouts, reads one, and checks the refusals that start nothing (page size and cursor 400, unknown id 404 on read and resume, start without module 422, start of an unknown module 404, company-administrator refusals). The real start is not automated because it acts on every tenant of the fleet and a script cannot undo it; it is covered by test/letflow/routers/platform_module_rollouts_test.exs. Passes on QA with the residue check
 - security: no
 
 ## BP-PLATFORM-08 -- Run a tenant-schema migration across all tenants (fanout)
@@ -339,12 +342,12 @@ The operator starts a platform-wide tenant migration rollout, follows its per-te
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-08-migration-fanout-read-only.json` (runner id `BP-PLATFORM-08-migration-fanout-read-only`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned: acts on all tenants
+- UAT: READ-ONLY by decision: unknown rollout 404 on read and resume, start without fields 422, entity type that is not an identifier 422, start without column type 400, company-administrator refusals. The real start is not automated because it adds a column to the schema of every tenant and has no undo; it is covered by test/letflow/routers/platform_migrations_test.exs. Passes on QA with the residue check
 - security: no
 
 ## BP-PLATFORM-09 -- Retire the oldest eligible month of event history
@@ -929,6 +932,80 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 - no runner scenario yet; web page covered only by component tests if any
 
+## BP-PLATFORM-24 -- Prove that the process definition drives execution (reordered, removed, added and re-addressed steps)
+
+A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in code. The proof is a runner scenario on the platform tenant with throwaway definitions: the same steps in another order run in that order, a removed step does not run, a catalogue function added in the designer runs once, another notification template and recipient reach the trap, a running instance stays on the version it started with, and an unknown function or a dangling edge never reaches a run.
+
+**Actors and their permissions.**
+
+- `platform administrator` -- DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)
+
+**Steps.**
+
+1. **platform administrator**: screen `process designer`, call `POST /api/v1/definitions`, `POST /api/v1/definitions/:id/validate`, `POST /api/v1/definitions/:id/activate`, function `Letflow.Definitions.create`, `Letflow.Definitions.check_platform_calls`, `Letflow.Definitions.activate`
+   Result: a draft is saved; a dangling edge is refused at save (422 dangling_edge), an unknown function at activation (422 platform_calls_invalid, platform_call_function_unknown)
+2. **platform administrator**: call `POST /api/v1/instances`, `GET /api/v1/instances/:id/timeline`, function `Letflow.Engine.create`, `Letflow.Engine.PlatformStepRunner`
+   Result: the instance runs the nodes of ITS definition version along its edges; the step log lists them in that order
+
+**Refusals.**
+
+- an edge to a node that does not exist: 422 dangling_edge at save
+- a function not in the catalogue: 422 platform_calls_invalid (platform_call_function_unknown) at activation; no active version, so no run
+
+**Tests.**
+
+- `scripts/uat/tests/test_bp_platform_24.py`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-PLATFORM-24-definition-drives-execution.json` (runner id `BP-PLATFORM-24-definition-drives-execution`)
+
+**Status.**
+
+- implementation: `partial`
+- UAT: runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by is n/a: this entry is a proof, not a process the engine runs), not a business process of a tenant
+- security: no
+
+**Gaps.**
+
+- the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated
+
+## BP-PLATFORM-25 -- The process designer without a browser: export/import round trip, instances, step log and dead-letter retry
+
+The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare the graph, list definitions and instances, read the step log of a failed instance, retry its dead-letter entry. Checks that need a browser or another system (the Keycloak sign-in page, the raw JSON view, the visual checks, the Guide click in each language) are steps marked 'not run' with an owner. Throwaway definitions are removed with the product's own DELETE call.
+
+**Actors and their permissions.**
+
+- `platform administrator` -- DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)
+
+**Steps.**
+
+1. **platform administrator**: screen `process designer`, call `GET /api/v1/definitions/:id/export`, `POST /api/v1/definitions/import`, `GET /api/v1/instances`, `GET /api/v1/instances/:id/timeline`, `GET /api/v1/dlq`, `POST /api/v1/dlq/:id/retry`, `DELETE /api/v1/definitions/:id`, function `Letflow.Definitions.ExportImport`, `Letflow.Engine.PlatformStepRunner`
+   Result: the exported graph equals the imported one; a failed step is in the step log and the dead-letter list and can be retried
+
+**Refusals.**
+
+- a foreign export schema marker: 400/422 at import
+- a company user cannot export a platform definition: 403/404
+
+**Tests.**
+
+- `scripts/uat/tests/test_bp_platform_25.py`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-PLATFORM-25-designer.json` (runner id `BP-PLATFORM-25-designer`)
+
+**Status.**
+
+- implementation: `partial`
+- UAT: runner scenario BP-PLATFORM-25 (A, B, C run; D1..D4 not run, each with an owner); not a business process of a tenant
+- security: no
+
+**Gaps.**
+
+- D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure
+
 ## Orphans (docs/bp/orphans-platform.md)
 
 | function | file:line | what it does | history | why it exists | proposed action |
@@ -937,5 +1014,5 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 ## Gaps of the area
 
-- 18 process(es) have no runner scenario: BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
-- 4 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23
+- 12 process(es) have no runner scenario: BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
+- 6 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24, BP-PLATFORM-25
