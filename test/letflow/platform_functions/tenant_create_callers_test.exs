@@ -117,6 +117,7 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
   @onboarding_router "lib/letflow/routers/onboarding.ex"
   @admin_router "lib/letflow/routers/admin_v1.ex"
   @signup_provisioning "lib/letflow/signup/provisioning.ex"
+  @tenant_grant_impl "lib/letflow/platform_functions/impl/tenant_grant_first_admins.ex"
 
   # The rule: who may call the functions that write a tenant row or a tenant
   # schema. {module, function, allowed files}.
@@ -141,7 +142,18 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
     {[:Letflow, :PlatformFunctions, :Impl, :TenantCreate], :create_tenant, []},
     {[:Letflow, :PlatformFunctions, :Impl, :TenantProvision], :provision_and_migrate,
      [@provisioner_file]},
-    {[:Letflow, :TenantProvisioner], :create, [@admin_router, @signup_provisioning]}
+    {[:Letflow, :TenantProvisioner], :create, [@admin_router, @signup_provisioning]},
+    # T-2728 (gap G17d): the Impl modules of the later steps are watched too. Routes 3 and 4 reach
+    # them only through `TenantProvisioner.create/2`, which starts the process when the setting is on;
+    # the old synchronous path of that module (setting off, the default) is the rest of the set.
+    # `bind_tenant_realm/3` is the operator's bind of an EXISTING tenant (`onboarding.ex`, not a create).
+    {[:Letflow, :PlatformFunctions, :Impl, :TenantBindRealm], :bind_tenant_realm,
+     [@onboarding_router]},
+    {[:Letflow, :PlatformFunctions, :Impl, :TenantInstallDefaultModules], :ensure_default_modules,
+     [@provisioner_file]},
+    {[:Letflow, :Identity, :PendingAdminGrants], :create_provisioned,
+     [@provisioner_file, @tenant_grant_impl]},
+    {[:Letflow, :Identity, :PendingAdminGrants], :create, [@tenant_grant_impl]}
   ]
 
   # References to a watched module that are DATA, not a call: a config key
@@ -156,6 +168,12 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
     {"lib/letflow/platform_functions/registry.ex",
      [:Letflow, :PlatformFunctions, :Impl, :TenantCreate]} =>
       "catalogue entry {TenantCreate, :run, 1}: data the dispatcher calls, run/1 is not guarded",
+    {"lib/letflow/platform_functions/registry.ex",
+     [:Letflow, :PlatformFunctions, :Impl, :TenantBindRealm]} =>
+      "catalogue entry {TenantBindRealm, :run, 1}: data the dispatcher calls, run/1 is not guarded",
+    {"lib/letflow/platform_functions/registry.ex",
+     [:Letflow, :PlatformFunctions, :Impl, :TenantInstallDefaultModules]} =>
+      "catalogue entry {TenantInstallDefaultModules, :run, 1}: data the dispatcher calls, run/1 is not guarded",
     {"lib/letflow/platform_functions/registry.ex",
      [:Letflow, :PlatformFunctions, :Impl, :TenantProvision]} =>
       "catalogue entry {TenantProvision, :run, 1}: data the dispatcher calls, run/1 is not guarded",
@@ -172,7 +190,10 @@ defmodule Letflow.PlatformFunctions.TenantCreateCallersTest do
     [:Letflow, :TenantOnboarding],
     [:Letflow, :PlatformFunctions, :Impl, :TenantCreate],
     [:Letflow, :PlatformFunctions, :Impl, :TenantProvision],
-    [:Letflow, :TenantProvisioner]
+    [:Letflow, :TenantProvisioner],
+    [:Letflow, :PlatformFunctions, :Impl, :TenantBindRealm],
+    [:Letflow, :PlatformFunctions, :Impl, :TenantInstallDefaultModules],
+    [:Letflow, :Identity, :PendingAdminGrants]
   ]
 
   # The function names the rules name. Only a local call with one of these
