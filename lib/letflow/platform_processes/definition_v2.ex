@@ -11,8 +11,10 @@ defmodule Letflow.PlatformProcesses.DefinitionV2 do
       notify_gate --[variables.notify_admin == true]--> notify -> end
       notify_gate --(default)--> end
 
-  Every SERVICE_TASK but `notify` is a `platform_call` node whose reads and writes are DERIVED from the
-  compiled catalogue, so the activation fence and the document cannot disagree. The graph has no
+  Every SERVICE_TASK is a `platform_call` node whose reads and writes are DERIVED from the compiled
+  catalogue, so the activation fence and the document cannot disagree. `notify` calls
+  `tenant.notify_admin`, which sends v1's `tenant_registered` notice through the notification
+  dispatcher (T-2727 V8: the engine has no runtime for v1's `notify` attribute node). The graph has no
   HUMAN_TASK, no SUB_PROCESS and no script: the foreign-source rule of decision 0094 (b) holds and the
   system start's "no child" condition holds.
 
@@ -154,23 +156,16 @@ defmodule Letflow.PlatformProcesses.DefinitionV2 do
     }
   end
 
-  # v1's notification node, unchanged.
+  # T-2727 (V8): v1's `notify` node has no engine runtime (entering it ends the instance in ERROR),
+  # so v2 sends the SAME declaration as a platform step of `tenant.notify_admin`
+  # (`docs/design/provision-realm-and-invite-paths.md`).
   defp notify_node do
-    %{
-      "id" => "notify",
-      "node_type" => "SERVICE_TASK",
-      "attributes" => %{
-        "notify" => %{
-          "template_key" => "tenant_registered",
-          "recipient" => %{"var" => "admin_email"},
-          "values" => %{
-            "tenant_name" => %{"var" => "name"},
-            "tenant_slug" => %{"var" => "slug"},
-            "registered_by" => %{"var" => "admin_email"}
-          }
-        }
-      }
-    }
+    call_node("notify", "tenant.notify_admin", %{
+      "tenant_id" => %{"var" => "tenant_id"},
+      "admin_email" => %{"var" => "admin_email"},
+      "name" => %{"var" => "name"},
+      "slug" => %{"var" => "slug"}
+    })
   end
 
   defp reads_for(function, args) do

@@ -57,7 +57,8 @@ defmodule Letflow.PlatformFunctions.Registry do
     {"tenant.grant_first_admins",
      {Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins, :run, 1}},
     {"tenant.install_default_modules",
-     {Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules, :run, 1}}
+     {Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules, :run, 1}},
+    {"tenant.notify_admin", {Letflow.PlatformFunctions.Impl.TenantNotifyAdmin, :run, 1}}
   ]
 
   # The compile-time check: every body is declared in the compiled catalogue.

@@ -45,7 +45,7 @@
     {
       "id": "A2",
       "actor": "admin",
-      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node carries a template and a recipient variable.",
+      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node included (tenant.notify_admin sends the tenant_registered template; T-2727 V8).",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/${definition_id}"
@@ -75,8 +75,7 @@
           "$.graph.nodes[8].id": "install_default_modules",
           "$.graph.nodes[8].attributes.platform_call.function": "tenant.install_default_modules",
           "$.graph.nodes[10].id": "notify",
-          "$.graph.nodes[10].attributes.notify.template_key": "tenant_registered",
-          "$.graph.nodes[10].attributes.notify.recipient.var": "admin_email"
+          "$.graph.nodes[10].attributes.platform_call.function": "tenant.notify_admin"
         }
       },
       "requires": [
@@ -97,10 +96,11 @@
           "$.items[1].name": "tenant.bind_realm",
           "$.items[2].name": "tenant.create",
           "$.items[3].name": "tenant.grant_first_admins",
-          "$.items[5].name": "tenant.provision",
-          "$.items[6].name": "tenant.record_lifecycle",
-          "$.items[7].name": "tenant.record_onboarding",
-          "$.items[8].name": "tenant.validate",
+          "$.items[5].name": "tenant.notify_admin",
+          "$.items[6].name": "tenant.provision",
+          "$.items[7].name": "tenant.record_lifecycle",
+          "$.items[8].name": "tenant.record_onboarding",
+          "$.items[9].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },

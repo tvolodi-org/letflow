@@ -254,22 +254,29 @@
     },
     {
       "attributes": {
-        "notify": {
-          "recipient": {
-            "var": "admin_email"
-          },
-          "template_key": "tenant_registered",
-          "values": {
-            "registered_by": {
+        "platform_call": {
+          "args": {
+            "admin_email": {
               "var": "admin_email"
             },
-            "tenant_name": {
+            "name": {
               "var": "name"
             },
-            "tenant_slug": {
+            "slug": {
               "var": "slug"
+            },
+            "tenant_id": {
+              "var": "tenant_id"
             }
-          }
+          },
+          "function": "tenant.notify_admin",
+          "reads": {
+            "admin_email": "string",
+            "name": "string",
+            "slug": "string",
+            "tenant_id": "string"
+          },
+          "writes": {}
         }
       },
       "id": "notify",

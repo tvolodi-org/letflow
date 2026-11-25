@@ -21,7 +21,7 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
       tenant.validate -> tenant.create -> tenant.provision ->
       tenant.record_lifecycle -> tenant.record_onboarding ->
       tenant.bind_realm -> tenant.grant_first_admins ->
-      tenant.install_default_modules
+      tenant.install_default_modules -> tenant.notify_admin
 
   `tenant.create` and the steps after it read the tenant id from the OUTPUT of
   an earlier platform step (source class `:step`), never from a human task's
@@ -50,7 +50,8 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
       record_onboarding(),
       bind_realm(),
       grant_first_admins(),
-      install_default_modules()
+      install_default_modules(),
+      notify_admin()
     ]
   end
 
@@ -218,6 +219,34 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
         %SideEffect{
           text: "installs the new tenant's default modules",
           class: :write_tenant_registry
+        }
+      ],
+      idempotency_key: ["tenant_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  # T-2727 (V8): the notification of the registration, as a platform step. The body sends v1's
+  # `tenant_registered` declaration through `Letflow.NotificationSteps.Dispatcher` (the G14
+  # allow-list at dispatch, the send cap, one delivery row with no address). The key is the tenant:
+  # one registration notice per tenant.
+  defp notify_admin do
+    %Entry{
+      name: "tenant.notify_admin",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "tenant_id", type: :uuid, required: true, source_class: :step},
+        %Input{name: "admin_email", type: :string, required: true, source_class: :start},
+        %Input{name: "name", type: :string, required: true, source_class: :start},
+        %Input{name: "slug", type: :string, required: true, source_class: :start}
+      ],
+      outputs: [],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{
+          text: "sends the registration notice to the new tenant's first administrator",
+          class: :outbound
         }
       ],
       idempotency_key: ["tenant_id"],

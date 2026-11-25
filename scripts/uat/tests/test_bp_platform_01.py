@@ -1,6 +1,6 @@
 """Tests of the BP-PLATFORM-01 scenario file, step A (T-2744): the expectations of the file judge a good answer as
 good and a defective one (definition missing, not active, a service step without its function, a notify step
-without recipient, a registry without the entry) as failed. No network, no model: the answers are canned.
+without its function, a registry without the entry) as failed. No network, no model: the answers are canned.
 
 Run: python3 -B -m unittest -v scripts/uat/tests/test_bp_platform_01.py   (from the repository root)
 """
@@ -38,6 +38,7 @@ FUNCTIONS = [
     "tenant.create",
     "tenant.grant_first_admins",
     "tenant.install_default_modules",
+    "tenant.notify_admin",
     "tenant.provision",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
@@ -50,8 +51,9 @@ def definition():
     for node_id, fn in CALLS:
         nodes.append({"id": node_id, "node_type": "SERVICE_TASK", "attributes": {"platform_call": {"function": fn}}})
     nodes.append({"id": "notify_gate", "node_type": "EXCLUSIVE_GATEWAY"})
+    # T-2727 V8: the notify step is a platform step of tenant.notify_admin.
     nodes.append({"id": "notify", "node_type": "SERVICE_TASK", "attributes": {
-        "notify": {"template_key": "tenant_registered", "recipient": {"var": "admin_email"}}}})
+        "platform_call": {"function": "tenant.notify_admin"}}})
     nodes.append({"id": "end", "node_type": "END"})
     return {"id": "d1", "name": "platform.register_tenant", "version": "2", "status": "ACTIVE", "graph": {"nodes": nodes}}
 
@@ -105,12 +107,12 @@ class StepA(unittest.TestCase):
         d["graph"]["nodes"][3]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_notify_without_recipient_or_template_fails(self):
+    def test_a2_notify_without_its_function_fails(self):
         d = definition()
-        del d["graph"]["nodes"][10]["attributes"]["notify"]["recipient"]
+        d["graph"]["nodes"][10]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
         d = copy.deepcopy(definition())
-        d["graph"]["nodes"][10]["attributes"]["notify"]["template_key"] = None
+        d["graph"]["nodes"][10]["attributes"]["platform_call"]["function"] = "tenant.provision"
         self.assertFalse(self.verdict("A2", d))
 
     def test_a2_node_count_is_twelve(self):

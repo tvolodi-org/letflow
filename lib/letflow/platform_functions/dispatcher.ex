@@ -227,6 +227,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_mapping_not_declared
     platform_call_lifecycle_failed
     platform_call_needs_reactivation
+    platform_call_notify_failed
+    platform_call_notify_refused
     platform_call_node_missing
     platform_call_node_not_declared
     platform_call_onboarding_failed

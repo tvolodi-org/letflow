@@ -116,7 +116,7 @@ key. The later D-180 slice may add nullable lineage/binding data without changin
 |---|---|
 | `lib/letflow/platform_functions/catalog.ex` | the compiled catalogue: `list/1` (only the entries the caller's tenant may use), `fetch/1`, `permission_atoms/0`, `entry_map/1`. A duplicate or malformed entry is a COMPILE error |
 | `lib/letflow/platform_functions/entry.ex` | the entry shape: typed inputs with a source class, typed outputs, the permission, the side effects, the idempotency key, the platform-tenant flag |
-| `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules` |
+| `lib/letflow/platform_functions/tenant_family.ex` | the platform family's declarations: `tenant.validate`, `tenant.create`, `tenant.provision`, `tenant.bind_realm`, `tenant.grant_first_admins`, `tenant.install_default_modules`, `tenant.notify_admin` (T-2727 V8) |
 | `lib/letflow/platform_functions/guard.ex` | the RUN-TIME fence: the tenant (INV-10), the catalogue entry, exclusive step routes, foreign sources, the signature, and the activator's CURRENT permission (a loss flags the row `needs_reactivation`) |
 | `lib/letflow/definitions/graph.ex` | graph validation refuses a `platform_call` node that also carries `endpoint`, `service_id` or `script_key` with `:conflicting_platform_call_routes` |
 | `lib/letflow/definitions/platform_calls.ex` | the ACTIVATION fence: the platform tenant, exclusive step routes, the entry, the activator's permission, the argument shape, the input source classes (the human-task inputs AND the foreign sources) |

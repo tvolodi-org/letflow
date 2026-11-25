@@ -718,7 +718,7 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
   end
 
   describe "SF-08: the audit read does not carry the registration values" do
-    test "PROCESS_OPERATOR and TENANT_AUDITOR read no value from /audit; PLATFORM_ADMIN does",
+    test "no reader gets a registration value from /audit, PLATFORM_ADMIN included",
          ctx do
       seed!(ctx)
       email = "owner-t2704-audit@example.com"
@@ -751,9 +751,13 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
         refute conn.resp_body =~ realm, "#{role} /audit leaks the realm"
       end
 
+      # T-2727 V9 (design row A1): the STORED row carries no registration value, so the
+      # authorised operator's audit read shows the placeholder too.
       admin = audit.(ctx.token)
       assert admin.status == 200
-      assert admin.resp_body =~ email
+      assert json(admin)["items"] != []
+      refute admin.resp_body =~ email
+      refute admin.resp_body =~ realm
     end
   end
 
@@ -804,19 +808,30 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
       )
     end
 
-    # The engine on main has no runtime for the `notify` node (v1 has the same node): entering it is
-    # a `config_parse_failed` apply refusal. That gap is reported in the task findings; this test
-    # proves what the v2 definition owns -- the steps BEFORE the gateway ran, the hostname gave the
-    # onboarding record, and the gateway was reached with `notify_admin` true. The Dispatcher's own
-    # delivery is proved by the SF-08 test above and by the notification-step tests.
-    test "with admin_email and hostname: the steps before the gateway run, the onboarding record is stored",
-         ctx do
-      seed!(ctx)
+    # T-2727 V8 branch A (design `docs/design/provision-realm-and-invite-paths.md` row N2): the
+    # `notify` step is a platform step of `tenant.notify_admin`; the real runner sends the
+    # registration notice through the Notifier adapter and the instance COMPLETES.
+    test "with admin_email and hostname: the mail is delivered and the instance COMPLETES", ctx do
+      alias Letflow.LoginDiscoveryNotifierDouble, as: Double
+      alias Letflow.Notifications.Delivery
+      alias Letflow.Test.SmtpHelpers, as: S
 
-      body =
-        "/api/v1/onboarding"
-        |> form()
-        |> Map.put("admin_email", "owner-t2727-v8@example.com")
+      seed!(ctx)
+      prefix = ctx.platform.schema_name
+      # The seed opened the mail CHANNEL; the recipient DOMAIN is a human entry (G2 (c)).
+      {:ok, _entry} = OutboundDestinations.add(prefix, nil, "email", "example.com")
+
+      S.put_app_env!(Letflow.LoginDiscovery.Notifier,
+        adapter: Double,
+        timeout_ms: 100,
+        max_concurrent: 5
+      )
+
+      Double.set_owner(self())
+      on_exit(&Double.reset/0)
+
+      email = "owner-t2727-v8@example.com"
+      body = "/api/v1/onboarding" |> form() |> Map.put("admin_email", email)
 
       conn = post(ctx, "/api/v1/onboarding", body)
       assert conn.status == 202, conn.resp_body
@@ -828,18 +843,29 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
       assert tenant, "the create step must have stored the tenant"
       drop_on_exit(tenant)
 
+      assert projection.status == :completed,
+             inspect({projection.status, projection.error_detail})
+
+      assert_receive {:deliver_message, message}, 2000
+      assert message.to == email
+
       record = Repo.get_by(OnboardingRecord, slug: body["slug"])
       assert record, "the hostname must have produced the onboarding record"
       assert record.hostname == body["hostname"]
 
-      # install_default_modules (the step just before the gateway) was applied: the failure, if any,
-      # is at the notify node, never at one of the v2 steps.
-      refute match?(
-               %{"affected" => %{"node_id" => node}}
-               when node in ~w(validate create provision record_lifecycle record_onboarding
-                               bind_realm grant_first_admins),
-               projection.error_detail
-             )
+      [delivery] =
+        Repo.all(
+          from(d in Delivery, where: d.trigger_ref == ^instance_id),
+          prefix: prefix
+        )
+
+      assert delivery.template_key == "tenant_registered"
+      assert delivery.status == "sent"
+      refute inspect(delivery) =~ email, "the delivery row carries no address (INV-4)"
+
+      # A further cycle runs nothing again: one mail only.
+      Enum.each(1..3, fn _ -> PlatformStepRunner.run_due(prefix) end)
+      refute_receive {:deliver_message, _again}, 200
     end
 
     test "without admin_email: notify_admin false, the instance COMPLETES with no mail and no error",

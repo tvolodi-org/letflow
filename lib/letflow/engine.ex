@@ -2736,7 +2736,15 @@ defmodule Letflow.Engine do
     Audit.append_multi(
       Multi.new(),
       :audit,
-      create_audit_attrs(attrs, instance_id, Audit.struct_state(finalized)),
+      create_audit_attrs(
+        attrs,
+        instance_id,
+        # T-2727 (V9): in the platform tenant the registration values never reach the stored row.
+        Letflow.PlatformProcesses.RegistrationMask.scrub_stored(
+          Audit.struct_state(finalized),
+          prefix
+        )
+      ),
       prefix
     )
   end
