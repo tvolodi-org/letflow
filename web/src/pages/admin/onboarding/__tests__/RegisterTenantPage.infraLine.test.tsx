@@ -56,10 +56,10 @@ beforeEach(() => createOnboarding.mockReset())
 afterEach(cleanup)
 
 describe('RegisterTenantPage ISS-1093', () => {
-  it('shows one read-only line that realm and client are created by infra, and no inputs for them', () => {
+  it('shows one read-only line that realm and client are created by the process, and no inputs for them', () => {
     renderRegister()
     expect(screen.getByTestId('realm-client-infra-note')).toHaveTextContent(
-      /realm and the client for this tenant are created by infra \(ADR 0044 Phase 1\)/,
+      /realm and the first administrator of this tenant are created by the process/,
     )
     expect(screen.queryByText(/Realm Config/)).toBeNull()
     expect(screen.queryByText(/Client Config/)).toBeNull()
