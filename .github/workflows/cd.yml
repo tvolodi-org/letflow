@@ -198,7 +198,8 @@ jobs:
         if: steps.decide.outputs.deploy == 'true'
         env:
           BASE_URL: ${{ env.QA_URL }}
-          ACCESS_TOKEN: ${{ secrets.QA_UPGRADE_TOKEN }}
+          QA_UPGRADE_TOKEN_QOIMEKS_QA2: ${{ secrets.QA_UPGRADE_TOKEN_QOIMEKS_QA2 }}
+          QA_UPGRADE_TOKEN_SSS_REHEARSAL2: ${{ secrets.QA_UPGRADE_TOKEN_SSS_REHEARSAL2 }}
         run: |
           set -o pipefail
           bash scripts/qa_upgrade_chain.sh 2>&1 | tee "$RUNNER_TEMP/qa_chain.log"

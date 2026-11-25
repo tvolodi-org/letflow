@@ -11,25 +11,29 @@ defmodule Letflow.Scripts.QaUpgradeChainFake do
   def call(conn, _) do
     {:ok, raw, conn} = read_body(conn)
     [slug | _] = get_req_header(conn, "x-tenant-slug") ++ ["?"]
+    [auth | _] = get_req_header(conn, "authorization") ++ [""]
 
     Agent.update(
       agent(),
       &Map.update!(&1, :log, fn l -> [{conn.method, conn.request_path, raw, slug} | l] end)
     )
 
-    route(conn, conn.method, conn.path_info, slug)
+    # like the real auth pipeline: a token is good for ITS tenant only ("Bearer tok-<slug>")
+    if auth == "Bearer tok-" <> slug,
+      do: route(conn, conn.method, conn.path_info, slug),
+      else: json(conn, 401, %{error: "unauthorized", echo: auth})
   end
 
   defp json(conn, status, map),
     do: conn |> put_resp_content_type("application/json") |> send_resp(status, Jason.encode!(map))
 
-  defp route(conn, "GET", ["api", "v1", "me", "modules"], _slug) do
-    mods = Agent.get(agent(), & &1.modules)
+  defp route(conn, "GET", ["api", "v1", "me", "modules"], slug) do
+    mods = Agent.get(agent(), &Map.get(&1.modules, slug, %{}))
     json(conn, 200, %{installed_modules: for(m <- Map.keys(mods), do: %{module_id: m})})
   end
 
-  defp route(conn, "POST", ["api", "v1", "tenant", "modules", m, "upgrade", "plan"], _slug) do
-    state = Agent.get(agent(), &Map.fetch!(&1.modules, m))
+  defp route(conn, "POST", ["api", "v1", "tenant", "modules", m, "upgrade", "plan"], slug) do
+    state = Agent.get(agent(), &Map.fetch!(&1.modules[slug], m))
 
     case state do
       :current ->
@@ -47,8 +51,8 @@ defmodule Letflow.Scripts.QaUpgradeChainFake do
     end
   end
 
-  defp route(conn, "POST", ["api", "v1", "tenant", "modules", m, "upgrade"], _slug) do
-    Agent.update(agent(), &put_in(&1, [:modules, m], :current))
+  defp route(conn, "POST", ["api", "v1", "tenant", "modules", m, "upgrade"], slug) do
+    Agent.update(agent(), &put_in(&1, [:modules, slug, m], :current))
     json(conn, 200, %{ok: true})
   end
 
@@ -78,11 +82,12 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
     pid = start_supervised!({Bandit, plug: Letflow.Scripts.QaUpgradeChainFake, port: 0})
     {:ok, {_a, port}} = ThousandIsland.listener_info(pid)
     file = Path.join(System.tmp_dir!(), "qa-tenants-#{System.unique_integer([:positive])}.txt")
-    File.write!(file, "# c\nqoimeks-qa2\n\nsss-rehearsal2 # x\n")
+    File.write!(file, "# c\nqoimeks-qa2 TOK_A\n\nsss-rehearsal2 TOK_B # x\n")
     on_exit(fn -> File.rm(file) end)
     {:ok, port: port, tfile: file}
   end
 
+  defp both(mods), do: %{"qoimeks-qa2" => mods, "sss-rehearsal2" => mods}
   defp set(mods), do: Agent.update(@agent, &%{&1 | modules: mods, log: []})
   defp log, do: Agent.get(@agent, &Enum.reverse(&1.log))
 
@@ -91,7 +96,8 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
       env:
         [
           {"BASE_URL", "http://127.0.0.1:#{c.port}"},
-          {"ACCESS_TOKEN", "t"},
+          {"TOK_A", "tok-qoimeks-qa2"},
+          {"TOK_B", "tok-sss-rehearsal2"},
           {"TENANTS_FILE", c.tfile}
         ] ++ extra,
       stderr_to_stdout: true
@@ -99,18 +105,23 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
   end
 
   test "Q1 safe chain applies, second run changes nothing", c do
-    set(%{"org" => :current, "stock" => :behind})
+    set(both(%{"org" => :current, "stock" => :behind}))
     {out, rc} = run(c)
     assert rc == 0, out
     assert out =~ "applied "
     assert out =~ "QA tenants behind the build: 0"
-    # the fake keeps state per module (not per tenant): the second tenant finds it current
-    assert Enum.any?(
-             log(),
-             &match?({"POST", "/api/v1/tenant/modules/stock/upgrade", _, "qoimeks-qa2"}, &1)
-           )
+    # state is per tenant: each tenant is upgraded with its own credential, and only itself
+    for t <- ~w(qoimeks-qa2 sss-rehearsal2) do
+      assert Enum.any?(
+               log(),
+               &match?({"POST", "/api/v1/tenant/modules/stock/upgrade", _, ^t}, &1)
+             )
+    end
 
-    set(%{"org" => :current, "stock" => :current})
+    assert Agent.get(@agent, & &1.modules) ==
+             both(%{"org" => :current, "stock" => :current})
+
+    set(both(%{"org" => :current, "stock" => :current}))
     {out2, rc2} = run(c)
     assert rc2 == 0, out2
     refute Enum.any?(log(), fn {_, p, _, _} -> String.ends_with?(p, "/upgrade") end)
@@ -118,13 +129,61 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
   end
 
   test "Q2 and Q3 destructive plan fails the step, applies nothing, never acks", c do
-    set(%{"org" => :current, "assets" => :destructive})
+    set(both(%{"org" => :current, "assets" => :destructive}))
     {out, rc} = run(c)
     assert rc == 1, out
     assert out =~ "REFUSED qoimeks-qa2/assets: 1 -> 2 needs an administrator acknowledgement"
     assert out =~ "QA tenants behind the build: 2"
     refute Enum.any?(log(), fn {_, p, _, _} -> String.ends_with?(p, "assets/upgrade") end)
     refute Enum.any?(log(), fn {_, _, body, _} -> body =~ "ack_destructive" end)
+  end
+
+  test "Q6 each tenant uses its own credential; a missing one sends nothing for that tenant", c do
+    set(both(%{"org" => :behind}))
+    {out, rc} = run(c, [{"TOK_B", ""}])
+    assert rc == 1, out
+    assert out =~ "REFUSED sss-rehearsal2: no usable credential in TOK_B (nothing sent)"
+    assert out =~ "QA tenants behind the build: 1"
+    assert Enum.all?(log(), fn {_, _, _, slug} -> slug == "qoimeks-qa2" end)
+    assert Agent.get(@agent, & &1.modules)["sss-rehearsal2"] == %{"org" => :behind}
+  end
+
+  test "Q7 tenant A's token with tenant B's slug is a 401 and nothing is written", c do
+    set(both(%{"org" => :behind}))
+    {out, rc} = run(c, [{"TOK_A", "tok-sss-rehearsal2"}])
+    assert rc == 4, out
+    assert Agent.get(@agent, & &1.modules)["sss-rehearsal2"] == %{"org" => :behind}
+    refute Enum.any?(log(), fn {m, _, _, _} -> m == "POST" end)
+  end
+
+  test "Q8 token canary is absent from output on success, request error and refusal paths", c do
+    canary = "CANARY-lf_tok_s3cr3t"
+
+    paths = [
+      {both(%{"org" => :current, "stock" => :behind}), 0},
+      {both(%{"assets" => :destructive}), 1},
+      {both(%{"org" => :behind}), 4}
+    ]
+
+    for {{mods, rc_expected}, i} <- Enum.with_index(paths) do
+      set(mods)
+
+      # the third path: the server rejects the credential (401) and echoes the Authorization header back
+      extra =
+        if rc_expected == 4,
+          do: [{"TOK_A", "tok-x-" <> canary}, {"TOK_B", "tok-y-" <> canary}],
+          else: [{"TOK_A", "tok-qoimeks-qa2"}, {"TOK_B", "tok-sss-rehearsal2"}]
+
+      {out, rc} = run(c, extra)
+      assert rc == rc_expected, out
+      refute out =~ canary, "path #{i}"
+      # what the workflow step copies into the step summary is a subset of this output
+      log_file = Path.join(System.tmp_dir!(), "qa_chain_#{i}.log")
+      File.write!(log_file, out)
+      on_exit(fn -> File.rm(log_file) end)
+      {summary, _} = System.cmd("grep", ["-E", "QA tenants behind the build|REFUSED", log_file])
+      refute summary =~ canary
+    end
   end
 
   test "Q4 a non-QA host is refused before any request", c do
@@ -141,7 +200,8 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
     assert chain > deploy
     tenants = File.read!("deploy/qa-upgrade-tenants.txt")
     lines = tenants |> String.split("\n") |> Enum.reject(&String.starts_with?(&1, "#"))
-    for t <- ~w(qoimeks-qa2 sss-rehearsal2), do: assert(t in lines)
-    for t <- ~w(sss-rehearsal qoimeks-qa qoimeks-client1-qa), do: refute(t in lines)
+    slugs = for l <- lines, l != "", do: l |> String.split() |> hd()
+    for t <- ~w(qoimeks-qa2 sss-rehearsal2), do: assert(t in slugs)
+    for t <- ~w(sss-rehearsal qoimeks-qa qoimeks-client1-qa), do: refute(t in slugs)
   end
 end

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # qa_upgrade_chain.sh -- after a QA deploy, apply the SAFE module upgrade chain to the QA test tenants (T-2746)
 #
-#   BASE_URL=https://qa.example.org ACCESS_TOKEN=... [TENANTS_FILE=deploy/qa-upgrade-tenants.txt] qa_upgrade_chain.sh
+#   BASE_URL=https://qa.example.org <TOKEN_VAR>=... [TENANTS_FILE=deploy/qa-upgrade-tenants.txt] qa_upgrade_chain.sh
 #
 # Same chain as scripts/demo_upgrade_chain.sh (plan, apply, plan again) for every installed module of every tenant
-# listed in ONE file (one slug per line, '#' comments, blank lines ignored). QA ONLY: it refuses a BASE_URL that is
+# listed in ONE file (one line per tenant: '<slug> <TOKEN_VAR>', '#' comments, blank lines ignored). Each tenant has its
+# OWN credential (an API token is verified inside the slug's schema, an OIDC token reaches only its issuer tenant), so
+# the file holds the NAME of the environment variable carrying that tenant's administrator token, never the token.
+# A tenant whose variable is unset is reported as behind ("no credential") and nothing is sent for it. QA ONLY: it refuses a BASE_URL that is
 # not a QA host (needs "qa" in the host name, override with QA_HOST_PATTERN) so production and demo never run it.
 #
 # It NEVER sends ack_destructive. A plan with a class B or class C entity row (a destructive / data-step change)
@@ -21,7 +24,6 @@ set +x
 fail_input() { printf 'input error: %s\n' "$*" >&2; exit 2; }
 for tool in curl jq mktemp; do command -v "$tool" >/dev/null 2>&1 || fail_input "missing tool: $tool"; done
 [ -n "${BASE_URL:-}" ] || fail_input "set BASE_URL, for example https://qa.example.org"
-[ -n "${ACCESS_TOKEN:-}" ] || fail_input "set ACCESS_TOKEN"
 HOST="${BASE_URL#*://}"; HOST="${HOST%%/*}"; HOST="${HOST%%:*}"
 PATTERN="${QA_HOST_PATTERN:-qa}"
 [[ "$HOST" == *"$PATTERN"* || "$HOST" == "127.0.0.1" || "$HOST" == "localhost" ]] \
@@ -31,19 +33,20 @@ TENANTS_FILE="${TENANTS_FILE:-$HERE/../deploy/qa-upgrade-tenants.txt}"
 [ -r "$TENANTS_FILE" ] || fail_input "tenants file not readable"
 RATIONALE="${UPGRADE_RATIONALE:-qa deploy: safe module upgrade chain}"
 
-SLUG_LIST=()
+SLUG_LIST=(); TOKEN_VARS=()
 while IFS= read -r line; do
-  line="${line%%#*}"; line="${line//[[:space:]]/}"
-  [ -n "$line" ] || continue
-  [[ "$line" =~ ^[A-Za-z0-9_-]{1,63}$ ]] || fail_input "tenants file has an unexpected slug"
-  SLUG_LIST+=("$line")
+  line="${line%%#*}"
+  read -r slug tvar extra <<<"$line" || true
+  [ -n "$slug" ] || continue
+  [[ "$slug" =~ ^[A-Za-z0-9_-]{1,63}$ ]] || fail_input "tenants file has an unexpected slug"
+  [[ "$tvar" =~ ^[A-Z][A-Z0-9_]{0,63}$ && -z "${extra:-}" ]] || fail_input "tenants file: '$slug' needs exactly one token variable name"
+  SLUG_LIST+=("$slug"); TOKEN_VARS+=("$tvar")
 done <"$TENANTS_FILE"
 [ "${#SLUG_LIST[@]}" -gt 0 ] || fail_input "tenants file lists no tenant"
 
 API="${BASE_URL%/}/api/v1"
 WORK=$(mktemp -d); chmod 700 "$WORK"; trap 'rm -rf "$WORK"' EXIT
 AUTH_CFG="$WORK/auth.cfg"; RESP="$WORK/resp.json"
-( umask 077; printf 'header = "Authorization: Bearer %s"\n' "$ACCESS_TOKEN" >"$AUTH_CFG" )
 log() { printf '%s\n' "$*" >&2; }
 die() { printf 'STOP: %s\n' "$*" >&2; exit 4; }
 
@@ -101,7 +104,14 @@ chain_module() {
 }
 
 ORDER="org locations catalog_items codes stock assets"
-for SLUG in "${SLUG_LIST[@]}"; do
+for i in "${!SLUG_LIST[@]}"; do
+  SLUG="${SLUG_LIST[$i]}"; tvar="${TOKEN_VARS[$i]}"
+  token="${!tvar:-}"
+  if [ -z "$token" ] || [[ "$token" == *[$'\r\n"\\']* ]]; then
+    log "REFUSED $SLUG: no usable credential in $tvar (nothing sent)"; mark_behind; continue
+  fi
+  ( umask 077; printf 'header = "Authorization: Bearer %s"\n' "$token" >"$AUTH_CFG" )
+  unset token
   api GET /me/modules
   [ "$STATUS" = 200 ] || die "GET /me/modules for '$SLUG': HTTP $STATUS"
   mods=$(jq -r --arg o "$ORDER" '([.installed_modules[].module_id]) as $ids | ($o | split(" ")) as $ord
