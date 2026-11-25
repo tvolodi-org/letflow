@@ -45,7 +45,9 @@ export function splitSections(md: string): { id: string | null; text: string }[]
   return out.map((s) => ({ id: s.id, text: s.lines.join('\n') })).filter((s) => s.id || s.text.trim())
 }
 
-export function DesignerGuidePanel() {
+/** `loader` replaces the build-time document lookup; only the harness uses it, to hold the loading state and to
+ *  show the load-failed state (no loader for the locale). */
+export function DesignerGuidePanel({ loader }: { loader?: (locale: string) => (() => Promise<string>) | undefined } = {}) {
   const open = useGuideStore((s) => s.open)
   const section = useGuideStore((s) => s.section)
   const closeGuide = useGuideStore((s) => s.closeGuide)
@@ -61,7 +63,7 @@ export function DesignerGuidePanel() {
     let alive = true
     setMd(null)
     setFailed(false)
-    const load = loaderFor(locale)
+    const load = (loader ?? loaderFor)(locale)
     if (!load) {
       setFailed(true)
       return
@@ -76,7 +78,7 @@ export function DesignerGuidePanel() {
     return () => {
       alive = false
     }
-  }, [open, locale])
+  }, [open, locale, loader])
 
   // Focus moves into the panel on open and back to the opener on close; Escape closes (same rules as Dialog).
   useModalFocus(panelRef, { open, onClose: closeGuide })
