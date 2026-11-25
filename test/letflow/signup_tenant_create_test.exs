@@ -30,6 +30,11 @@ defmodule Letflow.SignupTenantCreateTest do
     %{platform: tenant_create_env!()}
   end
 
+  defp ctx_schema! do
+    {:ok, prefix} = Letflow.PlatformTenant.platform_prefix()
+    prefix
+  end
+
   defp configure!(stub, overrides \\ []) do
     enable!(
       Keyword.merge(
@@ -221,6 +226,43 @@ defmodule Letflow.SignupTenantCreateTest do
       assert [%{body: body}] = mails()
       assert body =~ "?realm="
       refute body =~ @password
+    end
+
+    test "T-2728 route 4 starts the registration process; a running instance is a retry" do
+      Letflow.Support.RegisterTenantProcessFixture.seed!(ctx_schema!())
+      r = sent_row!()
+      configure!(Stub.start!([]))
+
+      prov = Application.get_env(:letflow, Letflow.TenantProvisioner)
+      runner = Application.get_env(:letflow, :start_platform_step_runner)
+
+      Application.put_env(
+        :letflow,
+        Letflow.TenantProvisioner,
+        Keyword.put(prov, :create_via_process, true)
+      )
+
+      Application.put_env(:letflow, :start_platform_step_runner, true)
+
+      on_exit(fn ->
+        Application.put_env(:letflow, Letflow.TenantProvisioner, prov)
+        Application.put_env(:letflow, :start_platform_step_runner, runner || false)
+      end)
+
+      assert Provisioning.run(r.tenant_id) == {:failed, "tenant_pending"}
+
+      assert %Letflow.TenantProvisioner.Admission{instance_id: instance_id} =
+               Repo.get(Letflow.TenantProvisioner.Admission, r.tenant_id)
+
+      assert is_binary(instance_id)
+      refute Repo.get(Tenant, r.tenant_id), "nothing is created before the step runs"
+      assert row(r.tenant_id).last_error == "tenant_pending"
+
+      on_exit(fn ->
+        Repo.delete_all(
+          from(a in Letflow.TenantProvisioner.Admission, where: a.tenant_id == ^r.tenant_id)
+        )
+      end)
     end
 
     test "C5 resume picks the restart step by what is recorded" do
