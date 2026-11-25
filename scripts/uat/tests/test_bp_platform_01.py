@@ -150,7 +150,7 @@ class StepsBToH(unittest.TestCase):
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
         order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "D1", "E1", "E2",
-                 "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
+                 "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
         self.assertLess(ids.index("B0b"), ids.index("B1"))  # the allowed destination comes before the mail step
@@ -234,7 +234,10 @@ class StepsBToH(unittest.TestCase):
         bad = self.steps["F3"]["do"]["body"]["graph"]["nodes"][7]["attributes"]["notify"]["file_name"]
         self.assertEqual("../x", bad)
         self.assertEqual([e["target"] for e in graph["edges"] if e["source"] == "notify"], ["notify_file"])
-        self.assertIn("status", self.steps["F4"]["expect_refused"])
+        # the product refuses the path-like name when the draft is SAVED: the refusal is the F3 step itself
+        self.assertEqual([422], self.steps["F3"]["expect_refused"]["status"])
+        self.assertEqual("notify_file_name_invalid", self.steps["F3"]["expect_refused"]["code"])
+        self.assertNotIn("F4", self.steps)
 
     def test_the_rollback_is_one_call_to_the_version_a1_read(self):
         self.assertIn("$.version", self.steps["A1"]["save"].values())
@@ -398,6 +401,59 @@ class BlockedSteps(H2IsPlayed):
         with self.assertRaises(runner.ConfigError):
             runner.validate_step({**base, "expect_refused": {}, "refusal_probe": "yes"}, "X")
         runner.validate_step({**base, "expect_refused": {}, "refusal_probe": True}, "X")
+
+
+class BlockedNeverFails(H2IsPlayed):
+    """T-2783: blocked steps never fail a run, a step that needs their value is blocked, not skipped."""
+
+    def run_steps(self, steps, **extra):
+        r = runner.Runner({"id": "H", "steps": steps, **extra}, base_url=self.base, tenant="qoimeks-qa2",
+                          actors=self.actors, run_dir=self.run_dir, inputs={}, poll_interval=0.01,
+                          out=io.StringIO())
+        code = r.run()
+        return code, {x["step"]: x for x in self.lines() if x["phase"] == "step"}
+
+    def blocked(self):
+        step = self.h2()
+        del step["refusal_probe"]
+        step.update(id="B", blocked_by="T-2727 provisioner wiring", save={"inst": "$.instance_id"})
+        return step
+
+    def needing(self, sid):
+        step = self.h2()
+        del step["refusal_probe"]
+        step.update(id=sid, requires=["inst"])
+        return step
+
+    def test_a_step_needing_a_blocked_value_is_blocked_and_the_run_passes(self):
+        code, rows = self.run_steps([self.blocked(), self.needing("N")])
+        self.assertEqual("blocked", rows["B"]["verdict"])
+        self.assertEqual("blocked", rows["N"]["verdict"])
+        self.assertEqual("not run: blocked by T-2727 provisioner wiring", rows["N"]["error"])
+        self.assertEqual([], self.handler.seen)
+        self.assertEqual(0, code)
+
+    def test_after_a_failure_a_blocked_step_stays_blocked_and_the_skip_names_the_failure(self):
+        fail = self.h2()
+        fail.update(id="X", expect={"status": 418})
+        del fail["expect_refused"], fail["refusal_probe"]
+        fail["do"] = {"api": "GET", "path": "/api/v1/definitions"}
+        _, rows = self.run_steps([self.blocked(), fail, self.needing("N"), dict(self.h2(), id="S")])
+        self.assertEqual("fail", rows["X"]["verdict"])
+        self.assertEqual("blocked", rows["N"]["verdict"])
+        self.assertEqual("skipped", rows["S"]["verdict"])
+        self.assertIn("(X)", rows["S"]["error"])
+
+    def test_the_residue_watch_ignores_an_instance_of_a_blocked_step(self):
+        r = runner.Runner({"id": "H", "steps": []}, base_url=self.base, tenant="t", actors={}, run_dir=self.run_dir,
+                          inputs={}, poll_interval=0.01, out=io.StringIO())
+        r.blocked_saves["inst"] = "why"
+        self.assertEqual([], r._watched_instances("t", {"instances": ["${inst}"]}))
+        with self.assertRaises(runner.RunnerError):
+            r._watched_instances("t", {"instances": ["${other}"]})
+
+    def test_the_scenario_keeps_no_document_check_on_the_platform_tenant(self):
+        self.assertIs(False, json.loads(FILE.read_text())["residue_check"])
 
 
 if __name__ == "__main__":

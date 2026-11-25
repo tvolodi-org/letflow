@@ -8,7 +8,7 @@ Decision record: `docs/migration/decisions/0084-public-signup-part-1.md`. Code: 
 `POST /api/signup` (company name, e-mail, language, terms) records a request and mails a single-use link.
 `POST /api/signup/verify` (token) marks it `verified` and moves its step to `ready_for_provisioning`.
 `GET /api/signup/config` reports the languages and the terms version. After the credential mail the Letflow demo tenant is created in-process (T-1679, slice 1a); the welcome mail (T-1685, slice 1b) follows and the row becomes `completed`.
-With the provisioner settings below, a verified row continues: infra's tenant-provisioner creates the realm and the
+With the provisioner settings below, a verified row continues: the platform's tenant-provisioner (set up once, not per tenant) creates the realm and the
 first admin, and the one-time credential is mailed (decision 0085). Without them a verified row only waits.
 
 ## Sign-up screens (T-2748, PILOT G22)
@@ -67,7 +67,7 @@ All of it is server-side, behind the same flag, and runs before any row or mail 
 
 ## Realm step (T-1593, decision 0085; QA/demo only, never production)
 
-Needs `LETFLOW_SIGNUP_ENABLED=true` and all three of: `LETFLOW_SIGNUP_PROVISIONER_URL` (`http://` + loopback or
+Needs all three of (valid with `LETFLOW_SIGNUP_ENABLED` unset: the pilot wiring for `platform.register_tenant` sets only these three, T-2781; the public sign-up screens additionally need `LETFLOW_SIGNUP_ENABLED=true`): `LETFLOW_SIGNUP_PROVISIONER_URL` (`http://` + loopback or
 private IP + port, e.g. `http://127.0.0.1:3218`), `LETFLOW_SIGNUP_PROVISIONER_TOKEN` (caller bearer token, a secret: never
 in a file in git, a log or a ticket) and `LETFLOW_SIGNUP_HOSTNAME_DOMAIN` (e.g. `qa.example.com`). Unset = the step does
 not run. Tier is always `demo`. Before the first enable check that infra's realm template sets `resetPasswordAllowed: true`
