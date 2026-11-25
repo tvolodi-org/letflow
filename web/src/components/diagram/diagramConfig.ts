@@ -33,7 +33,7 @@ export const diagramConfig = {
 /** The attribute keys the diagram knows, per node type: the note's inventory table must name each one (test D2). */
 export const FORMAT_KEYS: Readonly<Record<string, readonly string[]>> = {
   HUMAN_TASK: ['role', 'assignee_type', 'assignee_ref', 'form_schema', 'validation_script_key', 'distinct_from', 'module_writes'],
-  SERVICE_TASK: ['endpoint', 'service_id', 'script_key', 'script_version', 'timeout_ms', 'module_writes'],
+  SERVICE_TASK: ['endpoint', 'service_id', 'script_key', 'script_version', 'timeout_ms', 'module_writes', 'platform_call', 'notify'],
   TIMER: ['duration_iso8601'],
   SUB_PROCESS: ['definition_name', 'interface'],
   ANY: ['position'],
