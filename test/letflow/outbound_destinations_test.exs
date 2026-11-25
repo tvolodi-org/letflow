@@ -12,6 +12,8 @@ defmodule Letflow.OutboundDestinationsTest do
 
   use Letflow.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Letflow.Api.Authorization
   alias Letflow.Audit.Entry
   alias Letflow.OutboundDestinations
@@ -43,6 +45,55 @@ defmodule Letflow.OutboundDestinationsTest do
       # the answer says so (nothing is allowed either way).
       assert {:error, :invalid_schema_name} =
                OutboundDestinations.check("not_a_tenant_schema", "email", nil)
+    end
+  end
+
+  describe "no personal value in the debug log (T-2704, INV-4)" do
+    test "O9 a recipient domain is not a logged query parameter, allowed or refused", ctx do
+      assert {:ok, _} = add(ctx, "email", nil)
+      assert {:ok, _} = add(ctx, "email", "allowed-t2704-o9.example.com")
+
+      {results, log} =
+        with_log([level: :debug], fn ->
+          [
+            OutboundDestinations.check(ctx.prefix, "email", "canary-t2704-o9.example.com"),
+            OutboundDestinations.check(ctx.prefix, "email", "allowed-t2704-o9.example.com")
+          ]
+        end)
+
+      assert results == [{:error, :destination_not_allowed}, :ok]
+      assert log =~ "QUERY", "the capture must see debug query lines or this proves nothing"
+      refute log =~ "canary-t2704-o9"
+    end
+  end
+
+  describe "a long list is honoured exactly (T-2704)" do
+    @tag timeout: 120_000
+    test "O10 an allowed destination beyond 10_000 entries is still allowed", ctx do
+      assert {:ok, _} = add(ctx, "email", nil)
+      {:ok, tenant_id} = Letflow.TenantProvisioning.tenant_id_for_schema_name(ctx.prefix)
+      now = DateTime.utc_now()
+
+      rows =
+        for n <- 1..10_050 do
+          %{
+            id: Ecto.UUID.bingenerate(),
+            tenant_id: Ecto.UUID.dump!(tenant_id),
+            channel: "email",
+            destination: "d#{String.pad_leading(Integer.to_string(n), 6, "0")}-t2704.example.com",
+            inserted_at: now
+          }
+        end
+
+      for chunk <- Enum.chunk_every(rows, 2_000) do
+        Repo.insert_all("outbound_destinations", chunk, prefix: ctx.prefix)
+      end
+
+      last = "d010050-t2704.example.com"
+      assert :ok = OutboundDestinations.check(ctx.prefix, "email", last)
+
+      assert {:error, :destination_not_allowed} =
+               OutboundDestinations.check(ctx.prefix, "email", "absent-t2704.example.com")
     end
   end
 

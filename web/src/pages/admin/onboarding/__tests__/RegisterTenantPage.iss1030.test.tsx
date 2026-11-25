@@ -37,6 +37,9 @@ import OnboardingResultPage from '../OnboardingResultPage'
 import type { OnboardingRecord } from '@/api/onboarding'
 import { renderWithAccess } from '@/auth/access/testing'
 
+// The 202 answer of POST /api/v1/onboarding since T-2704 (the route starts the registration process).
+const ANSWER = { instance_id: 'inst-1', status: 'active', slug: 'newco' }
+
 const RECORD = {
   id: 'ob-1',
   tenant_id: 't-1',
@@ -58,6 +61,7 @@ function renderRegister() {
     <MemoryRouter initialEntries={['/admin/onboarding/new']}>
       <Routes>
         <Route path="/admin/onboarding/new" element={<RegisterTenantPage />} />
+        <Route path="/instances/:id" element={<span>instance page</span>} />
         <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
       </Routes>
     </MemoryRouter>,
@@ -83,14 +87,13 @@ afterEach(cleanup)
 
 describe('RegisterTenantPage ISS-1030', () => {
   it('admin fields are optional and the form submits without them', async () => {
-    createOnboarding.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(ANSWER)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
     await submit(user)
     await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(/is required/)).toBeNull()
-    expect(await screen.findByText(/not yet loginable/i, { selector: '[role="status"]' })).toBeInTheDocument()
   })
 
   it('a filled admin_email must be a valid address', async () => {
@@ -104,10 +107,7 @@ describe('RegisterTenantPage ISS-1030', () => {
   })
 
   it('the optional realm field is sent when filled', async () => {
-    createOnboarding.mockResolvedValue({
-      ...RECORD,
-      login: { loginable: true, status: 'realm_bound', idp_realm_id: 'newco-realm', next_steps: [] },
-    })
+    createOnboarding.mockResolvedValue(ANSWER)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
@@ -116,7 +116,6 @@ describe('RegisterTenantPage ISS-1030', () => {
     await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
     const body = createOnboarding.mock.calls[0]![1] as Record<string, unknown>
     expect(body['idp_realm_id']).toBe('newco-realm')
-    expect(await screen.findByText('Tenant created and ready to log into.')).toBeInTheDocument()
   })
 
   it('blocks an obviously malformed realm id client-side (server stays authoritative)', async () => {
@@ -130,7 +129,7 @@ describe('RegisterTenantPage ISS-1030', () => {
   })
 
   it('blank admin and realm fields are omitted from the request body', async () => {
-    createOnboarding.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(ANSWER)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
@@ -161,7 +160,7 @@ describe('RegisterTenantPage ISS-1030 PR 2 form', () => {
   })
 
   it('sends admin_email trimmed and never the removed admin fields', async () => {
-    createOnboarding.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(ANSWER)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)

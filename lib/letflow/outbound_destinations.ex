@@ -732,15 +732,19 @@ defmodule Letflow.OutboundDestinations do
     (Repo.one(query, prefix: prefix) || 0) > 0
   end
 
+  # T-2704 (INV-4): the destination (on the mail channel the recipient's domain, a personal
+  # value of the registration) is bound as a query parameter, so the Ecto debug log would
+  # print it. The query runs with `log: false`: nothing of it, parameters included, reaches
+  # any log level. The membership test stays exact in SQL, so a list of any length is
+  # honoured (no read cap, no truncation).
   defp destination_allowed?(prefix, tenant_id, channel, destination) do
     query =
       from(e in Entry,
         where:
-          e.tenant_id == ^tenant_id and e.channel == ^channel and
-            e.destination == ^destination,
+          e.tenant_id == ^tenant_id and e.channel == ^channel and e.destination == ^destination,
         select: count(e.id)
       )
 
-    (Repo.one(query, prefix: prefix) || 0) > 0
+    (Repo.one(query, prefix: prefix, log: false) || 0) > 0
   end
 end
