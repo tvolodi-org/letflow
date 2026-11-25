@@ -51,7 +51,7 @@ All of it is server-side, behind the same flag, and runs before any row or mail 
 
 ## Realm step (T-1593, decision 0085; QA/demo only, never production)
 
-Needs `LETFLOW_SIGNUP_ENABLED=true` and all three of: `LETFLOW_SIGNUP_PROVISIONER_URL` (`http://` + loopback or
+Needs all three of (valid with `LETFLOW_SIGNUP_ENABLED` unset: the pilot wiring for `platform.register_tenant` sets only these three, T-2781; the public sign-up screens additionally need `LETFLOW_SIGNUP_ENABLED=true`): `LETFLOW_SIGNUP_PROVISIONER_URL` (`http://` + loopback or
 private IP + port, e.g. `http://127.0.0.1:3218`), `LETFLOW_SIGNUP_PROVISIONER_TOKEN` (caller bearer token, a secret: never
 in a file in git, a log or a ticket) and `LETFLOW_SIGNUP_HOSTNAME_DOMAIN` (e.g. `qa.example.com`). Unset = the step does
 not run. Tier is always `demo`. Before the first enable check that infra's realm template sets `resetPasswordAllowed: true`
