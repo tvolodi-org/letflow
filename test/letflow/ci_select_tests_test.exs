@@ -213,7 +213,11 @@ defmodule Letflow.CiSelectTestsTest do
             "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
             "test/letflow/security_probe/g13_route_no_5xx_test.exs",
             "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
-            "test/letflow/security_probe/g11_secret_scan_probe_test.exs"
+            "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
+            "test/letflow/security_probe/g04_canary_detector_test.exs",
+            "test/letflow/security_probe/g04_http_surfaces_test.exs",
+            "test/letflow/security_probe/g04_outbound_surfaces_test.exs",
+            "test/letflow/security_probe/g04_dlq_surface_test.exs"
           ] do
         assert Enum.any?(plan, &String.ends_with?(&1, " " <> test)), "#{changed}: missing #{test}"
       end
