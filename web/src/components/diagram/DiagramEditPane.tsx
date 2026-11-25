@@ -33,6 +33,8 @@ export interface DiagramEditPaneProps {
   onSaved: (saved: ProcessDefinition, copied: boolean) => void
   /** Refetch the definition (after a not_draft conflict or a stale warning). */
   onReload: () => void
+  /** The number of open problems of the SAVED draft (0 while the draft has unsaved edits or no check has finished): the page disables Publish on it. */
+  onProblemsChange?: (count: number) => void
   /** Screen harness only: a fixed starting state (selection, problems, a banner) for the screenshots. */
   demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean; stale?: boolean; versionTaken?: boolean; loading?: boolean }
   /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
@@ -50,7 +52,7 @@ function classify(err: unknown): NonNullable<SaveError> {
   return { kind: 'other', message }
 }
 
-export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo, tenantId = null }: DiagramEditPaneProps) {
+export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, onProblemsChange, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
@@ -127,6 +129,10 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     return [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
   }, [check, saveProblems, draft.graph])
   const blocking = violations.filter(isBlocking)
+  // The saved draft's open problems (all of them: activation refuses what the live check only warns about).
+  const savedProblems = savedTick && !draft.dirty && !error ? violations.length : 0
+  useEffect(() => onProblemsChange?.(savedProblems), [savedProblems, onProblemsChange])
+  useEffect(() => () => onProblemsChange?.(0), [onProblemsChange])
 
   const blockedReason =
     editorDirty
@@ -227,7 +233,13 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: error.message }) : error.message}</span>
         </Banner>
       )}
-      {savedTick && !draft.dirty && !error && <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>}
+      {savedTick && !draft.dirty && !error && (
+        savedProblems > 0 ? (
+          <div data-testid="edit-saved-with-problems"><Banner tone="warning">{e('savedWithProblems', { count: savedProblems })}</Banner></div>
+        ) : (
+          <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>
+        )
+      )}
       {demo?.loading ? (
         <Skeleton />
       ) : (

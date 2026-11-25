@@ -118,6 +118,7 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.save.moduleOwned': ['A module-owned version cannot be changed here.', 'Версию, поставляемую модулем, здесь изменить нельзя.', 'Модуль жеткізген нұсқаны мұнда өзгертуге болмайды.'],
   'processDiagram.edit.save.blocked': ['Fix {count, plural, one {# error} other {# errors}} before saving.', 'Исправьте ошибки ({count}) перед сохранением.', 'Сақтау алдында қателерді ({count}) түзетіңіз.'],
   'processDiagram.edit.saved': ['Saved.', 'Сохранено.', 'Сақталды.'],
+  'processDiagram.edit.savedWithProblems': ['Saved as a draft with {count, plural, one {# open problem} other {# open problems}}. It cannot be published until they are fixed.', 'Сохранено как черновик, открытых проблем: {count}. Опубликовать нельзя, пока они не исправлены.', 'Жоба ретінде сақталды, ашық мәселелер: {count}. Олар түзетілмейінше жариялауға болмайды.'],
   'processDiagram.edit.discardConfirm': ['Discard all unsaved changes to the diagram?', 'Отменить все несохранённые изменения схемы?', 'Сызбаның барлық сақталмаған өзгерістерін болдырмау керек пе?'],
   'processDiagram.edit.saveDraft': ['Save draft', 'Сохранить черновик', 'Жобаны сақтау'],
   'processDiagram.edit.saveNewVersion': ['Save as draft {version}', 'Сохранить как черновик {version}', '{version} жобасы ретінде сақтау'],

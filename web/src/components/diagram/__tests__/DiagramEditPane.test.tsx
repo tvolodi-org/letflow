@@ -318,3 +318,41 @@ describe('T-1563 diagram edit: save', () => {
     expect(screen.queryByTestId('edit-undo')).toBeDisabled()
   })
 })
+
+describe('T-2812 saved state is never green with open problems', () => {
+  const mountWith = (onProblemsChange: (n: number) => void) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProcessDiagramIntlProvider>
+          <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={vi.fn()} onSaved={onSaved} onReload={onReload} onProblemsChange={onProblemsChange} />
+        </ProcessDiagramIntlProvider>
+      </QueryClientProvider>,
+    )
+
+  it('D2a a saved draft without problems shows the green Saved. and reports 0 problems', async () => {
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const onProblems = vi.fn()
+    mountWith(onProblems)
+    await addStep()
+    save()
+    expect(await screen.findByTestId('edit-saved')).toBeTruthy()
+    expect(screen.queryByTestId('edit-saved-with-problems')).toBeNull()
+    expect(onProblems).toHaveBeenLastCalledWith(0)
+  })
+
+  it('D2b a saved draft with an open problem shows the amber state with the count and reports it', async () => {
+    vi.mocked(definitionsApi.validate).mockRejectedValue({ status: 422, message: 'invalid', code: 'x', details: [{ code: 'undeclared_variable_reference', message: 'Edge e1 condition x' }] })
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const onProblems = vi.fn()
+    mountWith(onProblems)
+    await addStep()
+    await waitFor(() => expect(screen.getByTestId('edit-save')).not.toBeDisabled())
+    save()
+    const banner = await screen.findByTestId('edit-saved-with-problems')
+    expect(banner.textContent).toMatch(/1 open problem/)
+    expect(screen.queryByTestId('edit-saved')).toBeNull()
+    await waitFor(() => expect(onProblems).toHaveBeenLastCalledWith(1))
+  })
+})
