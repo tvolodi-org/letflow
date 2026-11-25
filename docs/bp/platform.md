@@ -71,7 +71,7 @@ The platform operator creates a tenant record with its schema, lists all tenants
 **Status.**
 
 - implementation: `implemented`
-- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16
+- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..H (T-2608) start a throwaway tenant, wait for the instance, read the step log, read the mail, force and retry a failure, edit the definition through the designer API, roll it back and check the refusals; not yet covered: a sign-in as the new tenant's administrator and a download route of the notification file. Refusals of today's routes are automated in BP-PLATFORM-16
 - security: no
 
 ## BP-PLATFORM-02 -- Suspend, reactivate and purge a tenant

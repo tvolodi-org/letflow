@@ -1144,10 +1144,30 @@ class Runner:
         if "assert_only" in do:
             spec = dict(spec, api="GET")
         info = self._call(role, spec, http_as)
+        if "poll" in step:
+            info = self._poll_call(step, do, role, spec, http_as, info, record)
         record.update(method=info["method"], path=info["path"])
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
+
+    def _poll_call(self, step, do, role, spec, http_as, info, record):
+        """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
+        runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
+        answer is the one the step is judged on; `polls` says how often the read ran."""
+        conf = substitute(step["poll"], self.ctx)
+        within = self._wait_time(conf, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(conf, "interval_s", 2)
+        deadline = time.monotonic() + within
+        polls = 1
+        while not all(r["ok"] for r in self._assert_calls(step, do, [info["result"]], False)):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(interval)
+            info = self._call(role, spec, http_as)
+            polls += 1
+        record["polls"] = polls
+        return info
 
     def _call(self, role, spec, http_as=None):
         """One HTTP call of a step (thread safe): the substituted request and the answer."""
@@ -2324,6 +2344,14 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: parallel is a list of 2 to 6 calls")
         for call in calls:
             validate_call(call, where)
+    if "poll" in step:
+        conf = step["poll"]
+        if kind not in ("api", "assert_only") or not isinstance(conf, dict) or (
+                kind == "api" and str(do["api"]).upper() != "GET") or "expect" not in step:
+            raise ConfigError(f"{where}: poll is an object on a GET step with an expect")
+        for key in ("within_s", "interval_s"):
+            if key in conf and not wait_time_ok(conf[key]):
+                raise ConfigError(f"{where}: poll {key} must be a number")
     for key in ("requires", "skip_if"):
         if key in step and not (isinstance(step[key], list) and all(isinstance(n, str) for n in step[key])):
             raise ConfigError(f"{where}: {key} is a list of names")

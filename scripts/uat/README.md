@@ -105,6 +105,10 @@ Remember the id of the document as `doc_id`."*
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
+* `poll` (optional, a GET step with an `expect`): `"poll": {"within_s": 60, "interval_s": 2}` repeats the read until
+  the `expect` holds or `within_s` ran out; the last answer is judged and the log row says `polls`. It is for a read
+  right after the start of an instance (the engine runs its steps afterwards), for example "the instance is
+  COMPLETED". Both times may be a `${name}` of the context. A POST step or a step without an `expect` is refused.
 * `requires` (optional): `"requires": ["doc_id"]` runs the step only if that name was saved. Use it on every cleanup
   step, so nothing is reversed that was never created. List every value the cleanup assertion needs (for example both
   `posted_doc_id` and `balance_to_before`): when any one is missing the step is **skipped**, not failed, and the log's
