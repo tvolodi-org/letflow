@@ -120,6 +120,7 @@ Remember the id of the document as `doc_id`."*
 |---|---|
 | the person takes the task of a document in My Tasks and completes it | `"do": {"wait_task": {"for_document": "${doc_id}", "step": "post", "within_s": 30}, "claim": true, "complete": {"body": {}}}`. `step` is `post` for a receipt, issue or transfer and `reverse` for a reversal |
 | the system must send a mail and the process waits for it | `"do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}}` and `"expect": {"status": 200}`. See "Waiting for a mail" below |
+| a user of a realm made DURING the run signs in (the new tenant admin of a sign-up) | a step `"do": {"login": {"realm": "${tenant_realm}", "username": "...", "password": "${signup_password}"}}` (password grant of the identity provider, `BPM_IDP_BASE_URL`, default QA; the realm is the one the provisioner issued (save it from the registry's `idp_realm_id`), the password must be a `${name}` reference, `BPM_IDP_BASE_URL` must be https; the token stays a secret, never in the log) with actor `anonymous`; later steps name it with `"bearer": "session"` (the API of the run, that token; `"bearer_base": "<saved name>"` sends the call to a URL an earlier step saved, such as the new tenant's `tenant_url`) |
 | only look and check (no change) | `"do": {"assert_only": {"path": "/api/v1/..."}}` and an `expect`. A read, never a body |
 | the same request twice (a retry: the system must not do it twice) | `"do": {"repeat": {"api": "POST", "path": "...", "body": {...}}}`, `"expect"` for the first answer and `"expect_repeat"` for the second (default: the same as the first) |
 | two people press at the same moment (concurrency) | `"do": {"parallel": [{...call 1...}, {...call 2...}]}` and `"expect": {"unordered": [{"status": 201}, {"status": 409}]}`: one wins, one is refused, in any order. A list `"expect": [e1, e2]` fixes the order |
@@ -206,6 +207,11 @@ residue section at the end of this file.
 
 The same object may be given on the command line as one JSON map:
 `--actors '{"admin": "adm", "platform-admin": {"user": "admin-user", "tenant": "bpm-default"}}'`.
+
+### The anonymous caller (public routes)
+
+A step with `"actor": "anonymous"` sends no `Authorization` header and needs no user, no roster entry and no
+`dry_run.actors` row; it goes to the address of the run. It is for the public routes (`/api/signup`, T-2749).
 
 ### Do and do not
 
