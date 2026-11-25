@@ -2943,11 +2943,12 @@ def main_run(args) -> int:
         needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
+        needed.discard(ANONYMOUS_ACTOR)  # the anonymous caller needs no mapping
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
         for p in processes:
             if p["id"] in overrides:
-                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None}
+                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None, ANONYMOUS_ACTOR}
                 if need - overrides[p["id"]]["actors"].keys():
                     raise ConfigError(f"{p['id']}: actors missing for its tenant: " + ", ".join(sorted(need - overrides[p["id"]]["actors"].keys())))
         check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)

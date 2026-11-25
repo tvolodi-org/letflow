@@ -262,6 +262,20 @@ class Signup(unittest.TestCase):
         (doc.get("do", doc))["login"]["password"] = "${signup_password}"
         runner.validate_step(doc, "S10")
 
+    def test_main_run_needs_no_actor_mapping_for_anonymous(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        argv = ["run", str(FILE), "--tenant", "bpm-default", "--actors", "admin=admin-user",
+                "--input", "signup_password=nonsecret-test-placeholder"]
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), redirect_stdout(out):
+            try:
+                runner.main(argv)
+            except SystemExit:
+                pass
+        self.assertNotIn("actors missing", err.getvalue() + out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
