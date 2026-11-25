@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 23 direct, 0 definition.
+The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 24 direct, 0 definition.
 
 ## The processes of the area
 
@@ -34,6 +34,7 @@ The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 
 | BP-PLATFORM-21 | SECURITY: platform actions are separated by credential and by approval (onboarding realm, script kill switch) | Binding an identity realm and flipping the script kill switch need an OIDC sign-in of the operator, are audited on the platform chain wit... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | yes | see report |
 | BP-PLATFORM-22 | SECURITY: coverage list of the D-170 kinds for the platform area (token, host, upload, old address, voice/webhook, crafted writes) | Lists each security process kind the owner named (D-170) with its status and, where the kind is owned by another area, the area. | anyone (no token, wrong token, other-tenant token) | partial | direct | no | yes | see report |
 | BP-PLATFORM-23 | Check a certificate by its public handle (no login) | Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public pa... | anyone (no login) | partial | direct | no | no | see report |
+| BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | direct | yes | no | see report |
 
 ## BP-PLATFORM-01 -- Register a tenant (company) directly and look it up
 
@@ -929,6 +930,44 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 - no runner scenario yet; web page covered only by component tests if any
 
+## BP-PLATFORM-24 -- Prove that the process definition drives execution (reordered, removed, added and re-addressed steps)
+
+A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in code. The proof is a runner scenario on the platform tenant with throwaway definitions: the same steps in another order run in that order, a removed step does not run, a catalogue function added in the designer runs once, another notification template and recipient reach the trap, a running instance stays on the version it started with, and an unknown function or a dangling edge never reaches a run.
+
+**Actors and their permissions.**
+
+- `platform administrator` -- DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)
+
+**Steps.**
+
+1. **platform administrator**: screen `process designer`, call `POST /api/v1/definitions`, `POST /api/v1/definitions/:id/validate`, `POST /api/v1/definitions/:id/activate`, function `Letflow.Definitions.create`, `Letflow.Definitions.check_platform_calls`, `Letflow.Definitions.activate`
+   Result: a draft is saved; a dangling edge is refused at save (422 dangling_edge), an unknown function at activation (422 platform_calls_invalid, platform_call_function_unknown)
+2. **platform administrator**: call `POST /api/v1/instances`, `GET /api/v1/instances/:id/timeline`, function `Letflow.Engine.create`, `Letflow.Engine.PlatformStepRunner`
+   Result: the instance runs the nodes of ITS definition version along its edges; the step log lists them in that order
+
+**Refusals.**
+
+- an edge to a node that does not exist: 422 dangling_edge at save
+- a function not in the catalogue: 422 platform_calls_invalid (platform_call_function_unknown) at activation; no active version, so no run
+
+**Tests.**
+
+- `scripts/uat/tests/test_bp_platform_24.py`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-PLATFORM-24-definition-drives-execution.json` (runner id `BP-PLATFORM-24-definition-drives-execution`)
+
+**Status.**
+
+- implementation: `partial`
+- UAT: runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by stays direct: the checker accepts only direct or definition:<key>, and this entry is a proof, not a process the engine runs), not a business process of a tenant
+- security: no
+
+**Gaps.**
+
+- the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated
+
 ## Orphans (docs/bp/orphans-platform.md)
 
 | function | file:line | what it does | history | why it exists | proposed action |
@@ -938,4 +977,4 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 ## Gaps of the area
 
 - 18 process(es) have no runner scenario: BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
-- 4 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23
+- 5 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24

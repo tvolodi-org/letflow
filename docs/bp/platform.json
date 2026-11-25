@@ -2071,5 +2071,78 @@
     "uat": "planned: a runner scenario needs an issued certificate (BP-EXAM) and a public GET step without a token",
     "status": "partial",
     "gap": "no runner scenario yet; web page covered only by component tests if any"
+  },
+  {
+    "id": "BP-PLATFORM-24",
+    "area": "platform",
+    "title": "Prove that the process definition drives execution (reordered, removed, added and re-addressed steps)",
+    "description": "A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in code. The proof is a runner scenario on the platform tenant with throwaway definitions: the same steps in another order run in that order, a removed step does not run, a catalogue function added in the designer runs once, another notification template and recipient reach the trap, a running instance stays on the version it started with, and an unknown function or a dangling edge never reaches a run.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform tenant has the mail channel, the QA catcher domain and the file channel on its allow-list (steps A0a..A0c of the scenario open them and the cleanup removes the domain)"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [
+          "process designer"
+        ],
+        "functions": [
+          "Letflow.Definitions.create",
+          "Letflow.Definitions.check_platform_calls",
+          "Letflow.Definitions.activate"
+        ],
+        "route": [
+          "POST /api/v1/definitions",
+          "POST /api/v1/definitions/:id/validate",
+          "POST /api/v1/definitions/:id/activate"
+        ],
+        "code_refs": [
+          "lib/letflow/definitions.ex:505",
+          "lib/letflow/definitions.ex:2920"
+        ],
+        "result": "a draft is saved; a dangling edge is refused at save (422 dangling_edge), an unknown function at activation (422 platform_calls_invalid, platform_call_function_unknown)"
+      },
+      {
+        "actor": "platform administrator",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.create",
+          "Letflow.Engine.PlatformStepRunner"
+        ],
+        "route": [
+          "POST /api/v1/instances",
+          "GET /api/v1/instances/:id/timeline"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:428",
+          "lib/letflow/routers/instances.ex:440"
+        ],
+        "result": "the instance runs the nodes of ITS definition version along its edges; the step log lists them in that order"
+      }
+    ],
+    "inputs": [
+      "a definition graph (nodes and edges) and the start variables slug, display_name, email"
+    ],
+    "outputs": [
+      "the step log of each instance, the mail at the trap"
+    ],
+    "refusals": [
+      "an edge to a node that does not exist: 422 dangling_edge at save",
+      "a function not in the catalogue: 422 platform_calls_invalid (platform_call_function_unknown) at activation; no active version, so no run"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_platform_24.py"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-24-definition-drives-execution.json",
+    "uat": "runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by stays direct: the checker accepts only direct or definition:<key>, and this entry is a proof, not a process the engine runs), not a business process of a tenant",
+    "status": "partial",
+    "gap": "the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated",
+    "executed_by": "direct"
   }
 ]

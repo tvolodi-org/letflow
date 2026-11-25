@@ -1,0 +1,1923 @@
+{
+  "id": "BP-PLATFORM-24-definition-drives-execution",
+  "bp_entry": "BP-PLATFORM-24",
+  "title": "The definition drives execution: reordered, removed, added and re-addressed steps run exactly as the definition says",
+  "description": "T-2808 (owner question: is the process a chain of functions called from code, or executed by the definition?). Runs in the platform tenant as the platform administrator with throwaway definitions uat-tmp-defproof-<run_id>-<n>; uses only platform.validate_registration, the notify step (mail and file) and no provisioner, no realm, no tenant creation. 1: A (validate, mail, file) and B (the same steps reordered) run in their own order; 2: C without the mail ends without mail; 3: D with a second catalogue function runs it once; 4: E sends another template to another recipient; 5: the instance of A stays on A after B is active; 6: an unknown function (refused at activate, 422 platform_calls_invalid / platform_call_function_unknown) and a dangling edge (refused at save, 422 dangling_edge) never reach a run. The step log of every instance is compared with the node order of its definition.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {}
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "A0",
+      "actor": "admin",
+      "says": "The function picker of the designer (GET /api/v1/platform-functions) lists platform.validate_registration, the no-side-effect catalogue function this scenario uses (reads nothing, writes nothing).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-functions"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].name": "platform.validate_registration"
+        }
+      }
+    },
+    {
+      "id": "A0a",
+      "actor": "admin",
+      "says": "The platform tenant's allow-list: the mail channel is open.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email"
+        }
+      },
+      "expect": {
+        "status": 201
+      }
+    },
+    {
+      "id": "A0b",
+      "actor": "admin",
+      "says": "The catcher domain of the QA mail trap is allowed (the cleanup removes it again).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "email",
+          "destination": "uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "domain_added": "$.destination"
+      }
+    },
+    {
+      "id": "A0c",
+      "actor": "admin",
+      "says": "The file channel is open for the platform tenant.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/outbound-destinations",
+        "body": {
+          "channel": "file"
+        }
+      },
+      "expect": {
+        "status": 201
+      }
+    },
+    {
+      "id": "A1",
+      "actor": "admin",
+      "says": "1. Definition A (validate, mail, file) is saved as a draft under a throwaway name.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-1",
+          "version": "a",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "tenant_registered",
+                    "recipient": {
+                      "var": "email"
+                    },
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "defproof-notice",
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "mail"
+              },
+              {
+                "id": "e3",
+                "source": "mail",
+                "target": "file"
+              },
+              {
+                "id": "e4",
+                "source": "file",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defA": "$.id"
+      }
+    },
+    {
+      "id": "A2",
+      "actor": "admin",
+      "says": "1. The designer's live check accepts A.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defA}/validate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defA"
+      ]
+    },
+    {
+      "id": "A3",
+      "actor": "admin",
+      "says": "1. A is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defA}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defA"
+      ]
+    },
+    {
+      "id": "A4",
+      "actor": "admin",
+      "says": "1. An instance of A is started by the definition's name.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-1",
+          "initial_variables": {
+            "slug": "dp-${uuid1}",
+            "display_name": "UAT defproof ${run_id}",
+            "email": "dp1-${uuid1}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instA": "$.instance_id"
+      }
+    },
+    {
+      "id": "A5",
+      "actor": "admin",
+      "says": "1. The instance of A runs to its end.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instA}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instA"
+      ]
+    },
+    {
+      "id": "A6",
+      "actor": "admin",
+      "says": "1. The step log of A lists exactly the steps of A's own edges, in A's order: validate, mail, file.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instA}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "mail",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "file",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "end",
+          "$.steps[4].result": {
+            "exists": true
+          },
+          "$.steps[5]": {
+            "absent": true
+          },
+          "$.steps[1].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instA"
+      ]
+    },
+    {
+      "id": "A7",
+      "actor": "admin",
+      "says": "1. The mail step of A delivered: the trap holds the tenant_registered mail at A's recipient.",
+      "do": {
+        "wait_mail": {
+          "recipient": "dp1-${uuid1}@uat.letflow.internal",
+          "subject": "Tenant dp-${uuid1} is registered",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "B1",
+      "actor": "admin",
+      "says": "1. Version b of the SAME definition: the same three steps REORDERED (file, validate, mail).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-1",
+          "version": "b",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "defproof-notice",
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "tenant_registered",
+                    "recipient": {
+                      "var": "email"
+                    },
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "file"
+              },
+              {
+                "id": "e2",
+                "source": "file",
+                "target": "validate"
+              },
+              {
+                "id": "e3",
+                "source": "validate",
+                "target": "mail"
+              },
+              {
+                "id": "e4",
+                "source": "mail",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defB": "$.id"
+      }
+    },
+    {
+      "id": "B2",
+      "actor": "admin",
+      "says": "1. The live check accepts B.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defB}/validate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defB"
+      ]
+    },
+    {
+      "id": "B3",
+      "actor": "admin",
+      "says": "1. B is activated (A is deprecated by it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defB}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defB"
+      ]
+    },
+    {
+      "id": "B4",
+      "actor": "admin",
+      "says": "1. An instance of B is started by the same name.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-1",
+          "initial_variables": {
+            "slug": "dp-${uuid2}",
+            "display_name": "UAT defproof ${run_id}",
+            "email": "dp2-${uuid2}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instB": "$.instance_id"
+      }
+    },
+    {
+      "id": "B5",
+      "actor": "admin",
+      "says": "1. The instance of B runs to its end.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instB}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instB"
+      ]
+    },
+    {
+      "id": "B6",
+      "actor": "admin",
+      "says": "1. The step log of B lists the steps in B's order (file, validate, mail), NOT in A's: the order is read from the definition.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instB}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "file",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "validate",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "mail",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "end",
+          "$.steps[4].result": {
+            "exists": true
+          },
+          "$.steps[5]": {
+            "absent": true
+          },
+          "$.steps[2].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instB"
+      ]
+    },
+    {
+      "id": "B7",
+      "actor": "admin",
+      "says": "1. B's mail is in the trap.",
+      "do": {
+        "wait_mail": {
+          "recipient": "dp2-${uuid2}@uat.letflow.internal",
+          "subject": "Tenant dp-${uuid2} is registered",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "B8",
+      "actor": "admin",
+      "says": "5. Version pinning: the instance started on A still points at A's definition id after B is active.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instA}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.definition_id": "${defA}"
+        }
+      },
+      "requires": [
+        "instA",
+        "defA"
+      ]
+    },
+    {
+      "id": "B9",
+      "actor": "admin",
+      "says": "5. The instance started after the switch points at B.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instB}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.definition_id": "${defB}"
+        }
+      },
+      "requires": [
+        "instB",
+        "defB"
+      ]
+    },
+    {
+      "id": "B10",
+      "actor": "admin",
+      "says": "5. Re-reading the step log of the first instance after B is active: still A's order.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instA}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "mail",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "file",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "end",
+          "$.steps[4].result": {
+            "exists": true
+          },
+          "$.steps[5]": {
+            "absent": true
+          },
+          "$.steps[1].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instA"
+      ]
+    },
+    {
+      "id": "C1",
+      "actor": "admin",
+      "says": "2. Definition C: the mail step REMOVED (validate, file).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-2",
+          "version": "a",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "defproof-notice",
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "file"
+              },
+              {
+                "id": "e3",
+                "source": "file",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defC": "$.id"
+      }
+    },
+    {
+      "id": "C2",
+      "actor": "admin",
+      "says": "2. C is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defC}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defC"
+      ]
+    },
+    {
+      "id": "C3",
+      "actor": "admin",
+      "says": "2. An instance of C is started.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-2",
+          "initial_variables": {
+            "slug": "dp-${uuid3}",
+            "display_name": "UAT defproof ${run_id}",
+            "email": "dp3-${uuid3}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instC": "$.instance_id"
+      }
+    },
+    {
+      "id": "C4",
+      "actor": "admin",
+      "says": "2. The instance ends COMPLETED, without error.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instC}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instC"
+      ]
+    },
+    {
+      "id": "C5",
+      "actor": "admin",
+      "says": "2. The step log has no mail step at all (validate, file, end only) and every step is completed. The trap is not asked for 'no mail' (the runner has no absence check on the trap): the absence is proved by the log, which lists every visited node.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instC}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "file",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "end",
+          "$.steps[3].result": {
+            "exists": true
+          },
+          "$.steps[4]": {
+            "absent": true
+          },
+          "$.steps[1].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instC"
+      ]
+    },
+    {
+      "id": "D1",
+      "actor": "admin",
+      "says": "3. Definition D: a SECOND catalogue function (platform.validate_registration, picked from the catalogue) added after the first.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-3",
+          "version": "a",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "validate_again",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "tenant_registered",
+                    "recipient": {
+                      "var": "email"
+                    },
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "file",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "channel": "file",
+                    "template_key": "tenant_registered",
+                    "file_name": "defproof-notice",
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "validate_again"
+              },
+              {
+                "id": "e3",
+                "source": "validate_again",
+                "target": "mail"
+              },
+              {
+                "id": "e4",
+                "source": "mail",
+                "target": "file"
+              },
+              {
+                "id": "e5",
+                "source": "file",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defD": "$.id"
+      }
+    },
+    {
+      "id": "D2",
+      "actor": "admin",
+      "says": "3. D is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defD}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defD"
+      ]
+    },
+    {
+      "id": "D3",
+      "actor": "admin",
+      "says": "3. An instance of D is started.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-3",
+          "initial_variables": {
+            "slug": "dp-${uuid4}",
+            "display_name": "UAT defproof ${run_id}",
+            "email": "dp4-${uuid4}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instD": "$.instance_id"
+      }
+    },
+    {
+      "id": "D4",
+      "actor": "admin",
+      "says": "3. The instance of D ends COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instD}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instD"
+      ]
+    },
+    {
+      "id": "D5",
+      "actor": "admin",
+      "says": "3. The added function ran exactly once: one validate_again entry, completed, carrying the function name, between validate and mail; no sixth step.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instD}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "validate_again",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "mail",
+          "$.steps[3].result": "completed",
+          "$.steps[4].node_id": "file",
+          "$.steps[4].result": "completed",
+          "$.steps[5].node_id": "end",
+          "$.steps[5].result": {
+            "exists": true
+          },
+          "$.steps[6]": {
+            "absent": true
+          },
+          "$.steps[1].step": "platform.validate_registration",
+          "$.steps[2].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instD"
+      ]
+    },
+    {
+      "id": "E1",
+      "actor": "admin",
+      "says": "4. Definition E: the mail step names ANOTHER template (password_reset_hint) and ANOTHER recipient variable (admin_email).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-4",
+          "version": "a",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "password_reset_hint",
+                    "recipient": {
+                      "var": "admin_email"
+                    },
+                    "values": {
+                      "user_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_name": {
+                        "var": "display_name"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "mail"
+              },
+              {
+                "id": "e3",
+                "source": "mail",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "admin_email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defE": "$.id"
+      }
+    },
+    {
+      "id": "E2",
+      "actor": "admin",
+      "says": "4. E is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defE}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defE"
+      ]
+    },
+    {
+      "id": "E3",
+      "actor": "admin",
+      "says": "4. An instance of E is started with a recipient different from the registration e-mail.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-4",
+          "initial_variables": {
+            "slug": "dp-${uuid5}",
+            "display_name": "UAT defproof ${run_id}",
+            "email": "dp5-${uuid5}@uat.letflow.internal",
+            "admin_email": "dpadm-${uuid5}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instE": "$.instance_id"
+      }
+    },
+    {
+      "id": "E4",
+      "actor": "admin",
+      "says": "4. The instance of E ends COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instE}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instE"
+      ]
+    },
+    {
+      "id": "E5",
+      "actor": "admin",
+      "says": "4. The step log lists validate, mail.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instE}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[0].result": {
+            "exists": true
+          },
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "completed",
+          "$.steps[2].node_id": "mail",
+          "$.steps[2].result": "completed",
+          "$.steps[3].node_id": "end",
+          "$.steps[3].result": {
+            "exists": true
+          },
+          "$.steps[4]": {
+            "absent": true
+          },
+          "$.steps[1].step": "platform.validate_registration"
+        }
+      },
+      "requires": [
+        "instE"
+      ]
+    },
+    {
+      "id": "E6",
+      "actor": "admin",
+      "says": "4. The trap holds THAT template ('Set a new password') at THAT recipient (the admin_email variable, not the registration e-mail).",
+      "do": {
+        "wait_mail": {
+          "recipient": "dpadm-${uuid5}@uat.letflow.internal",
+          "subject": "Set a new password",
+          "within_s": 60
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "N1",
+      "actor": "admin",
+      "says": "6. A function that is not in the catalogue: the draft is saved (the function fence runs at activation, not at save).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-5",
+          "version": "a",
+          "description": "UAT ${run_id}: definition-drives-execution proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "tenant.not_in_the_catalogue",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "tenant_registered",
+                    "recipient": {
+                      "var": "email"
+                    },
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "mail"
+              },
+              {
+                "id": "e3",
+                "source": "mail",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defF": "$.id"
+      }
+    },
+    {
+      "id": "N2",
+      "actor": "admin",
+      "says": "6. Activating it is refused: 422 platform_calls_invalid, code platform_call_function_unknown. Nothing is switched on.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defF}/activate",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "platform_call_function_unknown"
+      },
+      "requires": [
+        "defF"
+      ]
+    },
+    {
+      "id": "N3",
+      "actor": "admin",
+      "says": "6. An instance cannot be started on the refused definition: no active version of that name (404).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-defproof-${run_id}-5",
+          "initial_variables": {
+            "slug": "dp-x",
+            "display_name": "x",
+            "email": "x@uat.letflow.internal"
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "N4",
+      "actor": "admin",
+      "says": "6. An edge to a node that does not exist is refused at SAVE: 422 'definition graph failed validation', code dangling_edge. No draft exists, so it can never be activated or run.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-defproof-${run_id}-6",
+          "version": "a",
+          "description": "UAT ${run_id}: dangling edge",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "mail",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "notify": {
+                    "template_key": "tenant_registered",
+                    "recipient": {
+                      "var": "email"
+                    },
+                    "values": {
+                      "tenant_name": {
+                        "var": "display_name"
+                      },
+                      "tenant_slug": {
+                        "var": "slug"
+                      },
+                      "registered_by": {
+                        "var": "email"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "ghost_node"
+              },
+              {
+                "id": "e3",
+                "source": "mail",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "dangling_edge"
+      }
+    },
+    {
+      "id": "N5",
+      "actor": "admin",
+      "says": "6. Nothing of the refused definition reached a run: no active version of that name (404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/active/uat-tmp-defproof-${run_id}-6"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "defA"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defA}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "defB"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defB}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "defC"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defC}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "defD"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defD}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "defE"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defE}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "requires": [
+        "defF"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defF}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "admin",
+      "requires": [
+        "domain_added"
+      ],
+      "says": "Remove the catcher domain this run added to the allow-list.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/outbound-destinations?channel=email&destination=uat.letflow.internal"
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "instances": [
+      "${instA}",
+      "${instB}",
+      "${instC}",
+      "${instD}",
+      "${instE}"
+    ]
+  },
+  "residue_check": false
+}
