@@ -7,6 +7,9 @@ defmodule Letflow.Application do
 
   @impl true
   def start(_type, _args) do
+    # INV-4 (T-2704): bound parameters of write statements never reach a log, at any level.
+    :ok = Letflow.Obs.QueryLogFilter.install()
+
     # GH #2704 (decision 0061 rule 4): the configured entity-port adapter must implement the
     # optional pre-lock callback, or the service apply would silently skip it.
     :ok = Letflow.Engine.EntityPort.verify_adapter!()

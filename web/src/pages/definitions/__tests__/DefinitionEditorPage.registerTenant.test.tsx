@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup, waitFor, render, fireEvent } from '@testing-library/react'
+import { screen, cleanup, waitFor, render, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -72,12 +72,15 @@ import { useDefinition } from '@/hooks/useDefinitions'
 import { useAuth } from '@/auth/AuthContext'
 import { useTenantContext } from '@/auth/useTenantContext'
 import DefinitionEditorPage from '@/pages/definitions/DefinitionEditorPage'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { DEF as FIXTURE_DEF } from '@/dev/harness/fixtures/registerTenantDesigner'
 
-// The document as the SERVER sends it: `Definition.graph/0` carries no `label` and no `attributes` key on a node
-// that has none (the harness fixture writes explicit nulls), and the id of the screen is the real one's.
-const strip = <T extends Record<string, unknown>>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined))
-const DEF = { ...FIXTURE_DEF, graph: { ...FIXTURE_DEF.graph, nodes: FIXTURE_DEF.graph.nodes.map((n) => strip(n as unknown as Record<string, unknown>)) } } as unknown as typeof FIXTURE_DEF
+// T-2742: the graph is the document the SEED writes (`Letflow.PlatformProcesses.Definition.graph/0`), read from the
+// copy `definition_test.exs` keeps equal to it -- not a hand-made fixture. It carries no `label` and no `attributes`
+// key on a node that has none, exactly as the server sends it.
+const SEED_GRAPH = JSON.parse(readFileSync(resolve(process.cwd(), '../test/fixtures/platform_processes/register_tenant_graph.json'), 'utf8'))
+const DEF = { ...FIXTURE_DEF, graph: SEED_GRAPH } as unknown as typeof FIXTURE_DEF
 
 class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -176,5 +179,63 @@ describe('T-2738 platform.register_tenant in the real designer page', () => {
     fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
     await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
     expect(screen.queryByTestId('boundary')).toBeNull()
+  })
+})
+
+describe('T-2742 the designer shows the shipped platform_call steps', () => {
+  it('S1 the read-only diagram labels the steps by the function names, not "Service task"', async () => {
+    await openPage()
+    for (const fn of ['validate', 'create', 'provision', 'bind_realm', 'grant_first_admins', 'notify']) {
+      const node = await screen.findByTestId(`rf__node-${fn}`, {}, { timeout: 8000 })
+      expect(node).toHaveTextContent(fn)
+      expect(node).not.toHaveTextContent(/Service task/i)
+    }
+  })
+
+  it('S2 the read-only side panel of a platform_call step names the function; no "other attributes"', async () => {
+    await openPage()
+    fireEvent.click(await screen.findByTestId('rf__node-validate', {}, { timeout: 8000 }))
+    expect(await screen.findByTestId('details-platform-function')).toHaveTextContent('tenant.validate')
+    expect(screen.queryByText(/other attributes/i)).toBeNull()
+  })
+
+  it('S3 the read-only side panel of the notify step names the template and the recipient variable', async () => {
+    await openPage()
+    fireEvent.click(await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 }))
+    expect(await screen.findByTestId('details-notify-template')).toHaveTextContent('tenant_registered')
+    expect(screen.getByTestId('diagram-node-details')).toHaveTextContent('admin_email')
+    expect(screen.queryByText(/other attributes/i)).toBeNull()
+  })
+
+  it('S4 the edit view labels the nodes by function and its panel has the function picker', async () => {
+    await openEditView()
+    const node = await screen.findByTestId('rf__node-provision', {}, { timeout: 8000 })
+    expect(node).toHaveTextContent('provision')
+    expect(node).not.toHaveTextContent(/Service task/i)
+    fireEvent.click(node)
+    expect(await screen.findByTestId('edit-platform-call')).toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByTestId('platform-call-editor')).getByDisplayValue('tenant.provision')).toBeInTheDocument())
+    expect(await screen.findByTestId('platform-arg-var-tenant_id')).toHaveValue('tenant_id')
+  })
+
+  it('S5 the notify step in the edit view has the template picker with the registered key', async () => {
+    await openEditView()
+    const node = await screen.findByTestId('rf__node-notify', {}, { timeout: 8000 })
+    expect(node).toHaveTextContent('notify')
+    fireEvent.click(node)
+    await waitFor(() => expect(screen.getByDisplayValue('tenant_registered')).toBeInTheDocument())
+    expect(screen.getByTestId('notify-step-recipient')).toHaveValue('admin_email')
+  })
+
+  it('S6 a fresh open of the shipped definition shows no "unsaved local draft" banner (Viewer and Editor views)', async () => {
+    await openPage()
+    await screen.findByTestId('definition-view-edit')
+    await new Promise((r) => setTimeout(r, 1000))
+    expect(screen.queryByTestId('draft-banner')).toBeNull()
+    cleanup()
+    await openPage('DRAFT')
+    await screen.findByTestId('definition-editor-view')
+    await new Promise((r) => setTimeout(r, 1500))
+    expect(screen.queryByTestId('draft-banner')).toBeNull()
   })
 })
