@@ -418,7 +418,8 @@ def render_area(
     by = executed_by_counts(processes)
     lines.append(
         f"The area `{area}` has {len(processes)} process(es): {summary or 'no status yet'}. "
-        f"Executed by: {by['direct']} direct, {by['definition']} definition."
+        f"Executed by: {by['direct']} direct, {by['definition']} definition"
+        + (f", {by['n/a']} n/a." if by["n/a"] else ".")
     )
     lines.append("")
     lines.append("## The processes of the area")
