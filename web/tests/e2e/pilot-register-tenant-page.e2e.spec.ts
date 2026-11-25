@@ -60,4 +60,15 @@ test.describe('the real designer page opens platform.register_tenant', () => {
     await expect(page.getByTestId('details-notify-template')).toContainText('tenant_registered')
     await expect(page.getByTestId('draft-banner')).toHaveCount(0)
   })
+
+  // T-2805: the Guide entry of the designer page opens the guide inside the product (text from docs/designer-guide.md).
+  test('the Guide entry opens the designer guide in a side panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-register-tenant-page')
+    await page.getByTestId('btn-guide').click()
+    await expect(page.getByTestId('designer-guide-panel')).toBeVisible()
+    await expect(page.getByTestId('guide-sec-notification-step')).toBeAttached()
+    await page.getByTestId('designer-guide-close').click()
+    await expect(page.getByTestId('designer-guide-panel')).toHaveCount(0)
+  })
 })
