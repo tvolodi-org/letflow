@@ -210,9 +210,12 @@ The five conditions of the amendment above are code now. This is an Update of th
   consumer half (T-2728, G17d); this change adds the table and the step that reads it, and rewires NO route.
 * **C5 -- gates.** Every touched file is under a `[sensitive]` prefix.
 
-This keeps today's behaviour behind the definition: **no new way to create a tenant.** The tenant row is still written in one place,
-the body of `tenant.create`, reachable only through the dispatcher for a node of an active `platform.register_tenant` version in
-the platform tenant. A source-scan pin (`system_start_callers_test.exs`) keeps `SystemStart` and `start_register_tenant_system/3`
+This keeps today's behaviour behind the definition: **no new way to create a tenant.** The one-definition restriction applies to the
+NEW system-start authority only (`system_check` in `start_permission.ex`: one definition name, the platform prefix, an exact
+permission set, no child). The retained creation paths are unchanged: `TenantProvisioner` still calls
+`Identity.create_provisioned_tenant` directly, and the dispatcher and `Guard.authorize_dispatch` check tenant, signature and
+permissions without restricting the definition name. This change adds no restriction to those paths and no new one beside them;
+`tenant.create` is a further caller of the same primitive, reachable only from an active, signed definition in the platform tenant. A source-scan pin (`system_start_callers_test.exs`) keeps `SystemStart` and `start_register_tenant_system/3`
 inside the allowed files.
 
 ## Residual risks, stated plainly
