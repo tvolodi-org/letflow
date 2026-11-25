@@ -673,6 +673,7 @@ class Runner:
         self.instance_docs = {}
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
+        self.blocked_saves = {}  # name -> why: the values only a blocked (never run) step would have saved
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
         self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
@@ -998,8 +999,11 @@ class Runner:
         try:
             if blocked_reason(step):
                 # a step that waits for a piece that is not built: reported, never run, never a pass
-                record.update(verdict="blocked", error="not run: blocked by " + blocked_reason(step))
-                return self._finish(record, started, True)
+                return self._blocked_line(record, started, step, blocked_reason(step))
+            waits = [n for n in step.get("requires", []) if n not in self.ctx and n in self.blocked_saves]
+            if waits:
+                # it needs a value that only a blocked step would have saved: blocked too, never skipped
+                return self._blocked_line(record, started, step, self.blocked_saves[waits[0]])
             missing = [n for n in step.get("requires", []) if n not in self.ctx]
             if missing:
                 record.update(verdict="skipped", error="requires " + ", ".join(missing))
@@ -1043,6 +1047,19 @@ class Runner:
         except Exception as err:  # a bug in a process file must not skip the cleanup
             record.update(verdict="error", error=f"{type(err).__name__}: {err}")
             return self._finish(record, started, False)
+
+    def _blocked_line(self, record, started, step, why):
+        """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
+        The names it would have saved are blocked as well, so the steps that need them are not run either."""
+        record.update(verdict="blocked", error="not run: blocked by " + why)
+        for name in step.get("save") or {}:
+            self.blocked_saves.setdefault(name, why)
+        return self._finish(record, started, True)
+
+    def _blocked_names(self, text) -> list:
+        """-> the names of a `${...}` text that only a blocked step would have saved (and no step has)."""
+        names = [m.group(1).strip() for m in _PLACEHOLDER.finditer(str(text))]
+        return [n for n in names if n not in self._watch_context() and n in self.blocked_saves]
 
     @staticmethod
     def _handles_secret(step) -> bool:
@@ -1515,12 +1532,17 @@ class Runner:
             steps_ok = False
             self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
                              "error": "inputs missing: " + ", ".join(missing)})
+        failed_step = None
         for step in process["steps"] if steps_ok else []:
             if steps_ok:
                 steps_ok = self.run_step(step, "step")
+                if not steps_ok:
+                    failed_step = step["id"]
+            elif blocked_reason(step) or any(n in self.blocked_saves for n in step.get("requires", [])):
+                self.run_step(step, "step")  # a blocked step is reported as blocked, whatever failed before it
             else:
                 self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
-                                 "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
+                                 "verdict": "skipped", "error": f"an earlier step failed ({failed_step})", "ms": 0})
         if steps_ok:
             try:
                 for name, expr in (process.get("outputs") or {}).items():
@@ -1638,7 +1660,10 @@ class Runner:
             if group["tenant"] not in wanted and not other:
                 continue  # the process of this tenant turned the check off
             out.append({"tenant": group["tenant"], "base_url": group["base_url"], "actors": group["actors"],
-                        "plain": any(not spec.get("tenant") for spec in group["actors"].values()),
+                        # the document check only where the process keeps the check on for the tenant: the
+                        # platform tenant holds no business documents (its own check is the platform one)
+                        "plain": group["tenant"] in wanted
+                        and any(not spec.get("tenant") for spec in group["actors"].values()),
                         "platform": sorted(other, key=lambda r: (0 if "platform" in r else 1, r))})
         return out
 
@@ -1757,6 +1782,8 @@ class Runner:
             if entry["tenant"] == tenant and entry["instance_id"] not in [i["instance_id"] for i in out]:
                 out.append(entry)
         for name in watch["instances"]:
+            if self._blocked_names(name):
+                continue  # the step that saves it was never run (blocked): there is no instance to watch
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
