@@ -354,6 +354,36 @@ defmodule Letflow.SignupProvisioningTest do
       assert request(:post, "/api/signup/verify", %{"token" => "x", "retry" => true}, ip: ip).status ==
                429
     end
+
+    test "P26 two visitors behind one proxy peer do not share a bucket; the 429 carries retry-after and the privacy headers" do
+      enable!()
+      prev = Application.get_env(:letflow, Letflow.Plugs.ClientIp)
+      Application.put_env(:letflow, Letflow.Plugs.ClientIp, trusted_proxies: [{{10, 0, 0, 0}, 8}])
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:letflow, Letflow.Plugs.ClientIp, prev),
+          else: Application.delete_env(:letflow, Letflow.Plugs.ClientIp)
+      end)
+
+      peer = {10, 0, 0, 1}
+
+      get = fn real ->
+        request(:get, "/api/signup/slug?slug=my-co", nil,
+          ip: peer,
+          headers: [{"x-real-ip", real}]
+        )
+      end
+
+      last = for(_ <- 1..40, do: get.("198.51.100.10")) |> List.last()
+      assert last.status == 429
+      assert Plug.Conn.get_resp_header(last, "retry-after") != []
+      assert Plug.Conn.get_resp_header(last, "cache-control") == ["private, no-store"]
+      assert Plug.Conn.get_resp_header(last, "referrer-policy") == ["no-referrer"]
+      assert Plug.Conn.get_resp_header(last, "x-robots-tag") == ["noindex, nofollow"]
+
+      assert get.("203.0.113.99").status == 200
+    end
   end
 
   describe "failure leaves a visible state and a cleanup path" do

@@ -60,6 +60,11 @@ defmodule Letflow.Test.SignupHelpers do
         do: put_req_header(conn, "content-type", "application/json"),
         else: conn
 
+    conn =
+      Enum.reduce(Keyword.get(opts, :headers, []), conn, fn {k, v}, c ->
+        put_req_header(c, k, v)
+      end)
+
     conn = %{conn | remote_ip: Keyword.get(opts, :ip, {203, 0, 113, 9})}
     Letflow.Router.call(conn, @router_opts)
   end
