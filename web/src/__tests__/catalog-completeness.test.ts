@@ -17,6 +17,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { loginMessages } from '@/i18n/loginMessages'
+import { signupMessages } from '@/i18n/signupMessages'
 import { entitiesMessages } from '@/i18n/entitiesMessages'
 import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
@@ -363,6 +364,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('login', loginMessages)
   })
 
+  it('signupMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('signup', signupMessages)
+  })
+
   it('entitiesMessages (includes solutionOverrides): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('entities', entitiesMessages)
   })
@@ -581,6 +586,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
   it('kk is not a copy of ru (T-1357): every catalog', () => {
     const flat: Array<[string, Record<Locale, unknown>]> = [
       ['login', loginMessages],
+      ['signup', signupMessages],
       ['entities', entitiesMessages],
       ['solutionOverrides', solutionOverridesMessages],
       ['import', importMessages],

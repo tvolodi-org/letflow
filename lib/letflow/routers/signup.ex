@@ -11,6 +11,8 @@ defmodule Letflow.Routers.Signup do
   |---------|-------------------------------|-----------------------|----------|
   | config  | `GET /api/signup/config`      | **none**              | `200` |
   | submit  | `POST /api/signup`            | **none**              | `202` neutral for every well-formed request, `422` field errors / refused e-mail domain / failed captcha (T-1620), `429` per-IP or per-domain cap, `503` pending cap or captcha adapter down; every refusal body has `error` + localised `message` |
+  | slug    | `GET /api/signup/slug?slug=`  | **none**              | `200 {status: available/taken/reserved/invalid}` (T-2748) |
+  | status  | `POST /api/signup/status`     | none (token is the credential) | `200 {state: pending/ready/failed, host, reason}`, or one generic `400` (T-2748) |
   | verify  | `POST /api/signup/verify`     | none (token is the credential) | `200`, or one generic `400` |
   | catch-all | `match _`                   | none                  | standard `404` |
 
@@ -59,8 +61,29 @@ defmodule Letflow.Routers.Signup do
       enabled: true,
       languages: Signup.Messages.languages(),
       terms_version: Signup.terms_version(),
-      captcha_required: Signup.Captcha.required?(Signup.config())
+      captcha_required: Signup.Captcha.required?(Signup.config()),
+      # T-2748: the live provisioner contract takes no visitor password yet (the interim is a mailed temporary
+      # password), so the form shows no password field. Flipped only with the contract change.
+      password_required: false,
+      slug_supported: true,
+      hostname_domain: Signup.hostname_domain()
     })
+  end
+
+  # T-2748: live slug availability for the form. Rate-limited per client address by the same hourly cap logic
+  # is NOT applied; it shares the public-read per-address token bucket (429 when drained). Cache-control no-store.
+  get "/slug" do
+    conn = Letflow.Plugs.PublicReadRateLimit.call(conn, [])
+
+    if conn.halted do
+      emit(:rate_limited_read)
+      conn
+    else
+      conn = fetch_query_params(conn)
+      status = Signup.slug_status(Map.get(conn.query_params, "slug"))
+      emit(:slug_check)
+      respond(conn, 200, %{status: Atom.to_string(status)})
+    end
   end
 
   post "/" do
@@ -74,6 +97,10 @@ defmodule Letflow.Routers.Signup do
       {:error, {:invalid, fields}} ->
         emit(:invalid)
         refuse(conn, 422, "invalid_request", params, fields: fields)
+
+      {:error, :slug_taken} ->
+        emit(:slug_taken)
+        refuse(conn, 422, "slug_taken", params, fields: ["slug"])
 
       {:error, :email_not_accepted} ->
         emit(:email_not_accepted)
@@ -99,14 +126,48 @@ defmodule Letflow.Routers.Signup do
 
   post "/verify" do
     {conn, params} = read_json(conn)
+    retry? = Map.get(params, "retry") == true
 
-    case Signup.verify(Map.get(params, "token")) do
-      :ok ->
-        emit(:verified)
-        respond(conn, 200, %{status: "verified"})
+    # SF-13: the visitor's retry re-drives outbound provisioning calls: it shares the per-address read bucket.
+    conn = if retry?, do: Letflow.Plugs.PublicReadRateLimit.call(conn, []), else: conn
+
+    if conn.halted do
+      emit(:rate_limited_read)
+      conn
+    else
+      case Signup.verify(Map.get(params, "token"), DateTime.utc_now(), retry?) do
+        :ok ->
+          emit(:verified)
+          respond(conn, 200, %{status: "verified"})
+
+        {:error, :invalid} ->
+          emit(:verify_invalid)
+          respond(conn, 400, %{error: "invalid_or_expired_link"})
+
+        {:error, :slug_taken} ->
+          emit(:slug_taken)
+          respond(conn, 409, %{error: "slug_taken"})
+      end
+    end
+  end
+
+  # T-2748: progress of the tenant creation for the result page; the mailed token is the credential.
+  post "/status" do
+    {conn, params} = read_json(conn)
+
+    case Signup.status(Map.get(params, "token")) do
+      {:ok, %{state: state, host: host, realm: realm, reason: reason}} ->
+        emit(:status)
+
+        respond(conn, 200, %{
+          state: Atom.to_string(state),
+          host: host,
+          realm: realm,
+          reason: reason
+        })
 
       {:error, :invalid} ->
-        emit(:verify_invalid)
+        emit(:status_invalid)
         respond(conn, 400, %{error: "invalid_or_expired_link"})
     end
   end
