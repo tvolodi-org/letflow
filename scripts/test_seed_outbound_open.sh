@@ -124,4 +124,27 @@ F2
   [ "$rc" != 0 ] && [[ "$out" != *"$CANARY"* ]]
 ); ok "failing POST exits non-zero without leaking the canary" $?
 
+# --- 6. query / fragment / encoded credentials never reach the printable base URL
+(
+  source "$here/lib/seed_service_task_base.sh" 2>/dev/null
+  for u in "https://httpbin.org/anything?api_key=$CANARY" \
+           "https://httpbin.org/anything?api%5Fkey=%53ECRET_CANARY_T2730&k=$CANARY" \
+           "https://httpbin.org/anything#tok=$CANARY" \
+           "https://u:$CANARY@httpbin.org/a/b?x=1"; do
+    r=$(_st_redact "$u")
+    [[ "$r" != *"$CANARY"* && "$r" != *"?"* && "$r" != *"#"* && "$r" != *"%53"* ]] || { echo "leak: $r"; exit 1; }
+    [ "$r" = "https://httpbin.org" ] || { echo "unexpected: $r"; exit 1; }
+  done
+); ok "_st_redact keeps scheme://host only (query, fragment, userinfo dropped)" $?
+
+for s in swiftroute swiftroute_incident meridian vortex; do
+  (
+    setup_run
+    export SERVICE_TASK_MOCK_BASE_URL="https://httpbin.org/anything?api_key=$CANARY"
+    export FAKE_URL_LEAK="$SERVICE_TASK_MOCK_BASE_URL"
+    out=$(bash "$here/seed_${s}_definition.sh" 2>&1)
+    [[ "$out" != *"$CANARY"* ]] || { echo "query canary in output"; exit 1; }
+  ); ok "seed_${s}_definition.sh: query canary absent from output" $?
+done
+
 exit "$fail"

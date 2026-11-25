@@ -22,14 +22,18 @@
 SERVICE_TASK_DEFAULT_BASE_URL="https://httpbin.org/anything"
 
 _st_base="${SERVICE_TASK_MOCK_BASE_URL:-${SERVICE_TASK_DEFAULT_BASE_URL}}"
-# _st_redact <url>: the URL with any userinfo (credentials) removed, safe to print.
+# _st_redact <url>: scheme://host only (no userinfo, path, query, fragment), safe to print.
 _st_redact() {
-  local u="$1" scheme="" rest
+  # Prints scheme://host[:port] only: userinfo, path, query and fragment (all may
+  # carry credentials, plain or percent-encoded) are dropped. A host that does not
+  # look like a host prints as <redacted>.
+  local u="$1" scheme="" auth
   if [[ "${u}" == *://* ]]; then scheme="${u%%://*}://"; u="${u#*://}"; fi
-  rest="${u#*/}"; [[ "${u}" == */* ]] || rest=""
-  local auth="${u%%/*}"
+  auth="${u%%[/?#]*}"
   auth="${auth##*@}"
-  if [[ -n "${rest}" || "${u}" == */* ]]; then printf '%s%s/%s' "${scheme}" "${auth}" "${rest}"; else printf '%s%s' "${scheme}" "${auth}"; fi
+  local re='^[][A-Za-z0-9._:-]*$'
+  if [[ ! "${auth}" =~ ${re} ]]; then auth="<redacted>"; fi
+  printf '%s%s' "${scheme}" "${auth}"
 }
 
 if [[ "${_st_base}" =~ [[:space:]] || "${_st_base}" != https://* ]]; then
