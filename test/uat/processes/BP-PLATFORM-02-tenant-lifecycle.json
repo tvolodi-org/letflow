@@ -1,0 +1,247 @@
+{
+  "id": "BP-PLATFORM-02-tenant-lifecycle",
+  "bp_entry": "BP-PLATFORM-02",
+  "title": "Suspend, reactivate and purge a tenant: the operator deactivates and reactivates the fixture tenant; unknown tenants and company users are refused",
+  "description": "The platform administrator deactivates the fixture tenant (200, status inactive), sees it inactive, deactivates it again (a no-op, still 200), reactivates it (200, active) and again (no-op). A deactivate or reactivate of an unknown slug answers 404 and changes nothing; a company administrator's deactivate and purge are refused. The cleanup reactivates the fixture so it ends active. NOT automated, on purpose: (1) the deactivate of the platform tenant itself (the guard answers 409; a failing guard would take the platform down, the guard is covered by test/letflow/routers/tenants_test.exs); (2) the sign-in refusal of a deactivated tenant's users (tenant_inactive 403) because the fixture has no user; (3) the purge step s10: not runnable on QA, no lifecycle row for uat-tmp tenants (infra 2026-11-21), written blocked_by qa-provisioner-config until the provisioner window. The platform fixture tenant uat-tmp-fixture (fixture platform_fixture_tenant) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "fixtures": [
+    "platform_fixture_tenant"
+  ],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator reads the fixture tenant: it is active.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "The operator deactivates it: 200 and the status is inactive.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/deactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "inactive"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "The registry shows it inactive.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "inactive"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A second deactivate is a no-op that still answers 200 (OQ-2 of the tenants router).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/deactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "inactive"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "The operator reactivates it: 200 and active again.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "A second reactivate is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "An unknown slug cannot be deactivated: 404, nothing changes.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/deactivate"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "An unknown slug cannot be reactivated: 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/reactivate"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "says": "A company administrator is refused the deactivate of the fixture tenant (403 or the uniform 404).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/deactivate"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s10",
+      "actor": "platform-admin",
+      "says": "Purge of an ACTIVE tenant is refused: 409 not_eligible, nothing is deleted.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/purge"
+      },
+      "expect": {
+        "status": 409
+      },
+      "requires": [
+        "fixture_id"
+      ],
+      "blocked_by": "qa-provisioner-config"
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "says": "A company administrator is refused the purge route (403 or the uniform 404).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/purge"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "says": "Final check: the fixture is active again.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "platform-admin",
+      "says": "Cleanup: reactivate the fixture whatever happened (a no-op when it is active).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ]
+}

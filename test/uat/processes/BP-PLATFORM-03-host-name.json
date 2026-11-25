@@ -1,0 +1,293 @@
+{
+  "id": "BP-PLATFORM-03-host-name",
+  "bp_entry": "BP-PLATFORM-03",
+  "title": "Give a company its own host name (set and remove) on the fixture tenant; bad, reserved and unknown cases are refused",
+  "description": "The platform administrator starts from a clean state (the host removed), sets the fixture's host name (200, changed true, the onboarding id), repeats it (changed false), is refused a host outside the allowed suffixes, a reserved label and a missing value (422 with the field error), removes it (200) and removes it again (changed false). A set on an unknown slug answers 404; a company administrator's set and remove are refused. The cleanup removes the host. NOT automated: the 409 'hostname already bound' needs a second tenant that holds the host (covered by test/letflow/routers/tenants_hostname_test.exs). The platform fixture tenant uat-tmp-fixture (fixture platform_fixture_tenant) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com"
+  },
+  "fixtures": [
+    "platform_fixture_tenant"
+  ],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "Start clean: remove any host of the fixture (200 also when there is none).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "Set the host name uat-tmp-fixture.<suffix>: 200, the host is echoed, changed is true.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "uat-tmp-fixture.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.hostname": "uat-tmp-fixture.${hostname_suffix}",
+          "$.changed": true,
+          "$.onboarding_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "onboarding_id": "$.onboarding_id"
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "The same set again changes nothing: 200, changed false.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "uat-tmp-fixture.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.hostname": "uat-tmp-fixture.${hostname_suffix}",
+          "$.changed": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A host outside the allowed company-host suffixes is refused: 422, field hostname, constraint format.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "private.other.test"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "hostname",
+          "$.errors[0].constraint": "format"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "A reserved label (api) is refused: 422, constraint reserved.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "api.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "hostname",
+          "$.errors[0].constraint": "reserved"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "A request without a host value is refused: 422, constraint required.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {}
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "hostname",
+          "$.errors[0].constraint": "required"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "The host of the fixture is still the one set in s2 (the refusals changed nothing).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "uat-tmp-fixture.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.hostname": "uat-tmp-fixture.${hostname_suffix}",
+          "$.changed": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "An unknown slug: 404 (also for a valid host).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/hostname",
+        "body": {
+          "hostname": "uat-tmp-no-such-tenant.${hostname_suffix}"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "says": "A company administrator may not set a host name (403 or the uniform 404).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "uat-tmp-refused.${hostname_suffix}"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "says": "A company administrator may not remove a host name (403 or the uniform 404).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s11",
+      "actor": "platform-admin",
+      "says": "The operator removes the host: 200.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.changed": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "says": "A second remove changes nothing: 200, changed false.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.changed": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "platform-admin",
+      "says": "Cleanup: remove the host again (the fixture ends with no host name).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ]
+}
