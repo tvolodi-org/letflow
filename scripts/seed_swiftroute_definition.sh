@@ -67,11 +67,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib/seed_service_task_base.sh"
 # shellcheck source=lib/seed_token_check.sh
 source "${SCRIPT_DIR}/lib/seed_token_check.sh"
+# shellcheck source=lib/seed_outbound_open.sh
+source "${SCRIPT_DIR}/lib/seed_outbound_open.sh"
 FIXTURE_PATH="${SCRIPT_DIR}/../test/fixtures/qa/swiftroute_process_definition.json"
 
 echo "=== seed_swiftroute_definition.sh ==="
 echo "QA_URL: ${QA_URL}"
-echo "Service-task mock base: ${SERVICE_TASK_EFFECTIVE_BASE_URL}"
+echo "Service-task mock base: ${SERVICE_TASK_DISPLAY_BASE_URL}"
 
 # Least role: PROCESS_DESIGNER. Checked before any call, so a short token changes nothing.
 seed_require_permissions PROCESS_DESIGNER DefinitionsRead DefinitionsWrite
@@ -118,6 +120,9 @@ fi
 echo "--- Creating definition v${FIXTURE_VERSION} (DRAFT) ---"
 PAYLOAD=$(rewrite_service_task_base "$(cat "${FIXTURE_PATH}")")
 
+# Open the outbound channel and every host of the payload BEFORE activation (G14).
+seed_open_outbound "${PAYLOAD}"
+
 CREATE_RESPONSE=$(printf '%s' "${PAYLOAD}" | curl -sf \
   -X POST \
   -H "${AUTH_HEADER}" \
@@ -145,7 +150,7 @@ ACTIVATE_RESPONSE=$(curl -sf \
   -X POST \
   -H "${AUTH_HEADER}" \
   "${API}/definitions/${DEFINITION_ID}/activate") || {
-  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed. If the definition reaches an outbound host or channel, the tenant allow-list must list it first (an administrator holding OutboundDestinationsManage adds it; see docs/outbound-destinations.md)." >&2
+  echo "ERROR: POST /api/v1/definitions/${DEFINITION_ID}/activate failed. The outbound channel and hosts were opened just before; see docs/outbound-destinations.md if this is a 422 outbound_destinations_invalid." >&2
   echo "       If you see a 422, check OQ-3 (CEL single-quote syntax) and OQ-4 (QA code version includes REQ-396)." >&2
   exit 1
 }
