@@ -2359,7 +2359,7 @@ def validate_step(step, where) -> None:
         if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
                                                   for k in ("realm", "username", "password")):
             raise ConfigError(f"{where}: login needs a realm, a username and a password")
-        if "${" not in spec["password"]:
+        if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
             raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
@@ -2791,7 +2791,7 @@ def cmd_dry_run(args, out=None) -> int:
             runnable.append(path)
     files = runnable
     if not files:
-        print("dry-run: PASS (every file is blocked: nothing to run)", file=out)
+        print("dry-run: NOT RUN (every file is blocked: nothing was run, this is not a pass)", file=out)
         return 0
     entries = []
     for path in files:

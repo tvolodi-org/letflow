@@ -248,7 +248,19 @@ class Signup(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("SKIPPED", text)
         self.assertIn(f"not run: {len(self.process['steps'])} step(s)", text)
-        self.assertNotIn("pass", text.replace("PASS (every file is blocked", "").lower().replace("passed", ""))
+        self.assertIn("dry-run: NOT RUN", text)
+        self.assertNotIn("pass", text.lower().replace("not a pass", "").replace("passed", ""))
+
+    def test_login_password_must_be_exactly_one_reference(self):
+        step = next(st for st in self.process["steps"] if "login" in st.get("do", st))
+        for bad in ("literal${", "pre${x}", "${x}post", "${x", "${}", "${a}${b}", "plain"):
+            doc = json.loads(json.dumps(step))
+            (doc.get("do", doc))["login"]["password"] = bad
+            with self.assertRaises(runner.ConfigError, msg=bad):
+                runner.validate_step(doc, "S10")
+        doc = json.loads(json.dumps(step))
+        (doc.get("do", doc))["login"]["password"] = "${signup_password}"
+        runner.validate_step(doc, "S10")
 
 
 if __name__ == "__main__":
