@@ -73,7 +73,10 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     assert :counters.get(counter, 1) == 2
     assert length(Fx.all_records(ctx.schema)) == 2
     assert Fx.dlq_entries(ctx.schema) == []
-    refute log =~ "[error]"
+    # capture_log is global: error lines of unrelated async tests (e.g. OIDC metadata retries)
+    # land in it too, so only the dispatcher's and the engine's own tags are refused (T-2795).
+    refute log =~ "service_task advance failed"
+    refute log =~ "entity write landing failed"
 
     # the row is `advanced` and nothing re-claims it: a second poll makes no second call
     assert %{claimed: 0} = ServiceTaskDispatcher.poll_and_dispatch(ctx.schema)

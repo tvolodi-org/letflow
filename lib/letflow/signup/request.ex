@@ -11,6 +11,9 @@ defmodule Letflow.Signup.Request do
 
   schema "signup_requests" do
     field(:email, :string)
+    # T-2748: the visitor's chosen host label and user name (both optional, NULL on older rows).
+    field(:slug, :string)
+    field(:user_name, :string)
     field(:company_name, :string)
     field(:language, :string)
     field(:state, :string)

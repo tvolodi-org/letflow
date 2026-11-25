@@ -12,7 +12,7 @@ The area `platform` has 23 process(es): 19 implemented, 4 partial. Executed by: 
 | id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
 |---|---|---|---|---|---|---|---|---|
 | BP-PLATFORM-01 | Register a tenant (company) directly and look it up | The platform operator creates a tenant record with its schema, lists all tenants, opens one, and edits its settings. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
-| BP-PLATFORM-02 | Suspend, reactivate and purge a tenant | The operator deactivates a tenant (its users get 403 tenant_inactive, its runtime is released), may reactivate it, and later purges its d... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
+| BP-PLATFORM-02 | Suspend, reactivate and purge a tenant | The operator deactivates a tenant (its users get 403 tenant_inactive, its runtime is released), may reactivate it, and later purges its d... | PLATFORM_ADMIN (platform tenant only) | implemented | direct | yes | no | see report |
 | BP-PLATFORM-03 | Give a company its own host name (set and remove) | The operator sets or removes the company host of an existing tenant. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
 | BP-PLATFORM-04 | Set a tenant's script policy (kill switch, solo-audited) | The operator reads a tenant's script policy and flips the platform kill switch or the platform flag that allows the solo_audited mode. | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
 | BP-PLATFORM-05 | Onboard a company (register, bind identity realm, pending administrators) | The operator registers a company with a slug, display name and host (optionally an identity realm and the first administrator's e-mail). | PLATFORM_ADMIN (platform tenant only) | implemented | direct | no | no | see report |
@@ -71,7 +71,7 @@ The platform operator creates a tenant record with its schema, lists all tenants
 **Status.**
 
 - implementation: `implemented`
-- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..n are added by T-2608. Refusals of today's routes are automated in BP-PLATFORM-16
+- UAT: step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..H (T-2608) start a throwaway tenant, wait for the instance, read the step log, read the mail, force and retry a failure, edit the definition through the designer API, roll it back and check the refusals; not yet covered: a sign-in as the new tenant's administrator and a download route of the notification file. Refusals of today's routes are automated in BP-PLATFORM-16
 - security: no
 
 ## BP-PLATFORM-02 -- Suspend, reactivate and purge a tenant
@@ -106,7 +106,7 @@ The operator deactivates a tenant (its users get 403 tenant_inactive, its runtim
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-PLATFORM-02-self-service-signup.json` (runner id `BP-PLATFORM-02-self-service-signup`)
 
 **Status.**
 
@@ -536,7 +536,11 @@ Off by default. A visitor reads the sign-up configuration, submits a sign-up req
    Result: 202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down
 3. **visitor**: call `POST /api/signup/verify`, function `Letflow.Signup`
    Result: 200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)
-4. **user**: call `POST /api/login-discovery`, function `Letflow.LoginDirectory.lookup_by_keys`, `Letflow.LoginDiscovery.decide`
+4. **visitor**: call `GET /api/signup/slug`, function `Letflow.Signup`
+   Result: 200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)
+5. **visitor**: call `POST /api/signup/status`, function `Letflow.Signup`
+   Result: 200 pending, ready or failed with a closed reason (the mailed token is the credential)
+6. **user**: call `POST /api/login-discovery`, function `Letflow.LoginDirectory.lookup_by_keys`, `Letflow.LoginDiscovery.decide`
    Result: 202 neutral, 200 single disclosed match, 429 rate limited; never 400/415/422/500 for malformed input
 
 **Refusals.**
@@ -933,5 +937,5 @@ Anyone holding the one-time public handle of an issued certificate (printed or s
 
 ## Gaps of the area
 
-- 19 process(es) have no runner scenario: BP-PLATFORM-02, BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
+- 18 process(es) have no runner scenario: BP-PLATFORM-03, BP-PLATFORM-04, BP-PLATFORM-05, BP-PLATFORM-06, BP-PLATFORM-07, BP-PLATFORM-08, BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
 - 4 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23
