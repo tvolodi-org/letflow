@@ -142,6 +142,7 @@ defmodule Letflow.Routers.Audit do
   alias Letflow.Audit.Entry
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
+  alias Letflow.PlatformProcesses.RegistrationMask
 
   @export_cap_default 10_000
   @export_page 200
@@ -210,7 +211,12 @@ defmodule Letflow.Routers.Audit do
   end
 
   defp render_page(conn, {:ok, %{items: items, has_more: has_more}}, prefix) do
-    Response.ok(conn, page_body(items, next_cursor(items, has_more), names_for(items, prefix)))
+    # T-2704 (INV-2/INV-4): the registration's personal values sit in the stored
+    # instance.create row; hide them from callers without :TenantsManage.
+    auth_context = Map.get(conn.assigns, :auth_context, %{})
+    shown = Enum.map(items, &RegistrationMask.mask_audit_states(&1, auth_context, prefix))
+
+    Response.ok(conn, page_body(shown, next_cursor(items, has_more), names_for(items, prefix)))
   end
 
   # `Letflow.Audit.list_entries/1`'s only error return is `{:error,

@@ -73,6 +73,20 @@ defmodule Letflow.PlatformProcesses do
     |> put_present("admin_email", Map.get(form, :admin_email))
   end
 
+  @doc """
+  The idempotency key of a route's start: the SLUG alone (PM decision, T-2704).
+
+  The same slug with the SAME values is a replay of the first start (a double
+  click answers the first instance); the same slug with OTHER values is a key
+  reuse, which the engine refuses and the route answers 409 -- never a second
+  tenant. The engine compares the start variables of the replay with the first
+  start's, so the key need not carry them.
+  """
+  @spec register_tenant_start_key(map()) :: String.t()
+  def register_tenant_start_key(form) when is_map(form) do
+    "register-tenant:" <> to_string(Map.get(form, :slug))
+  end
+
   defp put_present(map, _key, nil), do: map
   defp put_present(map, _key, ""), do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
