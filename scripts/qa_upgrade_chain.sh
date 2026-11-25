@@ -7,7 +7,7 @@
 # listed in ONE file (one line per tenant: '<slug> <TOKEN_VAR>', '#' comments, blank lines ignored). Each tenant has its
 # OWN credential (an API token is verified inside the slug's schema, an OIDC token reaches only its issuer tenant), so
 # the file holds the NAME of the environment variable carrying that tenant's administrator token, never the token.
-# A tenant whose variable is unset is reported as behind ("no credential") and nothing is sent for it. QA ONLY: it refuses a BASE_URL that is
+# A tenant whose variable is empty or unset is 'not run: no credential for <slug>' (nothing sent, exit 0, behind count 'unknown'). QA ONLY: it refuses a BASE_URL that is
 # not a QA host (needs "qa" in the host name, override with QA_HOST_PATTERN) so production and demo never run it.
 #
 # It NEVER sends ack_destructive. A plan with a class B or class C entity row (a destructive / data-step change)
@@ -69,7 +69,7 @@ plan() {
 
 BEHIND_SLUGS=" "
 mark_behind() { case "$BEHIND_SLUGS" in *" $SLUG "*) ;; *) BEHIND_SLUGS="$BEHIND_SLUGS$SLUG " ;; esac; }
-DIFF=0
+DIFF=0; NOTRUN=0
 
 chain_module() {
   local m="$1" from to hash body destructive
@@ -107,7 +107,10 @@ ORDER="org locations catalog_items codes stock assets"
 for i in "${!SLUG_LIST[@]}"; do
   SLUG="${SLUG_LIST[$i]}"; tvar="${TOKEN_VARS[$i]}"
   token="${!tvar:-}"
-  if [ -z "$token" ] || [[ "$token" == *[$'\r\n"\\']* ]]; then
+  if [ -z "$token" ]; then
+    log "not run: no credential for $SLUG"; NOTRUN=$((NOTRUN + 1)); continue
+  fi
+  if [[ "$token" == *[$'\r\n"\\']* ]]; then
     log "REFUSED $SLUG: no usable credential in $tvar (nothing sent)"; mark_behind; continue
   fi
   ( umask 077; printf 'header = "Authorization: Bearer %s"\n' "$token" >"$AUTH_CFG" )
@@ -120,6 +123,12 @@ for i in "${!SLUG_LIST[@]}"; do
 done
 
 N=$(printf '%s' "$BEHIND_SLUGS" | wc -w)
-log "QA tenants behind the build: $N"
+if [ "$NOTRUN" != 0 ]; then
+  log "QA tenants behind the build: unknown"
+  [ "$N" = 0 ] || log "behind among the tenants that ran: $N"
+else
+  log "QA tenants behind the build: $N"
+fi
 if [ "$N" != 0 ] || [ "$DIFF" = 1 ]; then log "RESULT: QA upgrade chain incomplete"; exit 1; fi
+if [ "$NOTRUN" != 0 ]; then log "RESULT: $NOTRUN tenant(s) not run (no credential); the ones that ran are current"; exit 0; fi
 log "RESULT: every module of ${SLUG_LIST[*]} is current"

@@ -138,14 +138,33 @@ defmodule Letflow.Scripts.QaUpgradeChainTest do
     refute Enum.any?(log(), fn {_, _, body, _} -> body =~ "ack_destructive" end)
   end
 
-  test "Q6 each tenant uses its own credential; a missing one sends nothing for that tenant", c do
+  test "Q6 one empty token: that tenant is not run, the other runs, exit 0", c do
     set(both(%{"org" => :behind}))
     {out, rc} = run(c, [{"TOK_B", ""}])
-    assert rc == 1, out
-    assert out =~ "REFUSED sss-rehearsal2: no usable credential in TOK_B (nothing sent)"
-    assert out =~ "QA tenants behind the build: 1"
+    assert rc == 0, out
+    assert out =~ "not run: no credential for sss-rehearsal2"
+    assert out =~ "QA tenants behind the build: unknown"
     assert Enum.all?(log(), fn {_, _, _, slug} -> slug == "qoimeks-qa2" end)
     assert Agent.get(@agent, & &1.modules)["sss-rehearsal2"] == %{"org" => :behind}
+    assert Agent.get(@agent, & &1.modules)["qoimeks-qa2"] == %{"org" => :current}
+  end
+
+  test "Q6a both tokens empty or unset: both not run, exit 0, nothing sent", c do
+    set(both(%{"org" => :behind}))
+    {out, rc} = run(c, [{"TOK_A", ""}, {"TOK_B", ""}])
+    assert rc == 0, out
+    assert out =~ "not run: no credential for qoimeks-qa2"
+    assert out =~ "not run: no credential for sss-rehearsal2"
+    assert out =~ "QA tenants behind the build: unknown"
+    assert log() == []
+  end
+
+  test "Q6b a present token with a destructive chain still fails beside a not-run tenant", c do
+    set(both(%{"assets" => :destructive}))
+    {out, rc} = run(c, [{"TOK_B", ""}])
+    assert rc == 1, out
+    assert out =~ "REFUSED qoimeks-qa2/assets"
+    assert out =~ "not run: no credential for sss-rehearsal2"
   end
 
   test "Q7 tenant A's token with tenant B's slug is a 401 and nothing is written", c do
