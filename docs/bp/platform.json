@@ -178,16 +178,16 @@
       {
         "n": 10,
         "item": "The template page 'how to turn a business function into a real process'",
-        "today": "PARTIAL: a draft exists in the spike document (section 6); the page is not in the product",
+        "today": "SHIPPED (G20): docs/bp/process-template.md is in the product, written from what the pilot built (catalogue, definition, start function, runner file, guardrails)",
         "target": "docs/bp/process-template.md exists in the product, rewritten from what the pilot built; this row says 'definition' with its key and links the page",
-        "proof": "doc: the page file (planned, not yet on main) and the executed_by value of this row; check_catalog PASS",
+        "proof": "doc: docs/bp/process-template.md; test/scripts/bp_doc_test.exs; check_catalog PASS. The executed_by value of this row moves to definition:platform.register_tenant only when the engine runs the process and the routes only start it",
         "gap": "G20",
         "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
       }
     ],
     "executed_by": "direct",
     "executed_by_target": "definition:platform.register_tenant",
-    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (planned, not yet on main). No definition exists today.",
+    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (on main since G20). The definition exists since G9; executed_by stays direct until the routes only start it.",
     "tenant_creating_paths": [
       {
         "n": 1,
