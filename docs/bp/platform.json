@@ -2144,5 +2144,61 @@
     "status": "partial",
     "gap": "the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated",
     "executed_by": "n/a"
+  },
+  {
+    "id": "BP-PLATFORM-25",
+    "area": "platform",
+    "title": "The process designer without a browser: export/import round trip, instances, step log and dead-letter retry",
+    "description": "The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare the graph, list definitions and instances, read the step log of a failed instance, retry its dead-letter entry. Checks that need a browser or another system (the Keycloak sign-in page, the raw JSON view, the visual checks, the Guide click in each language) are steps marked 'not run' with an owner. Throwaway definitions are removed with the product's own DELETE call.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform tenant has the mail channel, the QA catcher domain and the file channel on its allow-list (steps A0a..A0c of the scenario open them and the cleanup removes the domain)"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [
+          "process designer"
+        ],
+        "functions": [
+          "Letflow.Definitions.ExportImport",
+          "Letflow.Engine.PlatformStepRunner"
+        ],
+        "route": [
+          "GET /api/v1/definitions/:id/export",
+          "POST /api/v1/definitions/import",
+          "GET /api/v1/instances",
+          "GET /api/v1/instances/:id/timeline",
+          "GET /api/v1/dlq",
+          "POST /api/v1/dlq/:id/retry",
+          "DELETE /api/v1/definitions/:id"
+        ],
+        "code_refs": ["lib/letflow/routers/definitions.ex:627", "lib/letflow/routers/dlq.ex:113"],
+        "result": "the exported graph equals the imported one; a failed step is in the step log and the dead-letter list and can be retried"
+      }
+    ],
+    "inputs": [
+      "a definition graph (nodes and edges) and the start variables slug, display_name, email"
+    ],
+    "outputs": [
+      "the step log of each instance, the mail at the trap"
+    ],
+    "refusals": [
+      "a foreign export schema marker: 400/422 at import",
+      "a company user cannot export a platform definition: 403/404"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_platform_25.py"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-25-designer.json",
+    "uat": "runner scenario BP-PLATFORM-25 (A, B, C run; D1..D4 not run, each with an owner); not a business process of a tenant",
+    "status": "partial",
+    "gap": "D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure",
+    "executed_by": "n/a"
   }
 ]

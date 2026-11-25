@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 23 direct, 0 definition, 1 n/a.
+The area `platform` has 25 process(es): 19 implemented, 6 partial. Executed by: 23 direct, 0 definition, 2 n/a.
 
 ## The processes of the area
 
@@ -35,6 +35,7 @@ The area `platform` has 24 process(es): 19 implemented, 5 partial. Executed by: 
 | BP-PLATFORM-22 | SECURITY: coverage list of the D-170 kinds for the platform area (token, host, upload, old address, voice/webhook, crafted writes) | Lists each security process kind the owner named (D-170) with its status and, where the kind is owned by another area, the area. | anyone (no token, wrong token, other-tenant token) | partial | direct | no | yes | see report |
 | BP-PLATFORM-23 | Check a certificate by its public handle (no login) | Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public pa... | anyone (no login) | partial | direct | no | no | see report |
 | BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | n/a | yes | no | see report |
+| BP-PLATFORM-25 | The process designer without a browser: export/import round trip, instances, step log and dead-letter retry | The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare t... | platform administrator | partial | n/a | yes | no | see report |
 
 ## BP-PLATFORM-01 -- Register a tenant (company) directly and look it up
 
@@ -969,6 +970,42 @@ A platform administrator can trust that a platform process is executed by its st
 
 - the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated
 
+## BP-PLATFORM-25 -- The process designer without a browser: export/import round trip, instances, step log and dead-letter retry
+
+The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare the graph, list definitions and instances, read the step log of a failed instance, retry its dead-letter entry. Checks that need a browser or another system (the Keycloak sign-in page, the raw JSON view, the visual checks, the Guide click in each language) are steps marked 'not run' with an owner. Throwaway definitions are removed with the product's own DELETE call.
+
+**Actors and their permissions.**
+
+- `platform administrator` -- DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)
+
+**Steps.**
+
+1. **platform administrator**: screen `process designer`, call `GET /api/v1/definitions/:id/export`, `POST /api/v1/definitions/import`, `GET /api/v1/instances`, `GET /api/v1/instances/:id/timeline`, `GET /api/v1/dlq`, `POST /api/v1/dlq/:id/retry`, `DELETE /api/v1/definitions/:id`, function `Letflow.Definitions.ExportImport`, `Letflow.Engine.PlatformStepRunner`
+   Result: the exported graph equals the imported one; a failed step is in the step log and the dead-letter list and can be retried
+
+**Refusals.**
+
+- a foreign export schema marker: 400/422 at import
+- a company user cannot export a platform definition: 403/404
+
+**Tests.**
+
+- `scripts/uat/tests/test_bp_platform_25.py`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-PLATFORM-25-designer.json` (runner id `BP-PLATFORM-25-designer`)
+
+**Status.**
+
+- implementation: `partial`
+- UAT: runner scenario BP-PLATFORM-25 (A, B, C run; D1..D4 not run, each with an owner); not a business process of a tenant
+- security: no
+
+**Gaps.**
+
+- D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure
+
 ## Orphans (docs/bp/orphans-platform.md)
 
 | function | file:line | what it does | history | why it exists | proposed action |
@@ -978,4 +1015,4 @@ A platform administrator can trust that a platform process is executed by its st
 ## Gaps of the area
 
 - 12 process(es) have no runner scenario: BP-PLATFORM-09, BP-PLATFORM-10, BP-PLATFORM-11, BP-PLATFORM-12, BP-PLATFORM-13, BP-PLATFORM-15, BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
-- 5 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24
+- 6 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24, BP-PLATFORM-25
