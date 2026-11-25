@@ -58,6 +58,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins do
 
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.PlatformFunctions.Impl.SystemCaller
+  alias Letflow.Repo
+  alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioning
 
   # The byte cap of the address, in bytes: the RFC's limit is in OCTETS.
@@ -93,16 +95,46 @@ defmodule Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins do
     tenant_id = Map.get(inputs, "tenant_id")
     email = Map.get(inputs, "admin_email")
 
+    # v2 (T-2727): `admin_email` is optional. Absent: no grant to store, a no-op.
     with {:ok, tenant_id} <- cast_uuid(tenant_id),
-         {:ok, email_key} <- email_key(email),
-         {:ok, prefix} <- tenant_prefix(tenant_id),
-         {:ok, platform_prefix} <- platform_prefix(),
-         :ok <- store(email_key, prefix, platform_prefix) do
+         :ok <- grant_if_present(tenant_id, email) do
       {:ok, %{}}
     end
   end
 
   def run(_other), do: {:error, :platform_call_arg_invalid}
+
+  defp grant_if_present(_tenant_id, nil), do: :ok
+
+  defp grant_if_present(tenant_id, email) do
+    case Repo.get(Lifecycle, tenant_id) do
+      # Design section 4 row 7: the marker says the grant was stored (or adopted) once; a repeat
+      # after a setting rollback must not create it again.
+      %Lifecycle{owner_grant_stored: true} ->
+        :ok
+
+      lifecycle ->
+        with {:ok, email_key} <- email_key(email),
+             {:ok, prefix} <- tenant_prefix(tenant_id),
+             {:ok, platform_prefix} <- platform_prefix(),
+             :ok <- store(email_key, prefix, platform_prefix) do
+          mark_stored(lifecycle)
+        end
+    end
+  end
+
+  # With a lifecycle row (routes 3/4) the marker is set; with none (operator routes) there is
+  # nothing to mark. A failed update is a typed refusal: the repeat adopts the grant (duplicate).
+  defp mark_stored(nil), do: :ok
+
+  defp mark_stored(%Lifecycle{} = lifecycle) do
+    case lifecycle |> Ecto.Changeset.change(owner_grant_stored: true) |> Repo.update() do
+      {:ok, _row} -> :ok
+      {:error, _changeset} -> {:error, :platform_call_grant_failed}
+    end
+  rescue
+    _error -> {:error, :platform_call_grant_failed}
+  end
 
   # The SYSTEM grant: no operator, so neither chain names one.
   defp store(email_key, prefix, platform_prefix) do

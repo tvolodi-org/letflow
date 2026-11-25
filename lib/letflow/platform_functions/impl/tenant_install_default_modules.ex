@@ -34,8 +34,10 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules do
   names a module id and would carry a value into the step's failure kind.
   """
 
+  alias Letflow.Repo
   alias Letflow.TenantProvisioner.Config
   alias Letflow.TenantProvisioner.DefaultModules
+  alias Letflow.TenantProvisioner.Lifecycle
 
   @typedoc "The stable code of a refused install."
   @type refusal :: :platform_call_arg_invalid | :platform_call_default_modules_failed
@@ -65,20 +67,35 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules do
   def run(%{inputs: inputs}) when is_map(inputs) do
     tenant_id = Map.get(inputs, "tenant_id")
 
-    with {:ok, tenant_id} <- cast_uuid(tenant_id),
-         :ok <- install(tenant_id) do
-      {:ok, %{}}
+    with {:ok, tenant_id} <- cast_uuid(tenant_id) do
+      run_for(tenant_id, Repo.get(Lifecycle, tenant_id))
     end
   end
 
   def run(_other), do: {:error, :platform_call_arg_invalid}
 
-  defp install(tenant_id) do
-    case ensure_default_modules(tenant_id) do
-      {:ok, :done} -> :ok
-      {:error, _reason} -> {:error, :platform_call_default_modules_failed}
+  # Design section 4 row 8. A tenant with a lifecycle row in `pending` or `failed` gets the install
+  # and the row records `done` or `failed` (+ the failure text); an installation FAILURE never fails
+  # the registration (the next repeat retries, as the provisioner's own last step does). A tenant
+  # with no lifecycle row (operator routes) or a row in any other state (`done`, `not_applicable`)
+  # installs nothing.
+  defp run_for(tenant_id, %Lifecycle{default_modules_state: state} = lifecycle)
+       when state in ["pending", "failed"] do
+    changes =
+      case ensure_default_modules(tenant_id) do
+        {:ok, :done} -> [default_modules_state: "done", default_modules_failure: nil]
+        {:error, text} -> [default_modules_state: "failed", default_modules_failure: text]
+      end
+
+    case lifecycle |> Ecto.Changeset.change(changes) |> Repo.update() do
+      {:ok, _row} -> {:ok, %{}}
+      {:error, _changeset} -> {:error, :platform_call_default_modules_failed}
     end
+  rescue
+    _error -> {:error, :platform_call_default_modules_failed}
   end
+
+  defp run_for(_tenant_id, _lifecycle_or_nil), do: {:ok, %{}}
 
   # The installer's own call, when the platform configuration names one.
   defp install_opts do
