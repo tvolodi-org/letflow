@@ -1478,7 +1478,7 @@ defmodule Letflow.Engine do
           required(:token_id) => String.t(),
           required(:node_id) => String.t(),
           required(:arm_attrs) => map(),
-          optional(:kind) => :http | :script | :platform
+          optional(:kind) => :http | :script | :platform | :notify
         }
   # ISS-0917 (design D2) -- where the instance's effective pins come from and
   # which tenant's visibility applies when a `route_kind: :catalog_service`
@@ -1551,6 +1551,17 @@ defmodule Letflow.Engine do
                 node_id: node_id,
                 arm_attrs: arm_attrs,
                 kind: :platform
+              }
+
+              {:cont, {:ok, [prepared | acc], ctx}}
+
+            # T-2810: a notification step: the same durable row as a platform step.
+            {:ok_notify, arm_attrs, ctx} ->
+              prepared = %{
+                token_id: token_id,
+                node_id: node_id,
+                arm_attrs: arm_attrs,
+                kind: :notify
               }
 
               {:cont, {:ok, [prepared | acc], ctx}}
@@ -1663,6 +1674,12 @@ defmodule Letflow.Engine do
           {:ok, arm_attrs} -> {:ok_platform, arm_attrs, ctx}
           {:error, reason} -> {:error, {:platform_call_unresolved, node_id, reason}}
         end
+
+      # T-2810: a notification step. Nothing is resolved here (the address and the values are
+      # read from the instance at run time and never copied into a row, INV-4); the engine arms
+      # the row and the runner (`Letflow.Engine.NotifyStepRunner`) sends.
+      {:ok, %ServiceTask.Config{route_kind: :notify, notify: notify}} ->
+        {:ok_notify, %{instance_id: instance_id, declaration: notify}, ctx}
 
       # GH 2534 PR 7c-1 (design 4.4): the instance's OWN frozen :script pin for the node's
       # key (from the same pin source the catalog route uses). A missing pin, a pin whose
@@ -2130,6 +2147,17 @@ defmodule Letflow.Engine do
         # T-2703 (pilot gap G1 remainder): a platform step. The row is armed INSIDE this
         # transaction (the hand-over point, `Dispatcher.arm/1`); the call runs later, outside
         # every transaction, in `PlatformStepRunner`.
+        :notify ->
+          Multi.run(acc_multi, {:notify_step, token_record_id}, fn repo, _changes ->
+            arm_notify_step(
+              repo,
+              arm_attrs,
+              node_id_of(prepared),
+              prefix,
+              Map.get(prepared, :platform_applying_id)
+            )
+          end)
+
         :platform ->
           Multi.run(acc_multi, {:platform_step, token_record_id}, fn repo, _changes ->
             arm_platform_step(
@@ -2235,6 +2263,40 @@ defmodule Letflow.Engine do
       ),
       prefix: prefix
     )
+  end
+
+  # T-2810: the arming of a notification step -- the same visit rule and the same replay rule as
+  # `arm_platform_step/5` (a failed current visit is never armed twice; a second arm of the same
+  # visit meets the unique call key and returns the existing row).
+  @doc false
+  @spec arm_notify_step(module(), map(), String.t(), String.t(), Ecto.UUID.t() | nil) ::
+          {:ok, PlatformStepDispatch.t()} | {:error, term()}
+  def arm_notify_step(repo, arm_attrs, node_id, prefix, applying_id \\ nil) do
+    case repo.get_by(InstanceProjection, [instance_id: arm_attrs.instance_id], prefix: prefix) do
+      nil ->
+        {:error, :instance_not_found}
+
+      %InstanceProjection{definition_id: definition_id} ->
+        case given_up_platform_step(repo, arm_attrs.instance_id, node_id, prefix) do
+          %PlatformStepDispatch{} = row ->
+            {:ok, row}
+
+          nil ->
+            visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix, applying_id)
+
+            case Letflow.Engine.NotifyStepRunner.arm(
+                   repo,
+                   %{instance_id: arm_attrs.instance_id},
+                   node_id,
+                   definition_id,
+                   prefix,
+                   visit
+                 ) do
+              {:ok, row} -> {:ok, row}
+              {:error, reason} -> {:error, {:notify_step_unresolved, node_id, reason}}
+            end
+        end
+    end
   end
 
   defp do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix, applying_id) do
@@ -6387,6 +6449,27 @@ defmodule Letflow.Engine do
   def platform_apply_refusal({:no_matching_edge, _node_id}), do: {:land, "no_matching_edge"}
   def platform_apply_refusal(_other), do: {:land, "apply_refused"}
 
+  # T-2810: the EXECUTION_ERROR event REPLACES the instance's variables on replay, so a notification
+  # step's failure keeps the instance's own variables in it (its retry reads the recipient and the
+  # values back from them; they are the instance's own data, already in its start event). A
+  # platform step's failure keeps writing none (its inputs can be personal data too).
+  defp landing_variables(%PlatformStepDispatch{function_name: name} = row, prefix) do
+    with true <- name == Letflow.Engine.NotifyStepRunner.function_name(),
+         %InstanceProjection{variables: variables} when is_map(variables) <-
+           Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix) do
+      variables
+    else
+      _other -> %{}
+    end
+  end
+
+  # T-2810: a notification step's row lands its failure with the notification entry type.
+  defp step_entry_type(%PlatformStepDispatch{function_name: name}) do
+    if name == Letflow.Engine.NotifyStepRunner.function_name(),
+      do: Letflow.Instances.StepRetry.notify_step_entry_type(),
+      else: Letflow.Instances.StepRetry.platform_step_entry_type()
+  end
+
   # No variable is copied into the event: the inputs of a platform step can be personal data (an
   # e-mail address), and the failure kind is a CODE of a closed vocabulary.
   defp land_platform_failure(row, code, extra_details, idempotency_key, prefix) do
@@ -6395,7 +6478,7 @@ defmodule Letflow.Engine do
       error_type: :platform_step_failed,
       affected: {:node, row.node_id},
       reason: "platform step failed (#{code})",
-      variables: %{},
+      variables: landing_variables(row, prefix),
       details:
         Map.merge(
           %{
@@ -6407,7 +6490,7 @@ defmodule Letflow.Engine do
         ),
       actor_id: EventStore.platform_actor_id(),
       idempotency_key: idempotency_key,
-      dlq_entry_type: Letflow.Instances.StepRetry.platform_step_entry_type(),
+      dlq_entry_type: step_entry_type(row),
       dlq_reference_id: row.node_id
     }
 
