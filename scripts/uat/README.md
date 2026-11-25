@@ -105,6 +105,10 @@ Remember the id of the document as `doc_id`."*
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
+* `poll` (optional, a GET step with an `expect`): `"poll": {"within_s": 60, "interval_s": 2}` repeats the read until
+  the `expect` holds or `within_s` ran out; the last answer is judged and the log row says `polls`. It is for a read
+  right after the start of an instance (the engine runs its steps afterwards), for example "the instance is
+  COMPLETED". Both times may be a `${name}` of the context. A POST step or a step without an `expect` is refused.
 * `requires` (optional): `"requires": ["doc_id"]` runs the step only if that name was saved. Use it on every cleanup
   step, so nothing is reversed that was never created. List every value the cleanup assertion needs (for example both
   `posted_doc_id` and `balance_to_before`): when any one is missing the step is **skipped**, not failed, and the log's
@@ -292,6 +296,16 @@ A fixture file is process-like (`steps`, `cleanup`, `inputs`, the same step kind
 | `provides` | the context names it saves (each must be saved by a step) |
 | `needs` | fixtures that run before it (optional) |
 | `inputs` | ids it needs from outside (the person who runs gives them with `--input`) |
+
+**Step markers** (optional keys of a step):
+
+- `blocked_by`: a text naming what the step waits for (a task or piece not built yet). The runner does not run
+  the step: it prints `not run: blocked by <text>`, records the verdict `blocked`, counts it in the summary
+  (`steps not run`, and `PASS (N steps NOT RUN, blocked)`), and a blocked step never passes and never fails.
+  Removing the marker is an acceptance line of the task that builds the piece.
+- `refusal_probe`: `true` only on an `expect_refused` step that probes a refusal on a create route
+  (POST /api/v1/tenants). It exempts the step from the tenant-create gate, which otherwise skips a tenant create
+  unless the run allows it; the refusal itself is then sent and checked.
 
 **Rules for writing one** (idempotent, self-cleaning):
 
