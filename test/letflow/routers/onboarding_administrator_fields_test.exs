@@ -84,10 +84,15 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
   # POST /onboarding that must succeed; returns the decoded 201 body. The created
   # tenant is torn down at the end of the test.
+  # T-2704: POST /onboarding starts a process now and creates no tenant, so the tenants these
+  # tests act on are built from the same primitives the process steps call.
   defp onboard!(ctx, extra) do
-    conn = call(ctx, :post, "/api/v1/onboarding", new_body(extra))
-    assert conn.status == 201, conn.resp_body
-    resp = json(conn)
+    resp =
+      Letflow.Support.OnboardedTenantFixture.onboard!(new_body(extra),
+        operator_id: ctx.operator_id,
+        platform_prefix: ctx.platform.schema_name
+      )
+
     cleanup_onboarded_tenant!(resp["tenant_id"])
     resp
   end
@@ -150,19 +155,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     on_exit(fn -> drop_tenant_rows!(tenant_id) end)
   end
 
-  # For a test whose request may raise before it returns the tenant id: the tenant for the slug, if one was
-  # committed, is looked up at exit and removed.
-  defp cleanup_slug_on_exit(slug) do
-    on_exit(fn ->
-      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-      case Repo.get_by(Tenant, slug: slug) do
-        %Tenant{id: tenant_id} -> drop_tenant_rows!(tenant_id)
-        nil -> :ok
-      end
-    end)
-  end
-
   defp drop_tenant_rows!(tenant_id) do
     Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
 
@@ -178,130 +170,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
   # --- administrator echo (design 3.4) -----------------------------------------
 
-  test "POST /onboarding with no admin fields returns 201 and administrator.state none with the next-step message",
-       ctx do
-    resp = onboard!(ctx, %{})
-
-    administrator = resp["administrator"]
-    assert administrator["state"] == "none"
-    assert administrator["not_provisioned"] == []
-    message = administrator["message"]
-    steps = administrator["next_steps"]
-
-    assert message =~ "no administrator"
-    assert message =~ @runbook
-    refute message =~ "NOT used"
-    assert is_list(steps) and steps != []
-    assert Enum.any?(steps, &(&1 =~ "TENANT_ADMIN"))
-  end
-
-  # ISS-1030 PR 2 changed this behaviour on purpose: the e-mail is now stored as a PENDING grant (state
-  # `pending`, `grant_id`), and only the other two fields are echoed as not_provisioned. What stays
-  # true, and is still asserted: no user, no group membership is created from the named administrator.
-  test "POST /onboarding with admin_email, admin_username and admin_display_name returns 201, stores the e-mail as a pending grant, echoes the other two as not_provisioned and creates no user or membership",
-       ctx do
-    email = "Ada.Admin@Example.com"
-
-    resp =
-      onboard!(ctx, %{
-        "admin_email" => email,
-        "admin_username" => "ada-admin",
-        "admin_display_name" => "Ada Admin"
-      })
-
-    assert resp["administrator"]["state"] == "pending"
-    assert is_binary(resp["administrator"]["grant_id"])
-    assert resp["administrator"]["message"] =~ "pending TENANT_ADMIN"
-
-    echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1["value"]})
-
-    assert echoed == %{
-             "admin_username" => "ada-admin",
-             "admin_display_name" => "Ada Admin"
-           }
-
-    # The e-mail is not echoed anywhere in the response: it is held as the grant's key only.
-    refute resp
-           |> Jason.encode!()
-           |> String.downcase()
-           |> String.contains?(String.downcase(email))
-
-    # Nothing was created from the named administrator: no user in the new tenant.
-    schema_name = schema_of(resp["tenant_id"])
-
-    assert Repo.aggregate(
-             from(u in User,
-               where:
-                 u.username == "ada-admin" or
-                   fragment("lower(?)", u.email) == ^String.downcase(email)
-             ),
-             :count,
-             :id,
-             prefix: schema_name
-           ) == 0
-
-    # And nothing was granted: the tenant has no membership row at all, only the pending grant.
-    members = Repo.aggregate(Letflow.Identity.GroupMember, :count, :user_id, prefix: schema_name)
-    assert members == 0
-
-    assert [%{email_key: "ada.admin@example.com", consumed_at: nil, revoked_at: nil}] =
-             Repo.all(Letflow.Identity.PendingAdminGrant, prefix: schema_name)
-  end
-
-  test "POST /onboarding treats a blank-string admin field as not sent: state none and no echo",
-       ctx do
-    resp =
-      onboard!(ctx, %{"admin_email" => "", "admin_username" => "", "admin_display_name" => ""})
-
-    assert resp["administrator"]["state"] == "none"
-    assert resp["administrator"]["not_provisioned"] == []
-    refute resp["administrator"]["message"] =~ "NOT used"
-    assert resp["ignored_fields"] == []
-  end
-
-  test "POST /onboarding treats a null admin field as not sent: state none and no echo", ctx do
-    resp =
-      onboard!(ctx, %{
-        "admin_email" => nil,
-        "admin_username" => nil,
-        "admin_display_name" => nil
-      })
-
-    assert resp["administrator"]["state"] == "none"
-    assert resp["administrator"]["not_provisioned"] == []
-    refute resp["administrator"]["message"] =~ "NOT used"
-    assert resp["ignored_fields"] == []
-  end
-
-  test "POST /onboarding treats a whitespace-only admin field as not sent: state none and no echo",
-       ctx do
-    resp =
-      onboard!(ctx, %{
-        "admin_email" => "   ",
-        "admin_username" => "\t \n",
-        "admin_display_name" => " "
-      })
-
-    assert resp["administrator"]["state"] == "none"
-    assert resp["administrator"]["not_provisioned"] == []
-    refute resp["administrator"]["message"] =~ "NOT used"
-    assert resp["ignored_fields"] == []
-  end
-
-  test "POST /onboarding with only admin_username and admin_display_name returns state none, the no-administrator message and both fields echoed as not_provisioned",
-       ctx do
-    resp =
-      onboard!(ctx, %{"admin_username" => "grace", "admin_display_name" => "Grace Hopper"})
-
-    assert resp["administrator"]["state"] == "none"
-    assert resp["administrator"]["message"] =~ "no administrator"
-    assert resp["administrator"]["message"] =~ "other administrator details"
-    assert resp["administrator"]["message"] =~ "NOT used"
-
-    echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1["value"]})
-    assert echoed == %{"admin_username" => "grace", "admin_display_name" => "Grace Hopper"}
-  end
-
   test "POST /onboarding with a non-string admin_email answers 422 and creates no tenant row",
        ctx do
     for value <- [42, true, ["a@b.example"], %{"leak" => "zzLEAKEDVALUEzz"}] do
@@ -312,134 +180,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
-  # ISS-1030 PR 2 changed the first half on purpose: a 255-character admin_email is no longer echoed
-  # (it can become a grant, so it is validated as an address, at most 254 characters, BEFORE any write:
-  # 422, nothing created). The non-string and oversize echo rules of the other two fields are unchanged.
-  test "POST /onboarding does not echo a non-string admin value and omits oversize values", ctx do
-    at_limit = String.duplicate("a", 255)
-    oversize = String.duplicate("d", 256)
-
-    conn = refused!(ctx, %{"admin_email" => at_limit}, 422)
-    assert field_error_on?(conn, "admin_email")
-
-    resp =
-      onboard!(ctx, %{
-        "admin_username" => 42,
-        "admin_display_name" => oversize
-      })
-
-    echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1})
-
-    assert echoed["admin_username"] == %{"field" => "admin_username"}
-    assert echoed["admin_display_name"] == %{"field" => "admin_display_name"}
-    refute resp |> Jason.encode!() |> String.contains?(oversize)
-  end
-
-  test "POST /onboarding lists client_config, realm_config and redirect_uris in ignored_fields by name only",
-       ctx do
-    resp =
-      onboard!(ctx, %{
-        "client_config" => %{"secret" => "zzCLIENTSECRETzz"},
-        "realm_config" => %{"display" => "zzREALMCONFIGzz"},
-        "redirect_uris" => ["https://zzREDIRECTzz.example/cb"]
-      })
-
-    assert resp["ignored_fields"] == ["client_config", "realm_config", "redirect_uris"]
-
-    encoded = Jason.encode!(resp)
-
-    for marker <- ["zzCLIENTSECRETzz", "zzREALMCONFIGzz", "zzREDIRECTzz"] do
-      refute encoded =~ marker
-    end
-  end
-
-  test "an unknown admin_* key is listed in ignored_fields by name, while the three known ones are not",
-       ctx do
-    resp =
-      onboard!(ctx, %{
-        "admin_phone" => "zzPHONEVALUEzz",
-        "admin_username" => "known-one"
-      })
-
-    assert resp["ignored_fields"] == ["admin_phone"]
-    refute Jason.encode!(resp) =~ "zzPHONEVALUEzz"
-  end
-
-  test "ignored_fields is capped at 20 names, truncates each to 64 characters and strips control characters",
-       ctx do
-    # Cap: 25 distinct extra keys -> the first 20 (sorted) and a final marker.
-    many = Map.new(1..25, fn n -> {"extra_" <> String.pad_leading("#{n}", 2, "0"), "v"} end)
-    capped = onboard!(ctx, many)["ignored_fields"]
-
-    assert length(capped) == 21
-    assert List.last(capped) == "..."
-    expected_first = Enum.map(1..20, &("extra_" <> String.pad_leading("#{&1}", 2, "0")))
-    assert Enum.take(capped, 20) == expected_first
-
-    # Truncation, control-character stripping and de-duplication after stripping.
-    long = String.duplicate("L", 100)
-
-    sanitised =
-      onboard!(ctx, %{
-        long => 1,
-        "a\u0001b\u007Fc" => 2,
-        "x\u0001" => 3,
-        "x\u0002" => 4
-      })["ignored_fields"]
-
-    assert sanitised == [String.duplicate("L", 64), "abc", "x"]
-  end
-
-  test "POST /onboarding without any extra field is unchanged: status 201 and the five original keys are present",
-       ctx do
-    body = new_body(%{})
-    conn = call(ctx, :post, "/api/v1/onboarding", body)
-
-    assert conn.status == 201
-    resp = json(conn)
-    cleanup_onboarded_tenant!(resp["tenant_id"])
-
-    # The five original keys, with their original values ...
-    assert resp["slug"] == body["slug"]
-    assert resp["hostname"] == body["hostname"]
-    assert is_binary(resp["id"])
-    assert is_binary(resp["tenant_id"])
-    assert is_binary(resp["created_at"])
-
-    # ... and only the three additive keys beside them.
-    assert Enum.sort(Map.keys(resp)) ==
-             Enum.sort([
-               "id",
-               "tenant_id",
-               "slug",
-               "hostname",
-               "created_at",
-               "login",
-               "administrator",
-               "ignored_fields"
-             ])
-
-    assert resp["ignored_fields"] == []
-    assert resp["login"]["loginable"] == false
-  end
-
   # --- idp_realm_id on create (design 3.1) -------------------------------------
-
-  test "POST /onboarding with a valid idp_realm_id binds it and the record says loginable true",
-       ctx do
-    realm_id = realm()
-    resp = onboard!(ctx, %{"idp_realm_id" => realm_id})
-
-    assert resp["login"] == %{
-             "loginable" => true,
-             "status" => "realm_bound",
-             "idp_realm_id" => realm_id,
-             "next_steps" => []
-           }
-
-    assert stored_realm(resp["tenant_id"]) == realm_id
-    assert_received {:realm_probe, ^realm_id}
-  end
 
   test "POST /onboarding with an unknown idp_realm_id answers 422 and creates no tenant row",
        ctx do
@@ -483,10 +224,11 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
     # A unique-column value: a generated realm, so a leftover row can never collide with a later run.
     value = realm()
-    resp = onboard!(ctx, %{"idp_realm_id" => " " <> value <> " "})
 
-    assert stored_realm(resp["tenant_id"]) == value
-    assert resp["login"]["idp_realm_id"] == value
+    # The padded value is trimmed before the identity provider is asked. No registration process is
+    # active in this test, so the answer after the probe is not the point (T-2704).
+    call(ctx, :post, "/api/v1/onboarding", new_body(%{"idp_realm_id" => " " <> value <> " "}))
+
     assert_received {:realm_probe, ^value}
   end
 
@@ -555,7 +297,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
     # The realm is still free: a later create with a free hostname binds it.
     created = onboard!(ctx, %{"idp_realm_id" => free})
-    assert created["login"]["loginable"] == true
     assert stored_realm(created["tenant_id"]) == free
   end
 
@@ -569,73 +310,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     refused!(ctx, %{"idp_realm_id" => realm()}, 403)
   end
 
-  test "POST /onboarding whose realm is claimed by another tenant before the bind answers 201 with realm_request not_bound and keeps the record",
-       ctx do
-    other = TenantFixture.provisioned_tenant!(slug_prefix: "iss1030-race-other")
-    value = realm()
-    slug = TenantSlugFixture.unique_slug("iss1030")
-
-    conn =
-      with_realm_claimed_after_registry_insert(other.tenant_id, value, fn ->
-        call(
-          ctx,
-          :post,
-          "/api/v1/onboarding",
-          new_body(%{"slug" => slug, "idp_realm_id" => value})
-        )
-      end)
-
-    assert conn.status == 201, conn.resp_body
-    created = json(conn)
-    cleanup_onboarded_tenant!(created["tenant_id"])
-
-    assert created["login"]["loginable"] == false
-    assert created["realm_request"] == %{"status" => "not_bound", "reason" => "taken"}
-    assert stored_realm(created["tenant_id"]) == nil
-    assert stored_realm(other.tenant_id) == value
-
-    fetched = call(ctx, :get, "/api/v1/onboarding/#{created["id"]}", nil)
-    assert fetched.status == 200
-    assert json(fetched)["login"]["loginable"] == false
-  end
-
-  # A bind that cannot run because the tenant is no longer active (a state change after the onboarding
-  # insert) is reported as realm_request reason "unavailable" in the 201 body.
-  test "POST /onboarding whose tenant is not active when the bind runs answers 201 with realm_request unavailable",
-       ctx do
-    value = realm()
-    slug = TenantSlugFixture.unique_slug("iss1030")
-    handler_id = {__MODULE__, make_ref()}
-
-    :telemetry.attach(
-      handler_id,
-      [:letflow, :repo, :query],
-      &__MODULE__.deactivate_on_registry_insert/4,
-      {self(), slug}
-    )
-
-    conn =
-      try do
-        call(
-          ctx,
-          :post,
-          "/api/v1/onboarding",
-          new_body(%{"slug" => slug, "idp_realm_id" => value})
-        )
-      after
-        :telemetry.detach(handler_id)
-      end
-
-    # Cleanup first, so a failing assertion still drops the schema (a non-201 body has no tenant_id: a no-op).
-    created = json(conn)
-    cleanup_onboarded_tenant!(created["tenant_id"])
-
-    assert conn.status == 201, conn.resp_body
-    assert created["realm_request"] == %{"status" => "not_bound", "reason" => "unavailable"}
-    assert created["login"]["loginable"] == false
-    assert stored_realm(created["tenant_id"]) == nil
-  end
-
   @doc false
   def deactivate_on_registry_insert(_event, _measurements, metadata, {test_pid, slug}) do
     query = to_string(Map.get(metadata, :query) || "")
@@ -644,45 +318,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
          match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.update_all(from(t in Tenant, where: t.slug == ^slug), set: [status: :inactive])
     end
-  end
-
-  # JSON cannot carry invalid UTF-8, and the harness encodes bodies as JSON, so the parsed body is set
-  # directly, as multipart parsing would set it. A part name with invalid bytes must be refused with 422
-  # before any write (SECURITY-REVIEWER BLOCKER-1 on the create route).
-  test "POST /onboarding with an invalid UTF-8 field name answers 422 and writes nothing", ctx do
-    slug = TenantSlugFixture.unique_slug("iss1030")
-    hostname = "iss1030-#{Ecto.UUID.generate()}.example.com"
-    value = realm()
-
-    body = %{
-      "slug" => slug,
-      "display_name" => "ISS-1030 Tenant",
-      "hostname" => hostname,
-      "idp_realm_id" => value,
-      <<0xFF, 0xFE>> => "x"
-    }
-
-    conn =
-      :post
-      |> Fixture.api_conn("/api/v1/onboarding", ctx.token, ctx.platform.tenant.slug, nil)
-      |> Map.put(:body_params, body)
-      |> Map.put(:params, body)
-      |> Fixture.dispatch_api()
-
-    assert conn.status == 422, conn.resp_body
-
-    assert json(conn)["errors"] == [
-             %{
-               "field" => "(root)",
-               "constraint" => "encoding",
-               "message" => "field names must be valid UTF-8",
-               "received" => nil
-             }
-           ]
-
-    assert Repo.get_by(Tenant, slug: slug) == nil
-    assert Repo.get_by(OnboardingRecord, hostname: hostname) == nil
-    refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^value))
   end
 
   # The validator counts graphemes and the column counts code points: 255 graphemes made of a letter and
@@ -701,10 +336,12 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert Repo.get_by(OnboardingRecord, hostname: hostname) == nil
   end
 
-  test "POST /onboarding with a display_name over 255 code points answers 422 and creates no tenant",
+  # The display name's unit is the grapheme (the schema's max_length); its column is text, so only a name
+  # over 255 GRAPHEMES is refused (T-2704). The 255-grapheme names are covered in RegisterRoutesTest.
+  test "POST /onboarding with a display_name over 255 graphemes answers 422 and creates no tenant",
        ctx do
     slug = Letflow.TenantSlugFixture.unique_slug("iss1030")
-    display_name = String.duplicate("é", 255)
+    display_name = String.duplicate("e\u0301", 256)
 
     conn =
       call(
@@ -740,100 +377,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert tenant_entry.trace_id == nil
     assert [platform_entry] = entries(ctx.platform.schema_name, "platform.tenant_idp_realm.bound")
     assert platform_entry.trace_id == "t-router-7"
-  end
-
-  # SECURITY-REVIEWER R1: a hostname taken after the pre-check but before the onboarding insert answers 409,
-  # and its detail says the tenant exists (it is committed and active). It must not read as "nothing created".
-  test "POST /onboarding whose hostname is taken in the race window answers 409 and says the tenant was created",
-       ctx do
-    owner = onboard!(ctx, %{})
-    slug = TenantSlugFixture.unique_slug("iss1030")
-    rival_slug = TenantSlugFixture.unique_slug("iss1030")
-    hostname = "iss1030-race-#{Ecto.UUID.generate()}.example.com"
-
-    conn =
-      with_hostname_taken_after_tenant_insert(owner["tenant_id"], rival_slug, hostname, fn ->
-        call(
-          ctx,
-          :post,
-          "/api/v1/onboarding",
-          new_body(%{"slug" => slug, "hostname" => hostname})
-        )
-      end)
-
-    tenant = Repo.get_by(Tenant, slug: slug)
-    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
-
-    assert conn.status == 409, conn.resp_body
-    assert json(conn)["detail"] =~ "the tenant for this slug was created"
-    assert json(conn)["detail"] =~ "do not retry with a new slug"
-  end
-
-  test "POST /onboarding answers 500 with the after-commit detail when provisioning fails after the tenant was committed",
-       ctx do
-    slug = TenantSlugFixture.unique_slug("iss1030")
-    hostname = "iss1030-post-commit-#{Ecto.UUID.generate()}.example.com"
-
-    # The tenant row is removed right after its committed insert, so provisioning finds no tenant
-    # and fails after the create's commit: the answer must say the tenant may exist (SECURITY-REVIEWER
-    # F1). The removal is the forced failure; the answer under test is the one the router gives for it.
-    conn =
-      with_tenant_removed_after_insert(slug, fn ->
-        call(
-          ctx,
-          :post,
-          "/api/v1/onboarding",
-          new_body(%{"slug" => slug, "hostname" => hostname})
-        )
-      end)
-
-    # The hook removes the tenant, so none is expected; a tenant found here (the hook failed) is cleaned up.
-    tenant = Repo.get_by(Tenant, slug: slug)
-    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
-
-    assert conn.status == 500, conn.resp_body
-    assert json(conn)["detail"] =~ "the tenant may exist"
-    assert json(conn)["detail"] =~ "do not retry with a new slug"
-    refute Repo.get_by(OnboardingRecord, hostname: hostname)
-  end
-
-  # The database faults inside provisioning, after the tenant is committed: the provisioning transaction
-  # re-raises it, and the answer is the fixed post-commit 500 with a committed tenant behind it. The fault
-  # is real (a trigger on tenant_schemas raises; see with_tenant_schema_insert_failing/1), not a stub.
-  test "POST /onboarding answers 500 with the after-commit detail when the database faults during provisioning after the tenant was committed",
-       ctx do
-    slug = TenantSlugFixture.unique_slug("iss1030")
-    hostname = "iss1030-raise-#{Ecto.UUID.generate()}.example.com"
-
-    # Registered before the request: a request that raises out of the test still leaves no committed tenant.
-    cleanup_slug_on_exit(slug)
-
-    # The trigger is created outside the captured log, so the log holds only what the request itself logged.
-    {conn, log} =
-      with_tenant_schema_insert_failing(fn ->
-        with_log(fn ->
-          call(
-            ctx,
-            :post,
-            "/api/v1/onboarding",
-            new_body(%{"slug" => slug, "hostname" => hostname})
-          )
-        end)
-      end)
-
-    assert conn.status == 500, conn.resp_body
-    assert json(conn)["detail"] =~ "the tenant may exist"
-    assert json(conn)["detail"] =~ "do not retry with a new slug"
-
-    # The fault's message reaches neither the answer nor Letflow's own log line (INV-4). Letflow's line is one
-    # line by construction (the log call concatenates its parts), so the match below reads that whole line.
-    # Without these, a wrong implementation that echoed the exception text would still pass the detail check.
-    refute conn.resp_body =~ "injected database fault"
-    [letflow_line] = Regex.run(~r/onboarding failed after the tenant was committed[^\n]*/, log)
-    assert letflow_line =~ "exception=Postgrex.Error"
-    refute letflow_line =~ "injected database fault"
-    assert %Tenant{status: :migrating} = Repo.get_by(Tenant, slug: slug)
-    refute Repo.get_by(OnboardingRecord, hostname: hostname)
   end
 
   test "POST /onboarding with a whitespace-only hostname answers 422 and creates no tenant",
@@ -1285,27 +828,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
-  # Claims the realm for another tenant right after the create's onboarding-record insert, so the
-  # create's own bind loses the race (after the pre-check, before the bind). Calling process only.
-  # The claim is an UPDATE: its telemetry event re-enters this handler, but it does not match the INSERT
-  # filter, so the nested call does nothing.
-  defp with_realm_claimed_after_registry_insert(tenant_id, realm_value, fun) do
-    handler_id = {__MODULE__, make_ref()}
-
-    :telemetry.attach(
-      handler_id,
-      [:letflow, :repo, :query],
-      &__MODULE__.claim_realm_on_registry_insert/4,
-      {self(), tenant_id, realm_value}
-    )
-
-    try do
-      fun.()
-    after
-      :telemetry.detach(handler_id)
-    end
-  end
-
   @doc false
   def claim_realm_on_registry_insert(
         _event,
@@ -1318,25 +840,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) and
          match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.update_all(from(t in Tenant, where: t.id == ^tenant_id), set: [idp_realm_id: value])
-    end
-  end
-
-  # Takes the hostname right after the create's tenant insert, so the create's own onboarding insert loses the
-  # race (after the pre-check, before the onboarding record). Calling process only. Runs once per test.
-  defp with_hostname_taken_after_tenant_insert(owner_tenant_id, slug, hostname, fun) do
-    handler_id = {__MODULE__, make_ref()}
-
-    :telemetry.attach(
-      handler_id,
-      [:letflow, :repo, :query],
-      &__MODULE__.take_hostname_on_tenant_insert/4,
-      {self(), owner_tenant_id, slug, hostname}
-    )
-
-    try do
-      fun.()
-    after
-      :telemetry.detach(handler_id)
     end
   end
 
@@ -1363,25 +866,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
-  # Removes the tenant right after the create's committed tenant insert, so provisioning fails after the
-  # commit. Calling process only. Runs once per test (the handler is detached in `after`).
-  defp with_tenant_removed_after_insert(slug, fun) do
-    handler_id = {__MODULE__, make_ref()}
-
-    :telemetry.attach(
-      handler_id,
-      [:letflow, :repo, :query],
-      &__MODULE__.remove_tenant_on_insert/4,
-      {self(), slug}
-    )
-
-    try do
-      fun.()
-    after
-      :telemetry.detach(handler_id)
-    end
-  end
-
   @doc false
   def remove_tenant_on_insert(_event, _measurements, metadata, {test_pid, slug}) do
     query = to_string(Map.get(metadata, :query) || "")
@@ -1390,41 +874,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
          match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.delete_all(from(t in Tenant, where: t.slug == ^slug))
     end
-  end
-
-  # Makes every insert into tenant_schemas raise, so provisioning raises inside the request after the tenant
-  # commit. A real database fault: the trigger raises, and the provisioning transaction re-raises it. The
-  # sandbox in this module commits (see cleanup_onboarded_tenant!/1), so the trigger and its function are
-  # dropped on exit, including when the request raises.
-  defp with_tenant_schema_insert_failing(fun) do
-    # ExUnit runs on_exit callbacks last-registered first. The order is: the trigger drop (registered last), then
-    # the restore to :manual (registered here), then cleanup_slug_on_exit/1 and drop_tenant_rows!/1, which each set
-    # :auto, and the fixture's provisioned_tenant! (test/support/tenant_fixture.ex:243), entered in setup and not
-    # restored (tenant_fixture.ex:192). So the pool ends in :auto. This departs from the restore-last rule documented
-    # in test/support/sandbox_auto_mode.ex, deliberately: the cleanups need :auto, as they did before this PR. The
-    # mode is set through the helper, not inline: Sandbox.mode/2 is pool-wide.
-    on_exit(fn -> Letflow.Test.SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
-    Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-    # The drop runs on exit, not in an `after` block, so it also runs when the test process is killed or
-    # the request raises. It also runs once before the create, to clear a trigger a killed run left behind.
-    drop = fn ->
-      Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
-      Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
-    end
-
-    drop.()
-    on_exit(drop)
-
-    Repo.query!(
-      "CREATE FUNCTION letflow_iss1030_fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected database fault (ISS-1030 test)'; END $$"
-    )
-
-    Repo.query!(
-      "CREATE TRIGGER letflow_iss1030_fail_insert BEFORE INSERT ON tenant_schemas FOR EACH ROW EXECUTE FUNCTION letflow_iss1030_fail_insert()"
-    )
-
-    fun.()
   end
 
   @doc false
