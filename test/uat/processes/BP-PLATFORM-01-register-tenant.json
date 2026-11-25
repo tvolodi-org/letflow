@@ -205,7 +205,7 @@
         "instance_id1": "$.instance_id",
         "slug1": "$.slug"
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "B2",
@@ -228,7 +228,7 @@
           }
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "B3",
@@ -248,7 +248,7 @@
           "$.steps[1].result": "completed"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "C1",
@@ -268,7 +268,7 @@
           "$.status": "COMPLETED"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "C2",
@@ -312,7 +312,7 @@
           "$.steps[10].node_id": "end"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "C3",
@@ -333,7 +333,7 @@
       "requires": [
         "slug1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "C4",
@@ -354,7 +354,7 @@
       "requires": [
         "slug1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "C5",
@@ -373,7 +373,7 @@
       "requires": [
         "slug1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "D1",
@@ -389,7 +389,7 @@
       "expect": {
         "status": 200
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E1",
@@ -419,7 +419,7 @@
         "instance_id2": "$.instance_id",
         "slug2": "$.slug"
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E2",
@@ -439,7 +439,7 @@
           "$.status": "ERROR"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E3",
@@ -465,7 +465,7 @@
           }
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E4",
@@ -490,7 +490,7 @@
       "save": {
         "dlq_id": "$.items[0].id"
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E5",
@@ -510,7 +510,7 @@
       "requires": [
         "dlq_id"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "E6",
@@ -533,7 +533,7 @@
           }
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "F1",
@@ -1064,7 +1064,7 @@
         "instance_id3": "$.instance_id",
         "slug3": "$.slug"
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "F7",
@@ -1084,7 +1084,7 @@
           "$.status": "COMPLETED"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "F8",
@@ -1117,7 +1117,7 @@
           "$.steps[7].result": "completed"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "F9",
@@ -1133,7 +1133,7 @@
       "expect": {
         "status": 200
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "F10",
@@ -1152,7 +1152,7 @@
       "requires": [
         "instance_id1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "G1",
@@ -1218,7 +1218,7 @@
         "instance_id4": "$.instance_id",
         "slug4": "$.slug"
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "G4",
@@ -1238,7 +1238,7 @@
           "$.status": "COMPLETED"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "G5",
@@ -1270,7 +1270,7 @@
           "$.steps[7].node_id": "end"
         }
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "G6",
@@ -1286,7 +1286,7 @@
       "expect": {
         "status": 200
       },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "H1",
@@ -1364,7 +1364,7 @@
       "requires": [
         "instance_id1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "H5",
@@ -1384,7 +1384,7 @@
       "requires": [
         "dlq_id"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
     },
     {
       "id": "H6",
