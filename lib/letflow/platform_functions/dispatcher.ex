@@ -184,7 +184,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   # values (a start variable), so they are bounded BEFORE the dispatcher does
   # any per-character work on them (SF-01): over the cap is a typed refusal,
   # never a write that fails in the database.
-  @max_input_bytes 4096
+  @max_input_bytes 8192
 
   # The byte cap of the NODE ID. The node id is a caller-supplied string that
   # goes into a `varchar(255)` column, and it is NOT one of the entry's

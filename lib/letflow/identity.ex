@@ -181,7 +181,8 @@ defmodule Letflow.Identity do
   @spec resolve_tenant_by_realm(idp_realm_id :: String.t()) ::
           {:ok, Tenant.t()} | {:error, :not_found}
   def resolve_tenant_by_realm(idp_realm_id) do
-    case Repo.get_by(Tenant, idp_realm_id: idp_realm_id) do
+    # log: false (INV-4, T-2704): the realm is a bound parameter and must not reach a debug query log.
+    case Repo.get_by(Tenant, [idp_realm_id: idp_realm_id], log: false) do
       %Tenant{} = tenant -> {:ok, tenant}
       nil -> {:error, :not_found}
     end
