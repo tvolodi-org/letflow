@@ -26,6 +26,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
 
   use Letflow.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules
   alias Letflow.PlatformFunctions.Registry
   alias Letflow.TenantFixture
@@ -67,6 +69,9 @@ defmodule Letflow.PlatformFunctions.Impl.TenantInstallDefaultModulesTest do
   # T-2727 (design section 4 row 8): the step is lifecycle-aware. A `pending` lifecycle row is the
   # demo case; the row is inside the test's sandbox transaction.
   defp lifecycle!(tenant_id, state) do
+    # The tenant is committed, so its lifecycle row is too: remove it before the tenant drop.
+    on_exit(fn -> Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^tenant_id)) end)
+
     Repo.insert!(
       struct(Lifecycle, %{
         tenant_id: tenant_id,
