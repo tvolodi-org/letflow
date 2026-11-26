@@ -60,6 +60,14 @@ def retired_tenant_of_url(url, retired) -> str | None:
     return None
 
 
+def _actor_user(value):
+    """The user name of an actor entry: a plain user name, or the user of an actor object."""
+    if isinstance(value, dict):
+        user = value.get("user")
+        return user if isinstance(user, str) else None
+    return value if isinstance(value, str) else None
+
+
 def _block_violations(block, where, retired, out):
     if not isinstance(block, dict):
         return
@@ -68,10 +76,18 @@ def _block_violations(block, where, retired, out):
         out.append(f"{where}tenant {slug!r} is retired")
     actors = block.get("actors")
     if isinstance(actors, dict):
-        for actor, user in actors.items():
+        for actor, value in actors.items():
+            user = _actor_user(value)
             slug = retired_tenant_of_user(user, retired)
             if slug:
                 out.append(f"{where}actor {actor!r} names the user {user!r} of the retired tenant {slug!r}")
+            if isinstance(value, dict):  # an actor of another tenant names it itself
+                slug = retired_tenant_of(value.get("tenant"), retired)
+                if slug:
+                    out.append(f"{where}actor {actor!r} lives on the retired tenant {slug!r}")
+                slug = retired_tenant_of_url(value.get("base_url"), retired)
+                if slug:
+                    out.append(f"{where}actor {actor!r} has a base url at the retired tenant {slug!r}")
     for key in ("base_url", "old_base_url"):
         slug = retired_tenant_of_url(block.get(key), retired)
         if slug:
@@ -102,7 +118,7 @@ def batch_lines(entries, retired) -> list:
     seen: dict = {}
     for fname, tenant, actors in entries:
         slot = seen.setdefault(tenant, {"users": set(), "files": []})
-        slot["users"].update(v for v in (actors or {}).values() if isinstance(v, str))
+        slot["users"].update(u for u in (_actor_user(v) for v in (actors or {}).values()) if u)
         slot["files"].append(fname)
     lines = []
     for tenant, slot in seen.items():

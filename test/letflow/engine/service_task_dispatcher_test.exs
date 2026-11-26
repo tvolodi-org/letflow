@@ -50,10 +50,18 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
   # ---------------------------------------------------------------------------------
 
   defp provisioned_tenant(slug_prefix \\ "req214-dispatcher") do
-    TenantFixture.provisioned_tenant!(
-      slug_prefix: slug_prefix,
-      display_name: "REQ-214 ServiceTaskDispatcher Test Tenant"
-    )
+    tenant =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: slug_prefix,
+        display_name: "REQ-214 ServiceTaskDispatcher Test Tenant"
+      )
+
+    # T-2597 (pilot gap G14): the local listener the genuine-attempt tests
+    # reach is a host of the tenant's own outbound allow-list -- the list is
+    # empty by default, so the door is opened for it here.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["127.0.0.1"])
+
+    tenant
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -303,6 +311,27 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
         assert reload!(schema_name, dispatch.id).status == :given_up
         refute_receive {:webhook_test_server_request, _request}, 200
       end
+    end
+  end
+
+  for {label, unusable} <- [{"nil", nil}, {"non-binary", 42}] do
+    test "an inline_url step with a #{label} rendered_url fails closed (allow-list fallback clause)" do
+      %{url: _server_url} = WebhookTestServer.start(200, ~s({"ok":true}))
+
+      %{schema_name: schema_name} = provisioned_tenant()
+      instance_id = insert_instance_projection!(schema_name, :active)
+
+      dispatch =
+        insert_dispatch!(schema_name, instance_id, %{
+          config_snapshot: config_snapshot(%{"rendered_url" => unquote(Macro.escape(unusable))})
+        })
+
+      assert {:ok, {:give_up, error_attrs}} =
+               ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
+
+      assert error_attrs.details.last_failure_kind == :request_build_error
+      assert reload!(schema_name, dispatch.id).status == :given_up
+      refute_receive {:webhook_test_server_request, _request}, 200
     end
   end
 
@@ -1500,6 +1529,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
           id uuid PRIMARY KEY,
           tenant_id uuid NOT NULL,
           actor_id uuid,
+          actor_kind text,
           action text NOT NULL,
           resource_type text NOT NULL,
           resource_id text NOT NULL,

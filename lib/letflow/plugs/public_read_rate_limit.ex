@@ -15,6 +15,10 @@ defmodule Letflow.Plugs.PublicReadRateLimit do
   general `/api/v1` limiter with no owning requirement). Building a new,
   narrower module here does not discharge that deferred row.
 
+  The per-address key is the resolved visitor (`conn.assigns.client_ip`, set by
+  `Letflow.Plugs.ClientIp` on mounts behind a trusted proxy), falling back to the
+  socket peer where no such plug runs (SF-13: behind a proxy the peer is shared).
+
   Capacities/refill rates are sourced from application config
   (`config :letflow, Letflow.Plugs.PublicReadRateLimit, ...`), not hardcoded,
   so they are tunable per environment without a code change.
@@ -41,11 +45,20 @@ defmodule Letflow.Plugs.PublicReadRateLimit do
     ip_refill_per_sec = Keyword.get(config, :ip_refill_per_sec, 2)
 
     with :ok <- Bucket.consume(:global, global_capacity, global_refill_per_sec),
-         :ok <- Bucket.consume({:ip, conn.remote_ip}, ip_capacity, ip_refill_per_sec) do
+         :ok <-
+           Bucket.consume(
+             {:ip, Map.get(conn.assigns, :client_ip) || conn.remote_ip},
+             ip_capacity,
+             ip_refill_per_sec
+           ) do
       conn
     else
       :rate_limited ->
         conn
+        |> put_resp_header("retry-after", "1")
+        |> put_resp_header("cache-control", "private, no-store")
+        |> put_resp_header("referrer-policy", "no-referrer")
+        |> put_resp_header("x-robots-tag", "noindex, nofollow")
         |> Response.rate_limited("rate limit exceeded")
         |> halt()
     end

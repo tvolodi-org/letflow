@@ -123,6 +123,15 @@ defmodule Letflow.Signup.Messages do
   defp refusal_text("invalid_request", "kk"),
     do: "Кейбір өрістер толтырылмаған немесе қате. Форманы тексеріңіз."
 
+  defp refusal_text("slug_taken", "en"),
+    do: "This address name is already taken. Please choose another one."
+
+  defp refusal_text("slug_taken", "ru"),
+    do: "Это имя адреса уже занято. Выберите другое."
+
+  defp refusal_text("slug_taken", "kk"),
+    do: "Бұл мекенжай атауы бос емес. Басқасын таңдаңыз."
+
   defp refusal_text(_other, language), do: refusal_text("signup_unavailable", language)
 
   defp lang(language) when language in @languages, do: language

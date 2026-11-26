@@ -783,9 +783,10 @@ defmodule Letflow.IdentityLoginDirectoryTest do
       %{tenant: Fx.tenant!()}
     end
 
-    test "harness control: an ordinary Repo query binding an email IS logged at :debug", %{
-      tenant: tenant
-    } do
+    test "harness control: a SELECT binding an email is logged at :debug with its parameters redacted",
+         %{
+           tenant: tenant
+         } do
       email = "control-logged@example.test"
 
       {_, entries} =
@@ -798,7 +799,11 @@ defmodule Letflow.IdentityLoginDirectoryTest do
 
       log = LoggerCollector.text(entries)
 
-      assert log =~ email
+      # Since T-2740 the filter redacts SELECT parameters too: the statement is logged
+      # (the harness captures), the bound address is not.
+      assert log =~ "SELECT"
+      assert log =~ "[redacted]"
+      refute log =~ email
     end
 
     test "create, email change, deactivation and JIT log no directory query, email-key or advisory-lock parameter",
@@ -856,8 +861,10 @@ defmodule Letflow.IdentityLoginDirectoryTest do
           t =~ lower or t =~ changed or t =~ "jit-logged@example.test"
         end)
 
-      # Non-vacuity: the writes above really did log statements mentioning an address.
-      assert address_entries != []
+      # Since T-2704 the primary logger filter (Letflow.Obs.QueryLogFilter) redacts the bound
+      # parameters of every INSERT/UPDATE/DELETE, so a write no longer logs its address at all.
+      # Non-vacuity moves to the redaction itself: the user write is logged, parameters redacted.
+      assert log =~ "[redacted]"
 
       for %{text: t} <- address_entries do
         assert t =~ ~r/users|audit_entries/,

@@ -20,6 +20,10 @@ A process file is checked for:
   * `fixtures` (names of files in test/uat/fixtures/): each must exist; what they `provide` counts as defined;
     a fixture file itself needs description, leaves, provides (each saved by a step), a cleanup whose steps all
     have `requires`;
+  * a `platform_residue` block (what the run watches on the platform tenant, G18): only `definitions` and
+    `instances`, each a list of names; a ${name} in it must be defined like any other name;
+  * a `wait_mail` step (the mail trap, G18): a recipient, a subject and a time the runner can read (a number,
+    a numeric text or a ${name} of the context);
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
 """
 
@@ -124,6 +128,9 @@ def calls_of(step) -> list:
         out.append(("GET", str(do["assert_only"].get("path", ""))))
     if isinstance(do.get("repeat"), dict):
         out.append((str(do["repeat"].get("api", "")), str(do["repeat"].get("path", ""))))
+    if isinstance(do.get("sweep"), dict):
+        out.append(("GET", "/api/v1/definitions"))
+        out.append(("DELETE", "/api/v1/definitions/${id}"))
     for call in do.get("parallel") or []:
         if isinstance(call, dict):
             out.append((str(call.get("api", "")), str(call.get("path", ""))))
@@ -150,7 +157,14 @@ def saves(step) -> set:
     return {n for n, spec in (step.get("save") or {}).items() if not (isinstance(spec, dict) and "secret" in spec)}
 
 
+ANONYMOUS_ACTOR = "anonymous"  # the public routes: no token, no roster entry, no dry_run user
+
+
 def actors_of(step) -> set:
+    return _actors_of(step) - {ANONYMOUS_ACTOR}
+
+
+def _actors_of(step) -> set:
     found = set()
     if step.get("actor") and not step.get("http_as"):
         found.add(step["actor"])
@@ -159,6 +173,43 @@ def actors_of(step) -> set:
         if isinstance(call, dict) and call.get("actor") and not call.get("http_as"):
             found.add(call["actor"])
     return found
+
+
+def check_platform_residue(doc, name, problems, defined):
+    """The `platform_residue` block of a process: what the run watches on the platform tenant (G18)."""
+    block = doc.get("platform_residue")
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        problems.append(f"{name}: platform_residue must be an object {{definitions, instances}}")
+        return
+    unknown = set(block) - {"definitions", "instances"}
+    if unknown:
+        problems.append(f"{name}: platform_residue has unknown keys: " + ", ".join(sorted(unknown)))
+    for key in ("definitions", "instances"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            problems.append(f"{name}: platform_residue.{key} must be a list of names")
+            continue
+        for item in value:
+            for ref in sorted(refs(item) - defined):
+                problems.append(f"{name}: platform_residue.{key}: ${{{ref}}} is not an input and no step saves it")
+
+
+def check_wait_mail(step, where, problems):
+    """The wait_mail step (G18): a recipient, a subject and a time the runner can read.
+
+    The loader (scripts/uat/runner.py) refuses the same shapes, so the two tools never disagree about one file."""
+    spec = (step.get("do") or {}).get("wait_mail")
+    if not isinstance(spec, dict):
+        return
+    if not all(isinstance(spec.get(key), str) and spec.get(key).strip() for key in ("recipient", "subject")):
+        problems.append(f"{where}wait_mail needs a recipient and a subject")
+    for key in ("within_s", "interval_s"):
+        if key in spec and not runner.wait_time_ok(spec[key]):
+            problems.append(f"{where}wait_mail {key} must be a number (a ${{name}} of the context is read as one)")
 
 
 def check_process(doc, name, roles, routes, available, strict, problems, in_chain=False):
@@ -207,11 +258,14 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
                 problems.append(f"{where(sid)}${{{name_}}} is not an input and no earlier step or process saves it")
             for method, path in calls_of(step):
                 check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access")
+            if "wait_mail" in (step.get("do") or {}):
+                check_wait_mail(step, where(sid), problems)
             defined |= saves(step)
     outputs = doc.get("outputs") or {}
     for out_name, expr in outputs.items():
         for name_ in sorted(refs(expr) - defined):
             problems.append(f"{name}: output {out_name}: ${{{name_}}} is not saved by any step")
+    check_platform_residue(doc, name, problems, defined)
     return set(outputs)
 
 
@@ -228,6 +282,21 @@ def check_path(problems, where, routes, method, path, shared=False):
         problems.append(f"{where}{method.upper()} {path} matches no route of the router files")
 
 
+def actor_value_ok(value) -> bool:
+    """An actor is a user name, or an object {user, tenant, base_url}: the actor of another tenant."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        user = value.get("user")
+        if not isinstance(user, str) or not user.strip():
+            return False
+        for key in ("tenant", "base_url"):
+            if value.get(key) is not None and (not isinstance(value[key], str) or not value[key].strip()):
+                return False
+        return True
+    return False
+
+
 def check_dry_run(doc, name, problems):
     block = doc["dry_run"]
     if not isinstance(block, dict):
@@ -235,8 +304,8 @@ def check_dry_run(doc, name, problems):
         return
     if not isinstance(block.get("tenant"), str) or not block["tenant"]:
         problems.append(f"{name}: dry_run.tenant is missing")
-    if not isinstance(block.get("actors"), dict) or not all(isinstance(v, str) and v for v in block["actors"].values()):
-        problems.append(f"{name}: dry_run.actors must map each actor to a user name")
+    if not isinstance(block.get("actors"), dict) or not all(actor_value_ok(v) for v in block["actors"].values()):
+        problems.append(f"{name}: dry_run.actors must map each actor to a user name (or to {{user, tenant, base_url}})")
     elif "steps" in doc:
         for step in doc["steps"] + (doc.get("cleanup") or []):
             for role in actors_of(step):
@@ -347,8 +416,8 @@ def check_chain(path: Path, doc, roles, routes, strict, problems, retired_map=No
         block = doc["dry_run"]
         if not isinstance(block.get("tenant"), str) or not block["tenant"]:
             problems.append(f"{name}: dry_run.tenant is missing")
-        if not isinstance(block.get("actors"), dict):
-            problems.append(f"{name}: dry_run.actors must map each actor to a user name")
+        if not isinstance(block.get("actors"), dict) or not all(actor_value_ok(v) for v in block["actors"].values()):
+            problems.append(f"{name}: dry_run.actors must map each actor to a user name (or to {{user, tenant, base_url}})")
     provided = set(doc.get("inputs") or {}) | set((doc.get("dry_run") or {}).get("inputs") or {})
     available = set(provided) | fixture_provides(doc, name, runner.fixtures_dir_for(path), problems)
     pass_map = doc.get("pass", {})

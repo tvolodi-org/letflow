@@ -345,6 +345,24 @@ defmodule Letflow.DlqTest do
   end
 
   describe "AC5: list/2 cursor pagination" do
+    test "rows older than 24 hours remain pageable" do
+      %{schema_name: schema_name} = provisioned_tenant("cursor-issue-time-dlq")
+      entries = for _ <- 1..3, do: enqueue!(schema_name)
+      old = DateTime.utc_now() |> DateTime.add(-2 * 86_400, :second) |> DateTime.truncate(:second)
+      Repo.update_all(Entry, [set: [created_at: old]], prefix: schema_name)
+
+      assert {:ok, %{items: [_], next_cursor: cursor1}} =
+               Dlq.list(%{cursor: nil, page_size: 1}, prefix: schema_name)
+
+      assert {:ok, %{items: [_], next_cursor: cursor2}} =
+               Dlq.list(%{cursor: cursor1, page_size: 1}, prefix: schema_name)
+
+      assert {:ok, %{items: [_], next_cursor: nil}} =
+               Dlq.list(%{cursor: cursor2, page_size: 1}, prefix: schema_name)
+
+      assert length(entries) == 3
+    end
+
     test "the first page's next_cursor, fed back, returns the next distinct page with no repeated or skipped ids" do
       %{schema_name: schema_name} = provisioned_tenant()
 

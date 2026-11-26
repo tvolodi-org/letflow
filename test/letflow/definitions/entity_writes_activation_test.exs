@@ -56,6 +56,12 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     {:ok, _seeded} = EventTypes.seed!(tenant.schema_name)
     schema = tenant.schema_name
 
+    # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST -- the http channel and the
+    # FAKE host the graphs of this file name. The list is empty by default, and a definition
+    # that reaches outside is refused at the activation while the door is closed (the
+    # refusal is proved in test/letflow/outbound_destination_allow_list_test.exs).
+    TenantFixture.open_outbound_http!(schema, ["example.test"])
+
     type!(schema, "stock_move")
     type!(schema, "plain_type", %{writable_by_process: false})
     type!(schema, "mutable_type", %{append_only: false})

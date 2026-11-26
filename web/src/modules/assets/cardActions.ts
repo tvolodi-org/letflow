@@ -5,9 +5,10 @@
  *  are the ledger balance read; the server stays the authority at issue and posting. */
 import type { AssetBalanceRow } from './register/assetRegister.api'
 import { ASSETS_POST } from './assetsPermissions'
+import { MAINTENANCE_REQUEST_CREATE, maintenanceNewRequestHref } from './maintenanceCardAction'
 import type { DocKind } from './documents/documentsModel'
 
-export type CardActionId = 'commission' | 'change' | 'handover' | 'writeoff'
+export type CardActionId = 'commission' | 'change' | 'handover' | 'writeoff' | 'reportProblem'
 
 export interface CardFacts {
   active: boolean
@@ -19,6 +20,10 @@ export interface CardFacts {
   canRead: boolean
   /** A read failed. */
   failed?: boolean
+  /** The maintenance module is installed in the tenant (REQ-898: the card action of another module). */
+  maintenanceInstalled: boolean
+  /** The caller holds MaintenanceRequestCreate (REQ-898). */
+  canReport: boolean
 }
 
 export type CardStatus = 'retired' | 'held_pending' | 'in_register' | 'new' | 'unknown'
@@ -37,11 +42,16 @@ export function cardStatus(f: CardFacts): CardStatus {
 export interface CardActionSpec {
   id: CardActionId
   /** The document kind the action opens (`/admin/assets/documents/new?kind=`). */
-  kind: DocKind
+  kind?: DocKind
+  /** The screen of another module the action opens (REQ-898): it leaves the assets module. */
+  href?: (cardId: string) => string
   labelId: string
   permission: string
   /** null: allowed; else the reason id (`assets.cardActions.reason.<id>`). */
   rule: (f: CardFacts) => string | null
+  /** The action is not rendered at all when the rule refuses it (it belongs to another module and needs its own
+   *  context; the other actions stay visible with their reason). */
+  hidden?: boolean
 }
 
 const needsRegister = (f: CardFacts): string | null => {
@@ -72,15 +82,35 @@ export const CARD_ACTIONS: readonly CardActionSpec[] = [
   { id: 'change', kind: 'change', labelId: 'assets.cardActions.action.change', permission: ASSETS_POST, rule: needsRegister },
   { id: 'handover', kind: 'handover', labelId: 'assets.cardActions.action.handover', permission: ASSETS_POST, rule: needsRegister },
   { id: 'writeoff', kind: 'writeoff', labelId: 'assets.cardActions.action.writeoff', permission: ASSETS_POST, rule: needsRegister },
+  // REQ-898: the action of the maintenance module. It is shown only when the module is installed, the caller
+  // holds MaintenanceRequestCreate and the card is active; otherwise it is not rendered at all.
+  {
+    id: 'reportProblem',
+    href: maintenanceNewRequestHref,
+    labelId: 'assets.cardActions.action.reportProblem',
+    permission: MAINTENANCE_REQUEST_CREATE,
+    hidden: true,
+    rule: (f) => {
+      if (!f.active) return 'retired'
+      if (!f.maintenanceInstalled) return 'noMaintenance'
+      if (!f.canReport) return 'noPermission'
+      return null
+    },
+  },
 ]
 
-export type CardActionState = { allowed: true } | { allowed: false; reasonId: string }
+export type CardActionState = { allowed: true } | { allowed: false; reasonId: string; hidden: boolean }
 
 export function cardActionState(id: CardActionId, f: CardFacts): CardActionState {
   const spec = CARD_ACTIONS.find((a) => a.id === id)
   const reason = spec ? spec.rule(f) : 'noRead'
-  return reason === null ? { allowed: true } : { allowed: false, reasonId: `assets.cardActions.reason.${reason}` }
+  if (reason === null) return { allowed: true }
+  return { allowed: false, reasonId: `assets.cardActions.reason.${reason}`, hidden: spec?.hidden === true }
 }
+
+/** The actions of the card that open a document of this module (the selection bar works on rows of cards, so the
+ *  action of another module is not part of it). */
+export const CARD_DOCUMENT_ACTIONS: readonly CardActionSpec[] = CARD_ACTIONS.filter((a) => a.kind !== undefined)
 
 export type SelectionActionState = { allowed: true } | { allowed: false; reasonId: string; number: string }
 

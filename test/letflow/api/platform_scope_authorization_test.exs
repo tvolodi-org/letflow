@@ -95,7 +95,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :OfficialFormTemplatesManage,
     :LedgerSettingsManage,
     :PhotosAdd,
-    :PhotosDelete
+    :PhotosDelete,
+    :OutboundDestinationsManage
   ]
 
   @new_permissions [

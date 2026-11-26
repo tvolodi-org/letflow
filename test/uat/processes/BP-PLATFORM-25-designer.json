@@ -1,0 +1,795 @@
+{
+  "id": "BP-PLATFORM-25-designer",
+  "bp_entry": "BP-PLATFORM-25",
+  "title": "The designer without a browser: export and import round trip, instances, step log, DLQ retry; the checks the runner cannot do are named 'not run' with an owner",
+  "description": "T-2816 (PM 25 Nov 20:15, from project/designer-uat-2026-11-25.md 'Not tested'). Runs on the platform tenant as the platform administrator with throwaway definitions uat-tmp-designer-<run_id>-<n>; only platform.validate_registration, no mail, no provisioner, no tenant. A: export a definition, import the document under a second name, compare the graph (round trip), a foreign schema marker is refused. B: the definition and instance lists answer; an instance whose start slug is too short fails in the validate step (the failure fixture needs no provisioner: the BP-PLATFORM-01 fixture of scenario E, a realm bound twice, does); the step log names the step, the dead-letter list holds it, a retry gives a second attempt. C: a company user cannot export. D1..D4 are 'not run' with an OWNER and a reason (blocked_by; a blocked step never fails the run): the Keycloak sign-in page (infra), the raw JSON view and the visual checks (the Playwright designer specs), the Guide click in each language (the vitest of the editor guide; the strings and the three guide documents are asserted by scripts/uat/tests/test_bp_platform_25.py). The cleanup retires the throwaway definitions through the product's own API: DELETE /api/v1/definitions/:id (draft: hard delete 204; active: deprecate then archive, 200; deprecated: archive, 200; archived: 409) and the same call for the three leftover definitions of the operator's walk (uat-tmp-walk-*), by id, tolerant of 404 and 409.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "A1",
+      "actor": "admin",
+      "says": "A. A throwaway definition (validate only; no mail, no tenant, no provisioner) is saved as a draft.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-designer-${run_id}-1",
+          "version": "a",
+          "description": "UAT ${run_id}: designer proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defX": "$.id"
+      }
+    },
+    {
+      "id": "A2",
+      "actor": "admin",
+      "says": "A. EXPORT: the definition is exported (the designer's Export button calls this route); the document carries the schema marker, the name and the graph.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/${defX}/export"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.bpm_export_schema_version": "bpm/definition/v1",
+          "$.name": "uat-tmp-designer-${run_id}-1",
+          "$.graph.nodes[1].id": "validate",
+          "$.graph.nodes[1].attributes.platform_call.function": "platform.validate_registration",
+          "$.graph.edges[1].target": "end"
+        }
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "A3",
+      "actor": "admin",
+      "says": "A. IMPORT: the exported document (same graph, under the second throwaway name) is imported as a draft (the designer's Import button calls this route).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/import",
+        "body": {
+          "bpm_export_schema_version": "bpm/definition/v1",
+          "name": "uat-tmp-designer-${run_id}-2",
+          "version": "a",
+          "description": "UAT ${run_id}: designer proof",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "slug",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "display_name",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "email",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT",
+          "$.name": "uat-tmp-designer-${run_id}-2"
+        }
+      },
+      "save": {
+        "defY": "$.id"
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "A4",
+      "actor": "admin",
+      "says": "A. ROUND TRIP, compare: the imported definition holds the same graph as the exported one (node ids, the function of the step, the last edge).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/${defY}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.graph.nodes[1].id": "validate",
+          "$.graph.nodes[1].attributes.platform_call.function": "platform.validate_registration",
+          "$.graph.nodes[1].attributes.platform_call.reads.slug": "string",
+          "$.graph.edges[1].target": "end",
+          "$.graph.nodes[2].node_type": "END"
+        }
+      },
+      "requires": [
+        "defY"
+      ]
+    },
+    {
+      "id": "A5",
+      "actor": "admin",
+      "says": "A. Re-export of the imported definition: the graph is the same again (second half of the round trip).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/${defY}/export"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.name": "uat-tmp-designer-${run_id}-2",
+          "$.graph.nodes[1].id": "validate",
+          "$.graph.edges[1].target": "end"
+        }
+      },
+      "requires": [
+        "defY"
+      ]
+    },
+    {
+      "id": "A6",
+      "actor": "admin",
+      "says": "A. A document with a foreign schema marker is refused (nothing is created).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/import",
+        "body": {
+          "bpm_export_schema_version": "bpm/definition/v0",
+          "name": "uat-tmp-designer-${run_id}-3",
+          "version": "a",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "validate",
+                "node_type": "SERVICE_TASK",
+                "attributes": {
+                  "platform_call": {
+                    "function": "platform.validate_registration",
+                    "args": {
+                      "slug": {
+                        "var": "slug"
+                      },
+                      "display_name": {
+                        "var": "display_name"
+                      },
+                      "email": {
+                        "var": "email"
+                      }
+                    },
+                    "reads": {
+                      "slug": "string",
+                      "display_name": "string",
+                      "email": "string"
+                    },
+                    "writes": {}
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "validate"
+              },
+              {
+                "id": "e2",
+                "source": "validate",
+                "target": "end"
+              }
+            ]
+          }
+        }
+      },
+      "expect_refused": {
+        "status": [
+          400,
+          422
+        ]
+      }
+    },
+    {
+      "id": "B1",
+      "actor": "admin",
+      "says": "B. The definition list of the platform tenant shows the throwaway definition (the designer's list page).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?limit=200"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "B2",
+      "actor": "admin",
+      "says": "B. Activation of the first definition (an instance needs an active version).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defX}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "B3",
+      "actor": "admin",
+      "says": "B. A failing run: the start variable slug is invalid (uppercase, and unique per run because the call key is the slug: a fixed slug is a key reuse on the second run, T-2897), so platform.validate_registration refuses it (platform_call_invalid_slug). No provisioner, no tenant is created.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-designer-${run_id}-1",
+          "initial_variables": {
+            "slug": "X-${uuid2}",
+            "display_name": "UAT designer ${run_id}",
+            "email": "dg-${uuid1}@uat.letflow.internal"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instX": "$.instance_id"
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "B4",
+      "actor": "admin",
+      "says": "B. INSTANCES: the instance list answers 200 and the new instance can be read by its id.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances?limit=50"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "B5",
+      "actor": "admin",
+      "says": "B. The instance ends in ERROR.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instX}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ERROR"
+        }
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instX"
+      ]
+    },
+    {
+      "id": "B6",
+      "actor": "admin",
+      "says": "B. STEP LOG: the timeline names the failed step (validate) after start.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instX}/timeline"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].result": "failed",
+          "$.steps[1].last_failure_kind": {
+            "exists": true
+          }
+        }
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instX"
+      ]
+    },
+    {
+      "id": "B7",
+      "actor": "admin",
+      "says": "B. DLQ: the failure is in the dead-letter list of the platform tenant.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/dlq?instance_id=${instX}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "poll": {
+        "within_s": 60,
+        "interval_s": 2
+      },
+      "save": {
+        "dlq_id": "$.items[0].id"
+      },
+      "requires": [
+        "instX"
+      ]
+    },
+    {
+      "id": "B8",
+      "actor": "admin",
+      "says": "B. DLQ RETRY: the entry is retried (bounded; the slug stays invalid, so it fails again).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/dlq/${dlq_id}/retry",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          202
+        ]
+      },
+      "requires": [
+        "dlq_id"
+      ]
+    },
+    {
+      "id": "B9",
+      "actor": "admin",
+      "says": "B. The step log shows a second attempt of the failed step.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instX}/timeline"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate",
+          "$.steps[1].attempts": {
+            "regex": "^[2-9]$"
+          }
+        }
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instX",
+        "dlq_id"
+      ]
+    },
+    {
+      "id": "C1",
+      "actor": "storekeeper",
+      "says": "C. A company user cannot export a platform definition (uniform refusal).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/${defX}/export"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "D1",
+      "actor": "admin",
+      "says": "D. The Keycloak sign-in page (the page a person sees before the designer).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: infra (the team that runs Keycloak on QA). the runner uses a minted token and never opens the sign-in page; a person or the infra smoke checks it"
+    },
+    {
+      "id": "D2",
+      "actor": "admin",
+      "says": "D. The RAW JSON view of the designer (the 'JSON' tab of the editor shows and edits the graph text).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: FRONTEND: the Playwright designer specs under web/tests/e2e (process-designer-edit.e2e.spec.ts is the home of this check; no spec drives the raw view yet). it is a browser view, not an API; the runner cannot see it"
+    },
+    {
+      "id": "D3",
+      "actor": "admin",
+      "says": "D. The visual checks of the designer (layout at 390 and 1440 px, dark theme, focus).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: FRONTEND: web/tests/e2e/pilot-register-tenant-designer.e2e.spec.ts and the screenshot matrix of the designer task. the runner does not render pages"
+    },
+    {
+      "id": "D4",
+      "actor": "admin",
+      "says": "D. The Guide opens in each language by clicking the 'Guide' entry (en, ru, kk).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: FRONTEND: web/src/pages/definitions/__tests__/DefinitionEditorPage.guide.test.tsx (clicks the entry); the strings and the three documents are asserted by scripts/uat/tests/test_bp_platform_25.py. a click needs a browser"
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "says": "Remove the throwaway definition with the product's own call: DELETE hard-deletes a draft, and deprecates then archives an active one (one request, status 200); a deprecated one is archived. 409 = already archived.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defX}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      },
+      "requires": [
+        "defX"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "says": "Remove the throwaway definition with the product's own call: DELETE hard-deletes a draft, and deprecates then archives an active one (one request, status 200); a deprecated one is archived. 409 = already archived.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defY}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      },
+      "requires": [
+        "defY"
+      ]
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "says": "Retire the leftover throwaway of the operator's walk of 2026-11-25 through the product's own API (T-2816): uat-tmp-walk-b202611251435 1.0.0 (ACTIVE): DELETE deprecates and archives it in one request. 404 = already gone, 409 = already archived; a repeat run changes nothing.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/8dc15fc1-d618-471e-afbc-514afe549559"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "says": "Retire the leftover throwaway of the operator's walk of 2026-11-25 through the product's own API (T-2816): uat-tmp-walk-b202611251435 1.0.1 (DEPRECATED): DELETE archives it. 404 = already gone, 409 = already archived; a repeat run changes nothing.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/df9f05bd-49c2-4d00-8c9b-b392a26a880b"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "says": "Retire the leftover throwaway of the operator's walk of 2026-11-25 through the product's own API (T-2816): uat-tmp-walk-202611251422 (DRAFT): DELETE hard-deletes it. 404 = already gone, 409 = already archived; a repeat run changes nothing.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/667a9e0f-6787-49c5-98bb-e00c9128930c"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "says": "Check the leftover is retired: a read answers 404 (hard-deleted) or the status ARCHIVED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/8dc15fc1-d618-471e-afbc-514afe549559"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "admin",
+      "says": "Check the leftover is retired: a read answers 404 (hard-deleted) or the status ARCHIVED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/df9f05bd-49c2-4d00-8c9b-b392a26a880b"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      }
+    },
+    {
+      "id": "c8",
+      "actor": "admin",
+      "says": "Check the leftover is retired: a read answers 404 (hard-deleted) or the status ARCHIVED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/667a9e0f-6787-49c5-98bb-e00c9128930c"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      }
+    },
+    {
+      "id": "c9",
+      "actor": "admin",
+      "says": "Sweep the throwaway definitions of EARLIER failed runs (T-2898): every definition whose name starts with uat-tmp-designer- and does not contain this run's id is deleted through the product's own call (draft 204, active and deprecated 200, archived 409 / gone 404 accepted); one line per definition. A cleanup only knows its own ids, so without this a failed run leaves a draft that turns BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "prefix": "uat-tmp-designer-",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c10",
+      "actor": "admin",
+      "says": "Sweep the leftover DRAFT versions of platform.register_tenant (T-2917): any DRAFT version (T-2930: also an old one without a uat- version; not this run's, never active or the seeded version) is retired through the same delete call; one line per version. Without this an earlier run's draft file-step version keeps BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "draft_versions_of": "platform.register_tenant",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "defaults": {
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "instances": [
+      "${instX}"
+    ]
+  },
+  "residue_check": false
+}

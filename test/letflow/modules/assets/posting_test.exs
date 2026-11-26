@@ -245,7 +245,7 @@ defmodule Letflow.Modules.Assets.PostingTest do
     assert D.pending_task(ctx, doc["id"], "post") == nil
   end
 
-  test "P6 a changed posting variable still completes but reads posting_check mismatch", ctx do
+  test "P6 a changed posting variable is refused (T-2432), the document stays issued", ctx do
     doc = D.issue!(ctx, D.body(ctx.ma, %{"lines" => [line(ctx.ma.low, "5")]}))
     id = doc["id"]
     task = D.pending_task(ctx, id, "post")
@@ -259,7 +259,7 @@ defmodule Letflow.Modules.Assets.PostingTest do
 
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
-    assert {:ok, _} =
+    assert {:error, {:entity_write_refused, 0, :validation_failed}} =
              Engine.complete_task(
                task.id,
                %{
@@ -271,9 +271,8 @@ defmodule Letflow.Modules.Assets.PostingTest do
                credential: :oidc
              )
 
-    read = D.get!(ctx, id)
-    assert read["state"] == "posted" and read["posting_check"] == "mismatch"
-    refute inspect(read) =~ "mismatch_detail"
+    assert D.get!(ctx, id)["state"] == "issued"
+    assert D.counts(ctx, id) == %{entries: %{}, marks: 0}
   end
 
   test "T2 tenant B cannot reverse tenant A's posted document", ctx do

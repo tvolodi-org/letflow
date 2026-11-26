@@ -28,10 +28,10 @@
           "GET /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
+          "lib/letflow/routers/tenants.ex:211",
           "web/src/router.tsx:165",
           "web/src/router.tsx:129",
-          "lib/letflow/routers/tenants.ex:426"
+          "lib/letflow/routers/tenants.ex:433"
         ],
         "result": "the paginated list of all tenants"
       },
@@ -39,17 +39,16 @@
         "actor": "PLATFORM_ADMIN",
         "forms": [],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/tenants"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/tenants.ex:398"
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/tenants.ex:397"
         ],
-        "result": "201 with the tenant record; 409 slug already exists; 422 validation failed; 500 when provisioning fails (no rollback, see moduledoc OQ-5)"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); an identical replay answers the same 202; 409 slug already exists or same slug with different values; 422 validation failed; provisioning runs as steps of the instance, a failed step shows as instance ERROR on the timeline, not as a 5xx"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -64,11 +63,11 @@
           "PATCH /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:222",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:219",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:475",
-          "lib/letflow/routers/tenants.ex:509"
+          "lib/letflow/routers/tenants.ex:482",
+          "lib/letflow/routers/tenants.ex:516"
         ],
         "result": "200 with the tenant record; unknown slug 404"
       }
@@ -90,9 +89,146 @@
       "test/letflow/routers/platform_scope_routes_test.exs",
       "web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx"
     ],
-    "scenario": null,
-    "uat": "planned: the runner has no platform-tenant actor on one base url; refusals are automated in BP-PLATFORM-16",
-    "status": "implemented"
+    "scenario": "test/uat/processes/BP-PLATFORM-01-register-tenant.json",
+    "uat": "step A is runnable and read-only (A1 definition active, A2 graph with function names and notify template and recipient, A3 registry and template options; A4 is the Playwright check web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts); steps B..H (T-2608) start a throwaway tenant, wait for the instance, read the step log, read the mail, force and retry a failure, edit the definition through the designer API, roll it back and check the refusals; not yet covered: a sign-in as the new tenant's administrator and a download route of the notification file. Refusals of today's routes are automated in BP-PLATFORM-16",
+    "status": "implemented",
+    "acceptance": [
+      {
+        "n": 1,
+        "item": "Definition: the process is an ordinary editable, versioned definition in the platform tenant",
+        "today": "SHIPPED (G9): the definition platform.register_tenant v1 is seeded into the platform tenant as an ordinary, unstamped, editable definition (mix letflow.seed.platform_definitions; since T-2739 also seeded automatically at boot when LETFLOW_SEED_PLATFORM_DEFINITIONS=true and by the QA deploy, which runs a smoke check that fails the deploy when it is missing; the document is lib/letflow/platform_processes/definition.ex, the seed lib/letflow/platform_processes/seed.ex). The seed never replaces a newer version an administrator made. The seed signs the switch-on with a REAL platform administrator: LETFLOW_PLATFORM_ACTIVATOR_USER_ID names that administrator (a user id of the platform tenant) and is OPTIONAL -- without it the first PLATFORM_ADMIN holder of the platform tenant signs (sorted by id, so the choice is the same on every run); a platform tenant with no such administrator is answered no_platform_activator and nothing is written. The process is still ROUTE CODE: the engine does not run the definition's platform steps yet and the routes still call the functions directly",
+        "target": "definition platform.register_tenant exists in the platform tenant, not module-stamped, v1 active after the seed, every edit a new draft",
+        "proof": "the seed's own tests: test/letflow/platform_processes/seed_test.exs (created and switched on, idempotent, a newer administrator version is kept, the version is editable); the document's tests: test/letflow/platform_processes/definition_test.exs; runner step A1 of BP-PLATFORM-01-register-tenant reads the active platform.register_tenant definition and saves its id; source: lib/letflow/routers/definitions.ex",
+        "gap": "G9",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 2,
+        "item": "It works: executed by the BPM engine, started from the 'Register tenant' screen and the API, no direct code path",
+        "today": "MISSING: the screen posts to the onboarding route and POST /api/v1/tenants; both call Identity.create_tenant and TenantOnboarding.provision_and_migrate directly",
+        "target": "both starts create an instance of the active version and answer 202 with the instance id; nodes in order: validate, create tenant, provision schema and migrate, bind realm and administrators, notify by e-mail, end",
+        "proof": "pending T-2608 later steps B and C (start from the screen and API, then the instance timeline lists the nodes in order); source-scan test of item 9",
+        "gap": "G1, G2, G3, G13",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 3,
+        "item": "A test script for the UAT runner, readable scenario JSON",
+        "today": "PARTIAL: step A of test/uat/processes/BP-PLATFORM-01-register-tenant.json is runnable and read-only; T-2608 adds the execution, mail, retry, edit and rollback steps B..n",
+        "target": "test/uat/processes/BP-PLATFORM-01-register-tenant.json covers items 2, 6, 7 and 8",
+        "proof": "step A of the scenario file plus scripts/uat/tests/test_bp_platform_01.py and python3 scripts/uat/check_processes.py on it; the coverage of items 2, 6, 7 and 8 remains pending T-2608 steps B..n",
+        "gap": "G10, G18",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 4,
+        "item": "The runner executes it and keeps an execution log (per step: who, when, result, duration)",
+        "today": "EXISTS in the runner: run.jsonl has one line per step with ts, actor, verdict, ms, plus summary.md; the product-side step log per node is missing",
+        "target": "a run leaves run.jsonl and summary.md; the instance timeline shows the same steps with who, when, result, duration, attempts",
+        "proof": "runner output (run.jsonl, summary.md) read by the walk; product side: step-log test of G6",
+        "gap": "G6",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 5,
+        "item": "No fails: the runner passes twice in a row on one build with the residue check; no open high or medium finding",
+        "today": "PARTIAL: two-run procedure and residue check exist for tasks and documents of a company tenant, not for created tenants, definition versions or platform instances",
+        "target": "the second run finds no residue: created tenants deleted and purged, definition back on its previous version, no instance open",
+        "proof": "runner: two consecutive dry-runs on one build with the platform_residue block (definitions, instances); finding list empty of high and medium",
+        "gap": "G18, G21",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 6,
+        "item": "Configurability proof: the runner edits the definition through the designer API (adds the e-mail and 'file' notification steps), starts again, the mail and the file appear, one-step rollback; plus one Playwright test of the designer",
+        "today": "PARTIAL: one-step rollback exists (POST /api/v1/definitions/:process_key/rollback); the notify step, its designer fields and the file area are missing; the only Playwright CI job runs a fixed spec list, so a designer spec runs nowhere in CI",
+        "target": "start without notify step and see it end; draft with notify (e-mail to a catcher address and file) activated; second start: mail in the trap and file downloadable, first instance stays on v1; rollback; third start sends no mail",
+        "proof": "A4 browser check: web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts opens the real QA designer page, selects the edit view, counts eight nodes and opens a node panel; the edit, notification, mail, file and rollback runner coverage is pending T-2608 later steps; source: lib/letflow/routers/definitions.ex",
+        "gap": "G4, G5, G8, G12, G19",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 7,
+        "item": "Step failures are visible and retryable (DLQ and step log); no secrets in the log",
+        "today": "PARTIAL: a failure is visible (DLQ row, instance ERROR, EXECUTION_ERROR event) but a DLQ retry re-dispatches nothing; delivery rows store no address or body (INV-4)",
+        "target": "a forced failure of the provision step leaves the instance in ERROR with the step and failure kind in the timeline and a DLQ entry; the platform admin retries it and the instance ends; a retry of a finished step changes nothing; no token, realm credential or mail body in any event, DLQ payload, timeline answer or run.jsonl line",
+        "proof": "pending T-2608 later step E (forced failure and DLQ retry) and the product-side G6 test; grep of the run directory for secrets; source: lib/letflow/routers/dlq.ex",
+        "gap": "G6, G7",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 8,
+        "item": "Security: only the platform admin starts or edits it; company users get the uniform 404/403; the definition calls only catalogue functions it is allowed to",
+        "today": "PARTIAL: TenantsManage gates tenant creation and the uniform refusal pattern exists (BP-PLATFORM-16, -17, -20); no catalogue of functions and no allow-list exist",
+        "target": "start, create or activate a version, rollback and read the instances need TenantsManage in the platform tenant; company administrator and user get the same refusal, also cross-tenant; activation refuses an unknown function with a fixed code; a company-tenant definition cannot carry a platform step",
+        "proof": "pending T-2608 later step G (expect_refused); current route coverage: test/letflow/routers/platform_scope_routes_test.exs; INV-10 cross-tenant negative test",
+        "gap": "G1, G2",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 9,
+        "item": "No bypass: the old direct registration paths are not a second way around the process",
+        "today": "MISSING: five paths create a tenant (see tenant_creating_paths); each calls the create and provision functions itself",
+        "target": "paths 1 to 4 become starts of the one definition; only the seed task keeps a direct call; no other caller of the create and provision functions in lib/",
+        "proof": "source-scan callers test (allowed files: step dispatcher, tenant_provisioner.ex, seed task) in the style of credential_callers_test.exs; route test that each of paths 1 to 4 leaves an INSTANCE_STARTED of platform.register_tenant for the new tenant; the runner assertion is pending a T-2608 later step",
+        "gap": "G17",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      },
+      {
+        "n": 10,
+        "item": "The template page 'how to turn a business function into a real process'",
+        "today": "SHIPPED (G20): docs/bp/process-template.md is in the product, written from what the pilot built (catalogue, definition, start function, runner file, guardrails)",
+        "target": "docs/bp/process-template.md exists in the product, rewritten from what the pilot built; this row says 'definition' with its key and links the page",
+        "proof": "doc: docs/bp/process-template.md; test/scripts/bp_doc_test.exs; check_catalog PASS. The executed_by value of this row moves to definition:platform.register_tenant only when the engine runs the process and the routes only start it",
+        "gap": "G20",
+        "source": "project/pilot-register-tenant-design.md of the team repository (spike D-175, T-2583), section 4 and section 2.j"
+      }
+    ],
+    "executed_by": "direct",
+    "executed_by_target": "definition:platform.register_tenant",
+    "executed_by_note": "TODAY the process is route code (executed_by direct). The pilot (spike D-175, T-2583; gaps G1..G21) turns it into the definition platform.register_tenant in the platform tenant; this field then becomes definition:platform.register_tenant and this row links docs/bp/process-template.md (on main since G20). The definition exists since G9; executed_by stays direct until the routes only start it.",
+    "tenant_creating_paths": [
+      {
+        "n": 1,
+        "path": "POST /api/v1/onboarding, the 'Register tenant' screen (web/src/router.tsx:161)",
+        "calls": "lib/letflow/routers/onboarding.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "validates the form and starts platform.register_tenant, answers 202 with the instance id (T-2704)",
+        "becomes": "a start of platform.register_tenant, answer 202 with the instance id (G3)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 2,
+        "path": "POST /api/v1/tenants (permission TenantsManage)",
+        "calls": "lib/letflow/routers/tenants.ex -> PlatformProcesses.start_register_tenant/2 (T-2704); no create or provision call remains",
+        "today": "starts platform.register_tenant, answers 202 with the instance id and the slug (the tenant id is the output of the tenant.create step, read it from GET /tenants/:slug) (T-2704)",
+        "becomes": "the API start of the same definition, answer 202 with instance id and tenant id; the 201 scenarios change (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 3,
+        "path": "POST /admin/v1/tenants, the portfolio provisioner mount (QA only, decision 0072)",
+        "calls": "lib/letflow/routers/admin_v1.ex:76 TenantProvisioner.create/1 -> lib/letflow/tenant_provisioner.ex:313 create_provisioned_tenant",
+        "today": "chain provision, onboarding record, pending administrator grant, realm probe, default modules; replay by tenant_id",
+        "becomes": "a start with tier demo; replay by tenant_id answers the existing instance; the provisioner contract needs one amendment (answer 202, poll the existing GET) (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 4,
+        "path": "Self-service signup, POST /signup/verify (lib/letflow/signup.ex:161 Provisioning.start_async/1; resumed by signup/sweep.ex)",
+        "calls": "lib/letflow/signup/provisioning.ex:264 TenantProvisioner.create/1",
+        "today": "creates the tenant asynchronously after the e-mail is verified",
+        "becomes": "the signup step create_tenant starts the instance instead of the direct call; its welcome mail moves to the notify step later, not in the pilot (G17)",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      },
+      {
+        "n": 5,
+        "path": "mix letflow.seed, dev/test bootstrap (and scripts/demo/demo_platform_bootstrap.sh)",
+        "calls": "lib/mix/tasks/letflow.seed.ex:46 Identity.create_tenant, :73 provision_and_migrate",
+        "today": "creates the platform tenant itself",
+        "becomes": "kept as a direct call, with a stated reason: it runs before any definition can exist and Mix tasks are not in the release; test fixtures in test/support also stay",
+        "source": "project/pilot-register-tenant-design.md section 2.j (grep on d888b6d5e)"
+      }
+    ]
   },
   {
     "id": "BP-PLATFORM-02",
@@ -122,9 +258,9 @@
           "POST /api/v1/tenants/:slug/deactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
+          "lib/letflow/routers/tenants.ex:223",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "200 with status inactive; platform tenant: 409; unknown: 404"
       },
@@ -140,9 +276,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:234",
+          "lib/letflow/routers/tenants.ex:231",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:710"
+          "lib/letflow/routers/tenants.ex:717"
         ],
         "result": "200 active again; purged tenant 409 'tenant was purged'"
       },
@@ -158,9 +294,9 @@
           "POST /api/v1/tenants/:slug/purge"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:230",
+          "lib/letflow/routers/tenants.ex:227",
           "web/src/router.tsx:165",
-          "lib/letflow/routers/tenants.ex:724"
+          "lib/letflow/routers/tenants.ex:731"
         ],
         "result": "200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown, platform tenant or no lifecycle row 404"
       }
@@ -183,8 +319,8 @@
       "test/letflow/routers/platform_scope_routes_test.exs",
       "test/letflow/tenant_purge_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned: destructive on a shared QA tenant; needs a throw-away tenant made by BP-PLATFORM-01 first",
+    "scenario": "test/uat/processes/BP-PLATFORM-02-tenant-lifecycle.json",
+    "uat": "automated by the runner on the fixed throwaway tenant uat-tmp-fixture (create-or-reuse, never purged, never residue, left active): deactivate, no-op repeat, reactivate, unknown slug 404, company-administrator refusals; the cleanup reactivates it. The fixture does not exist on QA yet (404 on 2026-11-25): until a run with --allow-create creates it the fixture steps are skipped with 'requires fixture_id' and say nothing. NOT automated, with reasons: the deactivate of the platform tenant (a failing guard would take the platform down; covered by test/letflow/routers/tenants_test.exs), the tenant_inactive refusal of the deactivated tenant's users (the fixture has no user), and the purge steps (not runnable on QA: no lifecycle row for uat-tmp tenants, infra 2026-11-21; the step is written blocked_by qa-provisioner-config until the provisioner window)",
     "status": "implemented"
   },
   {
@@ -215,9 +351,9 @@
           "PUT /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:255",
+          "lib/letflow/routers/tenants.ex:254",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 {tenant_id, slug, hostname, onboarding_id, changed}"
       },
@@ -233,9 +369,9 @@
           "DELETE /api/v1/tenants/:slug/hostname"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:259",
+          "lib/letflow/routers/tenants.ex:258",
           "web/src/router.tsx:166",
-          "lib/letflow/routers/tenants.ex:277"
+          "lib/letflow/routers/tenants.ex:276"
         ],
         "result": "200 with hostname null"
       }
@@ -256,8 +392,8 @@
     "tests": [
       "test/letflow/routers/tenants_hostname_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned: changes routing of a real host",
+    "scenario": "test/uat/processes/BP-PLATFORM-03-host-name.json",
+    "uat": "automated on uat-tmp-fixture: clean start, set (changed true), repeat (changed false), host outside the suffixes 422 format, reserved label 422, missing value 422, unknown slug 404, company-administrator refusals, remove, remove again; the cleanup removes the host. Fixture steps are skipped ('requires fixture_id') while the fixture is missing on QA. NOT automated: the 409 'hostname already bound' (needs a second tenant holding the host; covered by test/letflow/routers/tenants_hostname_test.exs)",
     "status": "implemented"
   },
   {
@@ -286,8 +422,8 @@
           "GET /api/v1/tenants/:slug/script-policy"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:240",
-          "lib/letflow/routers/tenants.ex:564"
+          "lib/letflow/routers/tenants.ex:239",
+          "lib/letflow/routers/tenants.ex:570"
         ],
         "result": "200 platform_policy_map"
       },
@@ -301,8 +437,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/kill-switch"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:244",
-          "lib/letflow/routers/tenants.ex:576"
+          "lib/letflow/routers/tenants.ex:243",
+          "lib/letflow/routers/tenants.ex:582"
         ],
         "result": "200; entry on tenant chain (nil actor) and platform chain (operator id)"
       },
@@ -316,8 +452,8 @@
           "PUT /api/v1/tenants/:slug/script-policy/solo-audited"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:250",
-          "lib/letflow/routers/tenants.ex:607"
+          "lib/letflow/routers/tenants.ex:249",
+          "lib/letflow/routers/tenants.ex:613"
         ],
         "result": "200; the platform-owned solo_audited object"
       }
@@ -337,8 +473,8 @@
     "tests": [
       "test/letflow/routers/tenants_script_policy_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned",
+    "scenario": "test/uat/processes/BP-PLATFORM-04-script-policy.json",
+    "uat": "automated on uat-tmp-fixture: reset, read (platform-owned fields only), kill switch on (effective on, tenant latch untouched), repeat, 422 invalid_state and invalid_reason, solo-audit allow, unknown slug 404, company-administrator refusals; the cleanup puts both flags back. The PUTs use the password-grant token of the platform administrator (an interactive sign-in on QA). Fixture steps are skipped ('requires fixture_id') while the fixture is missing. NOT automated: the API-token refusal api_token_not_allowed (the runner has no API-token actor; covered by test/letflow/routers/tenants_script_policy_test.exs)",
     "status": "implemented"
   },
   {
@@ -364,21 +500,20 @@
           "admin/onboarding/new"
         ],
         "functions": [
-          "Letflow.Identity.create_tenant",
-          "Letflow.TenantOnboarding.provision_and_migrate"
+          "Letflow.PlatformProcesses.start_register_tenant"
         ],
         "route": [
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:189",
+          "lib/letflow/routers/onboarding.ex:187",
           "web/src/router.tsx:161",
           "web/src/router.tsx:162",
-          "lib/letflow/routers/onboarding.ex:285",
-          "lib/letflow/routers/onboarding.ex:510",
-          "lib/letflow/routers/onboarding.ex:564"
+          "lib/letflow/routers/onboarding.ex:254",
+          "lib/letflow/routers/onboarding.ex:490",
+          "lib/letflow/routers/onboarding.ex:506"
         ],
-        "result": "created record with login state; field errors 422; duplicate host or realm refused"
+        "result": "202 with the platform.register_tenant instance reference (instance_id, status, slug); the screen then opens the instance timeline; an identical replay answers the same 202; field errors 422; duplicate host, realm or slug with different values 409; provisioning runs as steps of the instance (a failed step shows as instance ERROR, not as a 5xx); the tenant is not yet loginable without a realm"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -391,10 +526,10 @@
           "GET /api/v1/onboarding/:id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:193",
+          "lib/letflow/routers/onboarding.ex:191",
           "web/src/router.tsx:163",
           "web/src/router.tsx:164",
-          "lib/letflow/routers/onboarding.ex:1026"
+          "lib/letflow/routers/onboarding.ex:703"
         ],
         "result": "the onboarding record and its state"
       },
@@ -408,7 +543,7 @@
           "GET /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/onboarding.ex:207",
           "web/src/router.tsx:161"
         ],
         "result": "the record of the host given in ?hostname="
@@ -421,8 +556,8 @@
           "POST /api/v1/onboarding/:id/bind-realm"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "the realm bound, or a reason when it cannot be"
       },
@@ -434,7 +569,7 @@
           "GET /api/v1/onboarding/:id/pending-admins"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:201"
+          "lib/letflow/routers/onboarding.ex:199"
         ],
         "result": "pending administrator grants"
       },
@@ -446,7 +581,7 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:205"
+          "lib/letflow/routers/onboarding.ex:203"
         ],
         "result": "the grant revoked"
       }
@@ -473,8 +608,8 @@
       "test/letflow/routers/onboarding_administrator_fields_test.exs",
       "web/src/pages/admin/onboarding"
     ],
-    "scenario": null,
-    "uat": "planned: creates a real tenant and realm binding",
+    "scenario": "test/uat/processes/BP-PLATFORM-05-onboarding-records.json",
+    "uat": "the registration itself is run by BP-PLATFORM-01 (T-2744, T-2608; owner order: only that scenario creates a tenant). This file automates what surrounds it, with no new tenant: empty form 422, reserved slug 422, reserved host 422, lookup without host 400, unknown host 404, unknown onboarding id 404 on read, pending administrators and bind-realm (the realm is not probed), company-administrator refusals; with the fixture it sets a host to make the onboarding record, reads it by id and by host, lists its pending administrators and removes the host. NOT automated: the bind of a real realm and the revoke of a pending administrator (they need a tenant made by the registration process with a realm: BP-PLATFORM-01 blocked_by the provisioner wiring, D-195)",
     "status": "implemented"
   },
   {
@@ -575,8 +710,8 @@
     "tests": [
       "test/letflow/routers/admin_v1_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned: the credential is infra's, the runner cannot hold it",
+    "scenario": "test/uat/processes/BP-PLATFORM-06-provisioner.json",
+    "uat": "NOT RUN, documented reason: blocked_by qa-provisioner-config (the QA provisioner credential is not configured, /admin/v1 answers 404 on QA; scheduled by infra with the operator). The runner cannot yet send a provisioner credential or call a path outside /api/ (check_processes.py): two runner tasks to open then. The file holds only the platform-side observation of the provisioned tenant, both steps blocked; dry-run skips it with that reason",
     "status": "implemented"
   },
   {
@@ -678,8 +813,8 @@
       "test/letflow/routers/platform_module_rollouts_test.exs",
       "web/src/pages/admin/module-rollouts"
     ],
-    "scenario": null,
-    "uat": "planned: a start acts on every tenant, never run on shared QA by a script",
+    "scenario": "test/uat/processes/BP-PLATFORM-07-module-rollout-read-only.json",
+    "uat": "READ-ONLY by decision: the runner lists the rollouts, reads one, and checks the refusals that start nothing (page size and cursor 400, unknown id 404 on read and resume, start without module 422, start of an unknown module 404, company-administrator refusals). The real start is not automated because it acts on every tenant of the fleet and a script cannot undo it; it is covered by test/letflow/routers/platform_module_rollouts_test.exs. Passes on QA with the residue check",
     "status": "implemented"
   },
   {
@@ -763,8 +898,8 @@
       "test/letflow/routers/platform_migrations_test.exs",
       "web/src/pages/admin/platform-migrations"
     ],
-    "scenario": null,
-    "uat": "planned: acts on all tenants",
+    "scenario": "test/uat/processes/BP-PLATFORM-08-migration-fanout-read-only.json",
+    "uat": "READ-ONLY by decision: unknown rollout 404 on read and resume, start without fields 422, entity type that is not an identifier 422, start without column type 400, company-administrator refusals. The real start is not automated because it adds a column to the schema of every tenant and has no undo; it is covered by test/letflow/routers/platform_migrations_test.exs. Passes on QA with the residue check",
     "status": "implemented"
   },
   {
@@ -846,10 +981,10 @@
     "tests": [
       "test/letflow/routers/event_retention_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned: irreversible",
+    "scenario": "test/uat/processes/BP-PLATFORM-09-event-retention.json",
+    "uat": "READ-ONLY by decision: the runner reads the summary, asks for a retirement id nobody started (404) and checks the refusals that start nothing (company administrator refused the summary, the start and the read with the fixed 403; no sign-in 401). The real start is NOT automated: it retires the oldest eligible month of EVERY tenant and a script cannot undo it (the month is computed by the system, never supplied); the start, the per-tenant outcomes and the 409 no_eligible_month are covered by test/letflow/routers/event_retention_test.exs. Unmatched addresses are not probed (the static check cannot route-match them; covered by the router test)",
     "status": "partial",
-    "gap": "the EventRetentionPage screen has no web test"
+    "gap": "the real start and the follow-up of its outcomes are not run by the runner (irreversible, fleet-wide: documented reason); the EventRetentionPage screen has no web test and no runner step (screen only)"
   },
   {
     "id": "BP-PLATFORM-10",
@@ -963,8 +1098,8 @@
       "web/src/pages/admin/__tests__/MetricsPage.test.tsx",
       "web/src/pages/dashboard/__tests__/PlatformDashboardPage.test.tsx"
     ],
-    "scenario": null,
-    "uat": "planned: GET /health with the runner's preflight is already used; a standalone process needs an actor-less step kind",
+    "scenario": "test/uat/processes/BP-PLATFORM-10-watch-platform.json",
+    "uat": "automated, read-only: the backup status (200, configured and jobs), the list of companies the platform dashboard shows, and the refusals (company administrator and storekeeper 403, no sign-in 401). NOT run, with the reason: GET /health, GET /ready and GET /metrics (the three anonymous routes) are outside /api/ and the runner's static check requires /api/ paths; /health is read by the runner's own preflight (sha at the start and at the end) but has no expectation step. RUNNER TASK wanted: allow the anonymous actor on /health, /ready and /metrics, then add three steps (200 with status ok and sha; ready checks; metrics text without a tenant label). The health dashboard, metrics page and platform dashboard screens are screen-only",
     "status": "implemented"
   },
   {
@@ -1100,8 +1235,8 @@
       "test/letflow/routers/admin_services_reserved_endpoint_test.exs",
       "web/src/pages/admin/services"
     ],
-    "scenario": null,
-    "uat": "planned",
+    "scenario": "test/uat/processes/BP-PLATFORM-11-service-catalogue.json",
+    "uat": "automated, read-only: the list, a bad page size 400, a publish with no version 400, a publish and a retire of an unknown service 404, company-administrator refusals 403 and no sign-in 401. The LIFECYCLE (register 201, duplicate 409, reserved address 422, publish 201/409, narrow and widen the scope, retire 200/409, delete 204/404, refusals of register and delete) is written as test/uat/processes/planned/BP-PLATFORM-11-service-catalogue-lifecycle.draft.txt with a throwaway service uat-tmp-svc-<run id> and a cleanup, but it is NOT run: the static check derives the mount of admin_services.ex as admin-services and cannot match POST /api/v1/admin/services, PATCH and DELETE /api/v1/admin/services/:id, so it would fail the whole check. RUNNER TASK wanted: teach the check that mount (or read it from ApiPipeline); then rename the draft to .json and dry-run it (the draft has not been run on QA)",
     "status": "implemented"
   },
   {
@@ -1207,8 +1342,8 @@
       "test/letflow/routers/platform_owner_items_test.exs",
       "web/src/pages/admin/problem-reports"
     ],
-    "scenario": null,
-    "uat": "planned",
+    "scenario": "test/uat/processes/BP-PLATFORM-12-problem-reports.json",
+    "uat": "READ-ONLY by decision: the runner reads the inbox, the review list, one report when there is one (only its id is asserted; the text of a company's report never reaches the log), a bad filter and a bad class 400, an unknown id 404, and the refusals (company administrator refused the inbox and the decision route 403, no sign-in 401). NOT automated: decide, comment (JSON or with screenshots) and change a review state act on real reports of real companies, notify the reporter and have no undo; creating a report first would notify the platform owner; they are covered by test/letflow/routers/platform_problem_reports_test.exs and platform_owner_items_test.exs. The image route needs a report with a screenshot: none on QA. If the inbox is not configured on the build the list answers 503 and step s1 fails: a QA configuration fault",
     "status": "implemented"
   },
   {
@@ -1234,7 +1369,7 @@
           "GET /api/signup/config"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:55"
+          "lib/letflow/routers/signup.ex:57"
         ],
         "result": "200 the public config"
       },
@@ -1248,7 +1383,7 @@
           "POST /api/signup"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:66"
+          "lib/letflow/routers/signup.ex:89"
         ],
         "result": "202 neutral; 422 field errors, refused e-mail domain, failed captcha; 429 per-IP or per-domain cap; 503 pending cap or captcha adapter down"
       },
@@ -1262,9 +1397,37 @@
           "POST /api/signup/verify"
         ],
         "code_refs": [
-          "lib/letflow/routers/signup.ex:100"
+          "lib/letflow/routers/signup.ex:127"
         ],
         "result": "200, or one generic 400 for any bad token (a POST so a mail scanner cannot consume it)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "GET /api/signup/slug"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:75"
+        ],
+        "result": "200 available, taken, reserved or invalid for the desired slug (live check of the sign-up form)"
+      },
+      {
+        "actor": "visitor",
+        "forms": [],
+        "functions": [
+          "Letflow.Signup"
+        ],
+        "route": [
+          "POST /api/signup/status"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/signup.ex:151"
+        ],
+        "result": "200 pending, ready or failed with a closed reason (the mailed token is the credential)"
       },
       {
         "actor": "user",
@@ -1299,8 +1462,8 @@
       "test/letflow/routers/login_discovery_mount_test.exs",
       "test/letflow/routers/login_discovery_timing_test.exs"
     ],
-    "scenario": null,
-    "uat": "planned: public, abuse-limited, sends mail",
+    "scenario": "test/uat/processes/BP-PLATFORM-13-signup-and-email-lookup.json",
+    "uat": "automated with no sign-in and no company created, whichever way the two switches are: QA answered the standard 404 for /api/signup/* on 2026-11-26, so the OFF steps run (404 Not Found for the slug check, the verification and the status) and the ON steps are skipped with 'requires signup_on'; when ON they check the slug answers (invalid, reserved, available) and that an unknown, a too-short and a missing token get the ONE generic 400 invalid_or_expired_link. The e-mail lookup has its own switch, also OFF on QA on 2026-11-26 (POST /api/login-discovery answers 404; its ON steps are skipped with 'requires discovery_on'): neutral 202 accepted for an unknown and for a malformed address (ON) or 404 (OFF). NOT automated here: the submit and the mail (BP-PLATFORM-02-self-service-signup, T-2749, covers the whole path with the mail trap), the 200 single-match answer (covered by test/letflow/routers/login_discovery_test.exs) and the 429 limits (the runner must not saturate a public limiter)",
     "status": "implemented"
   },
   {
@@ -1334,8 +1497,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "201 the promoted definition; 403 insufficient permissions; invalid source: invalid_promotion_source; any other source tenant: the zero-detail 404"
       }
@@ -1355,9 +1518,10 @@
       "test/letflow/routers/tenants_test.exs",
       "test/letflow/routers/platform_scope_routes_test.exs"
     ],
-    "scenario": "test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json",
-    "uat": "the scenario file BP-PLATFORM-16 covers ONLY the refusal half (foreign or unknown source id: 404); the promotion success path has no scenario yet (planned)",
-    "status": "implemented"
+    "scenario": "test/uat/processes/BP-PLATFORM-14-promote-definition.json",
+    "uat": "the REFUSAL half is automated in its own file: a random or malformed source id 404 for the platform administrator; the identical zero-detail 404 for a company administrator naming the platform fixture (read only, when it exists), a random id or a non-id; no sign-in 401. NOT automated, with the reason: the success path (201 with the promoted definition) activates a new version in the caller's own company and has no undo, and the only own company with a source on QA is the platform company itself; covered by test/letflow/routers/tenants_test.exs and platform_scope_routes_test.exs. BP-PLATFORM-16 keeps the foreign-source refusal inside the whole refusal matrix. PRODUCT DEFECT found by the dry run of 2026-11-26: POST /api/v1/tenants/<well-formed id of no company>/promote/<key> as the platform administrator answers 500 internal-error, not the 404 this entry promises (Promotion.promote_active_definition: schema_name_for_tenant derives a schema name for any UUID, the read of the missing schema raises; probable cause, not confirmed from the server log); step s1 of the file keeps the expected 404 and is blocked_by that defect",
+    "status": "partial",
+    "gap": "the platform administrator naming a well-formed source id that no company has gets 500 instead of 404 (defect, step s1 blocked); the success path is not run (no undo)"
   },
   {
     "id": "BP-PLATFORM-15",
@@ -1399,10 +1563,10 @@
     "tests": [
       "test/letflow/modules/runtime_demo"
     ],
-    "scenario": null,
-    "uat": "planned",
+    "scenario": "test/uat/processes/BP-PLATFORM-15-runtime-demo-ping.json",
+    "uat": "automated, read-only, and honest about which half ran: the company administrator's ping answers 200 {runtime_demo, release} when the module is installed and 404 when not (the module exists only in a QA build made with the demo flag; nothing installs it); the storekeeper is refused (403, or 404 when not installed); no sign-in 401",
     "status": "partial",
-    "gap": "demo module: its tests are checked by name only here"
+    "gap": "the install, the three releases (boot setting LETFLOW_RUNTIME_DEMO_RELEASE, changed by the operator by recreating the container) and the 503 module_version_ahead / module_upgrade_required answers of the version-skew gate need an installed module in a company whose administrator the runner can sign in as and a host change: operator sequence in docs/runbooks/runtime-demo-module.md, covered by test/letflow/modules/runtime_demo/router_test.exs; not run by the runner"
   },
   {
     "id": "BP-PLATFORM-16",
@@ -1449,9 +1613,9 @@
           "GET /api/v1/platform-problem-reports"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:214",
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/onboarding.ex:209",
+          "lib/letflow/routers/tenants.ex:211",
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/onboarding.ex:207",
           "lib/letflow/routers/platform_status.ex:25",
           "lib/letflow/routers/platform_module_rollouts.ex:44",
           "lib/letflow/routers/platform_migrations.ex:88",
@@ -1480,10 +1644,10 @@
           "POST /api/v1/onboarding"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:230",
-          "lib/letflow/routers/tenants.ex:210",
-          "lib/letflow/routers/onboarding.ex:189"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:227",
+          "lib/letflow/routers/tenants.ex:207",
+          "lib/letflow/routers/onboarding.ex:187"
         ],
         "result": "403 on harmless write probes (an unknown slug, an empty body); nothing changes"
       },
@@ -1495,8 +1659,8 @@
           "GET /api/v1/tenants/:slug"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:218",
-          "lib/letflow/routers/tenants.ex:275"
+          "lib/letflow/routers/tenants.ex:215",
+          "lib/letflow/routers/tenants.ex:274"
         ],
         "result": "an unmatched sub-path under the tenants mount answers the same 403 as a matched one"
       },
@@ -1557,8 +1721,8 @@
           "POST /api/v1/tenants/:test_tenant_id/promote/:process_key"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:271",
-          "lib/letflow/routers/tenants.ex:760"
+          "lib/letflow/routers/tenants.ex:270",
+          "lib/letflow/routers/tenants.ex:766"
         ],
         "result": "404 for an unknown id and for another tenant's id; the same body"
       }
@@ -1706,9 +1870,9 @@
           "POST /api/v1/tenants/:slug/reactivate"
         ],
         "code_refs": [
-          "lib/letflow/routers/tenants.ex:226",
-          "lib/letflow/routers/tenants.ex:234",
-          "lib/letflow/routers/tenants.ex:681"
+          "lib/letflow/routers/tenants.ex:223",
+          "lib/letflow/routers/tenants.ex:231",
+          "lib/letflow/routers/tenants.ex:688"
         ],
         "result": "409 platform tenant cannot be deactivated; 409 tenant was purged"
       }
@@ -1716,7 +1880,7 @@
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:702)",
+      "409 'the platform tenant cannot be deactivated' (lib/letflow/routers/tenants.ex:708)",
       "403 tenant_inactive for the tenant's own callers (lib/letflow/plugs/tenant_status.ex:106, lib/letflow/plugs/auth_pipeline.ex:213)",
       "409 after purge"
     ],
@@ -1754,10 +1918,10 @@
           "DELETE /api/v1/onboarding/:id/pending-admins/:grant_id"
         ],
         "code_refs": [
-          "lib/letflow/routers/onboarding.ex:197",
-          "lib/letflow/routers/onboarding.ex:201",
-          "lib/letflow/routers/onboarding.ex:205",
-          "lib/letflow/routers/onboarding.ex:849"
+          "lib/letflow/routers/onboarding.ex:195",
+          "lib/letflow/routers/onboarding.ex:199",
+          "lib/letflow/routers/onboarding.ex:203",
+          "lib/letflow/routers/onboarding.ex:526"
         ],
         "result": "realm bind refused for a duplicate realm; pending grants listed and revoked"
       }
@@ -1842,5 +2006,200 @@
     "uat": "planned (see tasks); the other kinds are owned by the named areas",
     "status": "partial",
     "gap": "no runner scenario yet for token lookup and unknown host"
+  },
+  {
+    "id": "BP-PLATFORM-23",
+    "area": "platform",
+    "title": "Check a certificate by its public handle (no login)",
+    "description": "Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public page /verify/<handle> without signing in and sees whether the certificate is valid. The page lives in the core web router outside the login; the exam application only issues the handle.",
+    "actors": [
+      {
+        "role": "anyone (no login)",
+        "permission": "none: public read, rate limited per address"
+      }
+    ],
+    "preconditions": [
+      "a certificate was issued and its public handle was given out (BP-EXAM, task 'get the certificate')"
+    ],
+    "tasks": [
+      {
+        "actor": "anyone",
+        "forms": [
+          "/verify/:handle"
+        ],
+        "functions": [],
+        "route": [
+          "GET /verify/:handle (web page)"
+        ],
+        "code_refs": [
+          "web/src/router.tsx:116",
+          "web/src/pages/VerifyCertificatePage.tsx:47"
+        ],
+        "result": "the page reads the public API with the handle from the address and shows the certificate data, or a not-found notice"
+      },
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [
+          "Letflow.PublicRead.resolve",
+          "Letflow.Routers.PublicRead"
+        ],
+        "route": [
+          "GET /api/public/certificate/:handle"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/public_read.ex:59",
+          "lib/letflow/public_read.ex:131",
+          "lib/letflow/router.ex:167"
+        ],
+        "result": "200 with the public projection of the certificate; an unknown kind or unknown handle gets the same 404; responses carry no-store, no-referrer and noindex headers"
+      }
+    ],
+    "inputs": [
+      "the public handle"
+    ],
+    "outputs": [
+      "the public view of the certificate"
+    ],
+    "refusals": [
+      "unknown or wrong handle: 404, identical to an unknown kind",
+      "too many lookups from one address: rate limited by the PublicReadRateLimit plug"
+    ],
+    "tests": [
+      "test/letflow/routers/public_read_test.exs"
+    ],
+    "scenario": null,
+    "uat": "the unknown-handle half is WRITTEN as test/uat/processes/planned/BP-PLATFORM-23-certificate-public-handle.draft.txt (an unknown handle, an unknown kind, a 200-character handle and an empty handle all answer the same standard 404; a signed-in administrator gets the same) but it is NOT run: the static check cannot match /api/public/:kind/:handle (the mount of public_read.ex is read as public-read, the path says public) and would fail the whole check. RUNNER TASK wanted: teach the check that mount; then rename the draft to .json and dry-run it (never run on QA). The success half needs an issued certificate and its one-time handle (BP-EXAM); no runner process issues one and the handle is shown once",
+    "status": "partial",
+    "gap": "no runner file yet (the draft above is blocked by the static check); the success half (200 projection, no-store / no-referrer / noindex headers, the per-address rate limit) needs a certificate issued by BP-EXAM, covered by test/letflow/routers/public_read_test.exs; the page /verify/:handle is screen-only"
+  },
+  {
+    "id": "BP-PLATFORM-24",
+    "area": "platform",
+    "title": "Prove that the process definition drives execution (reordered, removed, added and re-addressed steps)",
+    "description": "A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in code. The proof is a runner scenario on the platform tenant with throwaway definitions: the same steps in another order run in that order, a removed step does not run, a catalogue function added in the designer runs once, another notification template and recipient reach the trap, a running instance stays on the version it started with, and an unknown function or a dangling edge never reaches a run.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform tenant has the mail channel, the QA catcher domain and the file channel on its allow-list (steps A0a..A0c of the scenario open them and the cleanup removes the domain)"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [
+          "process designer"
+        ],
+        "functions": [
+          "Letflow.Definitions.create",
+          "Letflow.Definitions.check_platform_calls",
+          "Letflow.Definitions.activate"
+        ],
+        "route": [
+          "POST /api/v1/definitions",
+          "POST /api/v1/definitions/:id/validate",
+          "POST /api/v1/definitions/:id/activate"
+        ],
+        "code_refs": [
+          "lib/letflow/definitions.ex:505",
+          "lib/letflow/definitions.ex:2920"
+        ],
+        "result": "a draft is saved; a dangling edge is refused at save (422 dangling_edge), an unknown function at activation (422 platform_calls_invalid, platform_call_function_unknown)"
+      },
+      {
+        "actor": "platform administrator",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.create",
+          "Letflow.Engine.PlatformStepRunner"
+        ],
+        "route": [
+          "POST /api/v1/instances",
+          "GET /api/v1/instances/:id/timeline"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:428",
+          "lib/letflow/routers/instances.ex:440"
+        ],
+        "result": "the instance runs the nodes of ITS definition version along its edges; the step log lists them in that order"
+      }
+    ],
+    "inputs": [
+      "a definition graph (nodes and edges) and the start variables slug, display_name, email"
+    ],
+    "outputs": [
+      "the step log of each instance, the mail at the trap"
+    ],
+    "refusals": [
+      "an edge to a node that does not exist: 422 dangling_edge at save",
+      "a function not in the catalogue: 422 platform_calls_invalid (platform_call_function_unknown) at activation; no active version, so no run"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_platform_24.py"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-24-definition-drives-execution.json",
+    "uat": "runner scenario BP-PLATFORM-24 (A..E positive, N negative); a proof experiment (executed_by is n/a: this entry is a proof, not a process the engine runs), not a business process of a tenant",
+    "status": "partial",
+    "gap": "the absence of a mail in the trap is proved by the step log (the runner cannot assert an absent mail); throwaway definitions that already ran an instance may not be removable (409) and stay archived or deprecated",
+    "executed_by": "n/a"
+  },
+  {
+    "id": "BP-PLATFORM-25",
+    "area": "platform",
+    "title": "The process designer without a browser: export/import round trip, instances, step log and dead-letter retry",
+    "description": "The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare the graph, list definitions and instances, read the step log of a failed instance, retry its dead-letter entry. Checks that need a browser or another system (the Keycloak sign-in page, the raw JSON view, the visual checks, the Guide click in each language) are steps marked 'not run' with an owner. Throwaway definitions are removed with the product's own DELETE call.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform tenant has the mail channel, the QA catcher domain and the file channel on its allow-list (steps A0a..A0c of the scenario open them and the cleanup removes the domain)"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [
+          "process designer"
+        ],
+        "functions": [
+          "Letflow.Definitions.ExportImport",
+          "Letflow.Engine.PlatformStepRunner"
+        ],
+        "route": [
+          "GET /api/v1/definitions/:id/export",
+          "POST /api/v1/definitions/import",
+          "GET /api/v1/instances",
+          "GET /api/v1/instances/:id/timeline",
+          "GET /api/v1/dlq",
+          "POST /api/v1/dlq/:id/retry",
+          "DELETE /api/v1/definitions/:id"
+        ],
+        "code_refs": ["lib/letflow/routers/definitions.ex:627", "lib/letflow/routers/dlq.ex:113"],
+        "result": "the exported graph equals the imported one; a failed step is in the step log and the dead-letter list and can be retried"
+      }
+    ],
+    "inputs": [
+      "a definition graph (nodes and edges) and the start variables slug, display_name, email"
+    ],
+    "outputs": [
+      "the step log of each instance, the mail at the trap"
+    ],
+    "refusals": [
+      "a foreign export schema marker: 400/422 at import",
+      "a company user cannot export a platform definition: 403/404"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_platform_25.py"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-25-designer.json",
+    "uat": "runner scenario BP-PLATFORM-25 (A, B, C run; D1..D4 not run, each with an owner); not a business process of a tenant",
+    "status": "partial",
+    "gap": "D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure",
+    "executed_by": "n/a"
   }
 ]

@@ -83,6 +83,10 @@ config :letflow, scripts_test_hooks: true
 # run_claimed/2 directly.
 config :letflow, start_script_task_dispatcher: false
 
+# T-2703: the platform step runner's zero-delay first tick has the same OwnershipError hazard.
+# Tests call Letflow.Engine.PlatformStepRunner.run_due/2 directly.
+config :letflow, start_platform_step_runner: false
+
 # REQ-615 (GH #3434): the record-trigger worker's zero-delay first tick queries Letflow.Repo from a
 # process no test owns (the same OwnershipError hazard). Tests call Worker.run_tick/2 and claim_next/1.
 config :letflow, start_record_trigger_worker: false

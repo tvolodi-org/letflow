@@ -520,7 +520,16 @@ defmodule Letflow.Webhooks do
 
     request = {String.to_charlist(target_url), headers, ~c"application/json", json_body}
 
-    case :httpc.request(:post, request, [{:timeout, @http_timeout_ms}], []) do
+    # `autoredirect: false` is NOT the :httpc default: without it :httpc
+    # follows up to five redirects, so a validated target could answer 302
+    # and the follow-up request would reach a host the validator never saw
+    # (INV-9: "redirects not followed or revalidated per hop").
+    case :httpc.request(
+           :post,
+           request,
+           [{:timeout, @http_timeout_ms}, {:autoredirect, false}],
+           []
+         ) do
       {:ok, {{_http_version, status_code, _reason_phrase}, _resp_headers, _resp_body}}
       when status_code >= 200 and status_code < 300 ->
         {:SUCCESS, status_code, nil}

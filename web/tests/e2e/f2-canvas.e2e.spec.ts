@@ -771,13 +771,17 @@ test.describe('F2 — Process Designer Canvas (PD-UI-09 through PD-UI-12)', () =
       await shot(page, 'TC12-04-human-task-fields')
       // VERDICT: Screen shows HUMAN_TASK property panel with assignee_type, assignee_ref, form_schema fields
 
-      // Click SERVICE_TASK node — panel shows service fields
+      // Click SERVICE_TASK node — panel shows the script binding fields
+      // (T-2601: the old "service type" / "service config" fields named attributes
+      // the graph model does not have — they were dead and are gone; the script key
+      // and its version are the attributes a SERVICE_TASK node really carries).
       await page.getByText(`Service ${uniqueSuffix}`).click()
       await page.waitForTimeout(500)
-      await expect(page.getByTestId('prop-service-type')).toBeVisible()
-      await expect(page.getByTestId('prop-service-config')).toBeVisible()
+      await expect(page.getByTestId('prop-service-script-key')).toBeVisible()
+      await expect(page.getByTestId('prop-service-type')).toHaveCount(0)
+      await expect(page.getByTestId('prop-service-config')).toHaveCount(0)
       await shot(page, 'TC12-04-service-task-fields')
-      // VERDICT: Screen shows SERVICE_TASK property panel with service_type, service_config fields
+      // VERDICT: Screen shows SERVICE_TASK property panel with the script key and version fields
 
       // Click TIMER node — TimerNode renders only a clock icon, no text label.
       // Node order: START, HUMAN_TASK, SERVICE_TASK, TIMER (4th), GATEWAY, END.
@@ -787,10 +791,10 @@ test.describe('F2 — Process Designer Canvas (PD-UI-09 through PD-UI-12)', () =
       await page.waitForTimeout(300)
       await page.locator('[data-testid^="rf__node-timer-"]').click()
       await page.waitForTimeout(500)
-      await expect(page.getByTestId('prop-timer-type')).toBeVisible()
       await expect(page.getByTestId('prop-timer-duration')).toBeVisible()
+      await expect(page.getByTestId('prop-timer-type')).toHaveCount(0)
       await shot(page, 'TC12-04-timer-fields')
-      // VERDICT: Screen shows TIMER property panel with timer_type, timer_duration fields
+      // VERDICT: Screen shows TIMER property panel with the duration field
 
       // Click EXCLUSIVE_GATEWAY node — panel shows no node-level attributes
       await page.getByTestId('process-canvas').locator('.react-flow__node').filter({ hasText: /EXCLUSIVE|GATEWAY/i }).first().click()

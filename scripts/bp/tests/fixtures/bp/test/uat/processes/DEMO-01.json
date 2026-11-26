@@ -1,0 +1,16 @@
+{
+  "id": "DEMO-01",
+  "bp_entry": "BP-DEMO-01",
+  "title": "Receive goods",
+  "description": "The storekeeper creates a receipt and an administrator posts it.",
+  "tenant": "${tenant}",
+  "inputs": ["item", "place"],
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents"},
+      "expect": {"status": 201}
+    }
+  ]
+}

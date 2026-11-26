@@ -1,0 +1,683 @@
+{
+  "id": "BP-10",
+  "bp_entry": "BP-STOCK-09",
+  "title": "Formal count order: freeze, one line, signatures, difference posting",
+  "description": "The formal count of a place by an order. The storekeeper first puts a few units of the item on the second place (a receipt the administrator posts), so the place holds exactly one line. The storekeeper, chair of the commission (the responsible employee), creates a selective count order over that place with the freeze mode, issues it and opens the count at the cut-off: the one line shows the book quantity, nothing counted yet, and the place appears in the list of frozen places. While the count is open a quick count at that place is refused (count_in_progress) and closing with the line uncounted is refused (lines_uncounted). The chair counts the line three units above the book (this sets the balance, Qoimeks parity G5), closes the count, and the differences cannot be issued before the sheet is signed. An administrator who is not the chair cannot sign the sheet (not_chair) and signing with an incomplete set of signers is refused (signers_incomplete); the chair signs the sheet, issues the differences sheet, signs it (the count is signed) and starts the posting; the administrator completes the Post task in My Tasks. The balance of the place becomes exactly the counted quantity (book plus 3), the count reads posted and the place is no longer frozen. The cleanup cancels the order if it is not posted (refused harmlessly otherwise), reverses the posted count (the administrator completes the Reverse task) and reverses the receipt, so the balance returns to the start. Precondition (UAT assumption, to be confirmed by the process owner): the responsible employee is an active employee linked to the storekeeper's sign-in, the storekeeper's sign-in is tenant-wide for stock reads (opening needs it), and the second place holds no other stock; if the responsible employee is not the storekeeper, the first chair step fails with not_chair and shows the setup gap. Not run by the runner (human rows): the count worksheet and the paper print of the order, sheet and differences (H6), the phone screen of the count (H2), scanner counting by camera (H3). Quick count of one item (rule OFF) is BP-04.",
+  "tenant": "${tenant}",
+  "fixtures": [
+    "second_place"
+  ],
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "defaults": {
+    "quantity": "4"
+  },
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place_to}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_to_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s0b",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "catalog_item",
+          "filters": [
+            {
+              "field": "record_id",
+              "op": "eq",
+              "value": "${item}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "uom": {
+          "pick": "$.items[0].field_values.base_uom_id",
+          "if_unset": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "receipt",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place_to}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} BP-10 stock for the count",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${quantity}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "receipt_id": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${receipt_id}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${receipt_id}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "receipt_posted_id": "${receipt_id}"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place_to}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_to_before + quantity}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "kind": "selective",
+          "planned_start": "2020-01-01T00:00:00Z",
+          "planned_end": "2020-01-02T00:00:00Z",
+          "chair_employee_id": "${responsible}",
+          "member_employee_ids": [],
+          "location_ids": [
+            "${place_to}"
+          ],
+          "note": "UAT ${run_id} BP-10",
+          "freeze_locations": true
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "status": "draft"
+        }
+      },
+      "save": {
+        "count_id": "$.id"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "ordered"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/open"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "counting",
+          "cut_off_at": {
+            "exists": true
+          }
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/counts/${count_id}/lines"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].line_no": {
+            "equals": "1"
+          },
+          "$.rows[0].catalog_item_id": {
+            "equals": "${item}"
+          },
+          "$.rows[0].book_quantity": {
+            "equals": "${balance_to_before + quantity}"
+          },
+          "$.rows[0].counted_quantity": {
+            "absent": true
+          },
+          "$.rows[1]": {
+            "absent": true
+          }
+        }
+      },
+      "save": {
+        "book_quantity": "$.rows[0].book_quantity"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/frozen-locations?location_id=${place_to}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].location_id": {
+            "equals": "${place_to}"
+          },
+          "$.rows[0].count_order_id": {
+            "equals": "${count_id}"
+          }
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place_to}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${book_quantity + 7}",
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} during the count"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "count_in_progress"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/close"
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "lines_uncounted"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/modules/stock/counts/${count_id}/lines/1/count",
+        "body": {
+          "counted_quantity": "${book_quantity + 3}"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/close"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "counted"
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/differences"
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "sheet_not_signed"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/sheet-signatures",
+        "body": {
+          "signer_employee_ids": [
+            "${responsible}"
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "not_chair"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s16",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/sheet-signatures",
+        "body": {
+          "signer_employee_ids": []
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "signers_incomplete"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s17",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/sheet-signatures",
+        "body": {
+          "signer_employee_ids": [
+            "${responsible}"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "counted",
+          "sheet_signed_at": {
+            "exists": true
+          }
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s18",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/differences"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "differences_number": {
+            "exists": true
+          }
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s19",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/counts/${count_id}/differences"
+      },
+      "expect": {
+        "status": 200
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s20",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/differences-signatures",
+        "body": {
+          "signer_employee_ids": [
+            "${responsible}"
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "signed",
+          "differences_signed_at": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "diff_doc_id": "$.differences_document_id"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s21",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/post"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "posting_state": "pending"
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s22",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${diff_doc_id}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "count_posted_id": "${count_id}"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s23",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/counts/${count_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "posted",
+          "posting_state": "posted"
+        }
+      },
+      "save": {
+        "count_entry_id": "$.entry_id"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s24",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place_to}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${book_quantity + 3}"
+          }
+        }
+      },
+      "save": {
+        "balance_after": "$.rows[0].quantity"
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    },
+    {
+      "id": "s25",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/frozen-locations?location_id=${place_to}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0]": {
+            "absent": true
+          }
+        }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
+    }
+  ],
+  "outputs": {
+    "count_order_id": "${count_id}",
+    "difference": "3"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "storekeeper",
+      "requires": [
+        "count_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_id}/cancel"
+      },
+      "expect": {
+        "status": [
+          200,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "count_posted_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/counts/${count_posted_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-10"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "diff_doc_id",
+        "count_posted_id"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${diff_doc_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "receipt_posted_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${receipt_posted_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-10"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "receipt_posted_id"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${receipt_posted_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "requires": [
+        "receipt_posted_id",
+        "balance_to_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place_to}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_to_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -9,9 +9,9 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
 
   @deny ~w(password token secret key api credential session sec)
 
-  test "RG1 the seven keys have the exact allow-lists" do
+  test "RG1 the eight keys have the exact allow-lists" do
     assert Registry.keys() ==
-             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result password_reset_hint problem_report_status task_assigned)
+             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result password_reset_hint problem_report_status task_assigned tenant_registered)
 
     for key <- ~w(exam_assigned exam_reminder),
         do:
@@ -30,6 +30,10 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
 
     assert Registry.placeholders("problem_report_status") ==
              ~w(user_name report_number status_text reply_text tenant_name)
+
+    # T-2592 (pilot gap G4): the template of the notification step.
+    assert Registry.placeholders("tenant_registered") ==
+             ~w(tenant_name tenant_slug registered_by)
 
     assert Registry.fetch("other") == :error
     assert Registry.placeholders("other") == []

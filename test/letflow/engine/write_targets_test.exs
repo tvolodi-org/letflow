@@ -26,6 +26,9 @@ defmodule Letflow.Engine.WriteTargetsTest do
   defp human(id, attributes),
     do: %{"id" => id, "node_type" => "HUMAN_TASK", "attributes" => attributes}
 
+  defp service_task(id, attributes),
+    do: %{"id" => id, "node_type" => "SERVICE_TASK", "attributes" => attributes}
+
   defp writes(args), do: [%{"module" => "stock", "handler" => "post_document", "args" => args}]
 
   defp g1 do
@@ -107,5 +110,34 @@ defmodule Letflow.Engine.WriteTargetsTest do
     assert WriteTargets.refused_keys(g, "a", %{"k" => 1}) == ["k"]
     assert WriteTargets.refused_keys(g, "a", "not a map") == []
     assert WriteTargets.refused_keys(:nope, "a", %{"k" => 1}) == []
+  end
+
+  test "WTU-5 the keys a NOTIFICATION step reads are refused like a write target" do
+    # T-2592 (pilot gap G4): the recipient's variable and the variables of the
+    # values are decided by the person who STARTED the process, never by the
+    # person who completes a task in it. A CONSTANT value is not a key (it sits
+    # in the definition, not in the instance).
+    g =
+      graph([
+        human("submit", %{"role" => "A"}),
+        service_task("notify", %{
+          "notify" => %{
+            "template_key" => "tenant_registered",
+            "recipient" => %{"var" => "admin_email"},
+            "values" => %{
+              "tenant_name" => %{"var" => "tenant_name"},
+              "tenant_slug" => %{"const" => "acme"}
+            }
+          }
+        })
+      ])
+
+    assert WriteTargets.write_read_keys(g) == MapSet.new(["admin_email", "tenant_name"])
+
+    assert WriteTargets.refused_keys(g, "submit", %{"admin_email" => "a@b.com", "note" => 1}) ==
+             ["admin_email"]
+
+    assert WriteTargets.refused_keys(g, "submit", %{"tenant_name" => "Acme"}) == ["tenant_name"]
+    assert WriteTargets.refused_keys(g, "submit", %{"note" => 1}) == []
   end
 end
