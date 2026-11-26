@@ -3,7 +3,7 @@
     "id": "BP-TENANT-ADMIN-01",
     "area": "tenant-admin",
     "title": "Sign in to the company's own address and map the person to the company",
-    "description": "A person opens the company's address. The page asks the server which company this host belongs to (public tenant config: name, sign-in realm, branding, environment label), signs the person in through the company's own sign-in realm, and the server then maps the signed-in identity to a user and memberships of that company only.",
+    "description": "CURRENT method (owner decision via the PM, 2026-11-21): the person opens the company's own address (https://<company>.letflow.qa.bizdala.com). The page asks the server which company the address belongs to, is redirected to that company's own sign-in realm, signs in there and returns to the company address; the server then maps the token to a user and the memberships of that company only. Path 1 browser; path 2 phone app (PWA/APK) with a STORED COMPANY CODE (not an address); path 3 e-mail-first lookup: NOT ENABLED (web build flag VITE_EMAIL_FIRST_LOGIN is off, web/.env.example:30, web/src/auth/emailFirstFlag.ts:13; server mount LetflowLoginDiscovery enabled only outside prod, config/config.exs:123, deploy/.env.example:37 LETFLOW_LOGIN_DISCOVERY_ENABLED empty; its security row is BP-PLATFORM-19); path 4 security cases. No new login features (name@company, company chooser) are in this entry: they are on the later list.",
     "actors": [
       {
         "role": "any user of the company",
@@ -20,49 +20,86 @@
     ],
     "tasks": [
       {
-        "actor": "any user",
+        "actor": "any user (browser)",
         "forms": [
-          "/login"
+          "/login (only with the e-mail-first flag; otherwise no screen: ProtectedRoute redirects at once)"
         ],
         "functions": [],
         "route": "GET /api/tenant-config",
         "code_refs": [
+          "web/src/auth/ProtectedRoute.tsx:30",
+          "web/src/auth/tenantConfig.ts:83",
+          "web/src/auth/tenantConfig.ts:92",
           "lib/letflow/routers/tenant_config.ex:231",
-          "web/src/router.tsx:110"
+          "lib/letflow/routers/tenant_config.ex:273",
+          "lib/letflow/routers/tenant_config.ex:350"
         ],
-        "result": "the page learns the company's sign-in realm and branding before login; an unknown host gets the not-found answer"
+        "result": "PATH 1a, host to company: with no company code known the page asks by host (?host=); a company code in the address (?realm=) or stored in the tab (sessionStorage bpm_realm_slug) wins. A known active company with a realm answers its own sign-in realm, client id, branding and type; an unknown host, the bare host and no parameter answer the same default body (200, never an error); the answer is not cached after a failed read (tenantConfig.ts:96)."
       },
       {
-        "actor": "any user",
+        "actor": "any user (browser)",
         "forms": [],
         "functions": [],
-        "route": "GET /api/tenant-config/logo",
+        "route": "GET /api/tenant-config?realm=&company_check=1",
         "code_refs": [
-          "lib/letflow/routers/tenant_config.ex:235"
+          "web/src/auth/ProtectedRoute.tsx:38",
+          "web/src/auth/tenantConfig.ts:196",
+          "lib/letflow/routers/tenant_config.ex:289"
         ],
-        "result": "the company's public logo bytes are read without a login"
+        "result": "PATH 1b, unknown company code: an explicit code that names no company never reaches the identity provider; the page shows the company-not-found screen (web/src/auth/CompanyNotFound.tsx) and forgets the code."
       },
       {
-        "actor": "any user",
+        "actor": "any user (browser)",
+        "forms": [],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/auth/ProtectedRoute.tsx:31",
+          "web/src/auth/OidcManager.ts:15",
+          "web/src/auth/oidcRedirectArgs.ts:30"
+        ],
+        "result": "PATH 1c, redirect: the page redirects to the company's realm (authority from the config) with the return address <company address>/auth/callback (the realm slug is embedded when a code was used, so the callback finds the realm)."
+      },
+      {
+        "actor": "any user (browser)",
         "forms": [
           "/auth/callback"
         ],
         "functions": [],
         "route": null,
         "code_refs": [
-          "web/src/router.tsx:103"
+          "web/src/router.tsx:105",
+          "web/src/pages/OidcCallbackPage.tsx:75"
         ],
-        "result": "the sign-in callback exchanges the code and opens the app shell"
+        "result": "PATH 1d, return: the callback exchanges the code (signinRedirectCallback), keeps the user in memory only (OidcManager.ts:32, InMemoryWebStorage) and opens the saved page of the company address."
+      },
+      {
+        "actor": "any user (browser)",
+        "forms": [],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/auth/AuthProvider.tsx:153",
+          "web/src/auth/AuthProvider.tsx:125",
+          "web/src/auth/OidcManager.ts:33"
+        ],
+        "result": "PATH 1e, session: the token is renewed 60 s before it expires (refresh token first, hidden frame as fallback); a failed renewal that the API client's 401 path cannot repair raises 'auth:session-expired': the session is cleared, a notice is kept and the person is sent to the same realm to sign in again. The session is not kept across a page reload (memory store)."
       },
       {
         "actor": "any user",
         "forms": [],
-        "functions": [],
+        "functions": [
+          "Letflow.Identity.resolve_tenant_by_realm/1",
+          "Letflow.Identity.verify_realm_ownership/2"
+        ],
         "route": "GET /api/v1/me",
         "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:340",
+          "lib/letflow/plugs/auth_pipeline.ex:356",
+          "lib/letflow/plugs/auth_pipeline.ex:365",
           "lib/letflow/routers/me.ex:113"
         ],
-        "result": "the server returns the signed-in person (id, name, tenant) resolved from the token, never from a request member"
+        "result": "PATH 1f, token to company: the server verifies the token, takes the company from the REALM of the token (iss /realms/<slug>), checks that the realm belongs to that company and maps the person; the address (Host) is not read on any /api/v1 route, so the company of a request is the token's. The answer is the person's own roles, permissions and user id."
       },
       {
         "actor": "any user",
@@ -72,24 +109,68 @@
         "code_refs": [
           "lib/letflow/routers/me.ex:117"
         ],
-        "result": "the person's memberships of this company are listed"
+        "result": "the person's memberships of this company are listed (this company only)."
+      },
+      {
+        "actor": "any user (phone app, PWA or APK)",
+        "forms": [
+          "company-code entry screen"
+        ],
+        "functions": [],
+        "route": "GET /api/mobile/tenant-config",
+        "code_refs": [
+          "apps/mobile/lib/api/api_client.dart:905",
+          "apps/mobile/lib/bootstrap/navigation_bootstrap.dart:233",
+          "apps/mobile/lib/bootstrap/navigation_bootstrap.dart:240",
+          "apps/mobile/lib/auth/auth.dart:260",
+          "apps/mobile/lib/auth/auth.dart:278",
+          "lib/letflow/routers/mobile_tenant_config.ex:215"
+        ],
+        "result": "PATH 2, phone app: the app is NOT given a company address. It sends one server (build-time LETFLOW_API_BASE_URL, api_client.dart:395) the COMPANY CODE the person typed (?slug=); a known company answers its realm (company_found true), an unknown code answers the default body with company_found false and the app stops (tenantNotFound). After sign-in through the native OIDC library the app stores a pointer {realm_url, slug} of the last active company (LastActiveTenantPointer, written by writeLastActiveTenant) and the refresh token under that code, and reopens into that company."
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/login-discovery",
+        "code_refs": [
+          "web/src/auth/emailFirstFlag.ts:13",
+          "config/config.exs:123"
+        ],
+        "result": "PATH 3, e-mail-first lookup: NOT ENABLED today (flags above). One line only; its uniform answers are the security row BP-PLATFORM-19."
       }
     ],
     "inputs": [
-      "host name",
-      "credential (OIDC token)"
+      "company address (host) or company code",
+      "credential (OIDC token) of the company's realm"
     ],
     "outputs": [
       "user id",
-      "tenant",
-      "memberships"
+      "roles and permissions",
+      "memberships of this company"
     ],
     "refusals": [
-      "an unknown or inactive company host answers the not-found answer (tests tenant_config_host_test, tenant_config_inactive_test)",
-      "a token of another realm is not accepted for this company"
+      "unknown host, bare host, no parameter, unknown company code: the same default 200 body, no error and no hint which part failed (anti-oracle; SEC-ID-01, BP-TENANT-ADMIN-42); the logo of an unknown code is the plain 404",
+      "no or malformed Authorization header: 401 'missing or malformed Authorization header'; wrong, expired or unsigned token, unknown realm: 401 'invalid or expired bearer token' (auth_pipeline.ex:213-225; BP-TENANT-ADMIN-37)",
+      "a token of another company's realm: the company of the request is the token's, so the person of company A at company B's address sees A's own data only; an id of company B read by A answers the plain 404 'the requested resource was not found', identical to an id that does not exist (SEC-ID-02, BP-TENANT-ADMIN-43; this entry's scenario steps s5-s7). The server does NOT refuse by host: no /api/v1 plug reads the Host header (grep tenant_by_hostname in lib: only tenant_config.ex)",
+      "a realm that is not bound to the token's company: 401 'token realm does not match tenant' (auth_pipeline.ex:228)",
+      "a deactivated company: 403 tenant_inactive (auth_pipeline.ex:213)",
+      "no secret and no user existence in any answer: the public config carries only realm, client id, branding, type and env label (tenant_config.ex response allowlist); there is no per-user lookup in this process"
     ],
-    "scenario": null,
-    "status": "implemented"
+    "scenario": "test/uat/processes/BP-TENANT-ADMIN-01-sign-in-company-address.json",
+    "status": "implemented",
+    "existing_tests": [
+      "test/letflow/routers/tenant_config_host_test.exs",
+      "test/letflow/routers/tenant_config_inactive_test.exs",
+      "test/letflow/routers/mobile_tenant_config_test.exs",
+      "web/src/auth/__tests__/AuthProvider.tokenRenewal.test.tsx",
+      "web/src/auth/__tests__/CompanyNotFound.test.tsx"
+    ],
+    "browser_evidence": "The operator's real-browser check of 2026-11-21 22:54 (headless Chromium): the sign-in at the company address, redirect to the company realm and return, OK for all three QA tenants (the three QA tenants named in the operator record of that check, which is not in the repository). Playwright in web/tests/e2e covers only parts: oidcf2-subdomain.e2e.spec.ts (host to realm; the navigation to the identity provider is aborted, no return), oidcf-login.e2e.spec.ts and iss-0726-oidc-deep-link-restore.e2e.spec.ts (deep-link restore). GAP: no test in web/tests/e2e plays the full redirect, sign-in and return on a company host in CI.",
+    "gaps": [
+      "browser redirect and return on a company host: no CI test (see browser_evidence); phone app path: needs a device or emulator, the runner cannot play it (written reason); no 'no credential' or 'crafted credential' runner step kind: BP-TENANT-ADMIN-37 gap"
+    ],
+    "automation": "runner"
   },
   {
     "id": "BP-TENANT-ADMIN-02",
@@ -2592,7 +2673,8 @@
       "test/letflow/routers/mobile_tenant_config_inactive_test.exs"
     ],
     "gaps": [
-      "A missing, malformed or expired credential needs a request without the actor's token: the runner always sends the token of the named actor (no 'no credential' or 'crafted credential' step kind). A token of another company is played by SEC-ID-02 (BP-TENANT-ADMIN-43) and the host and realm lookup by SEC-ID-01 (BP-TENANT-ADMIN-42). The tenant-config routes are answered by host before sign-in and have no actor."
+      "A missing, malformed or expired credential needs a request without the actor's token: the runner always sends the token of the named actor (no 'no credential' or 'crafted credential' step kind). A token of another company is played by SEC-ID-02 (BP-TENANT-ADMIN-43) and the host and realm lookup by SEC-ID-01 (BP-TENANT-ADMIN-42). The tenant-config routes are answered by host before sign-in and have no actor.",
+      "The sign-in entry BP-TENANT-ADMIN-01 plays the mapping of a token to its own company and the other company's token at this address (scenario BP-TENANT-ADMIN-01-sign-in-company-address); the host is not a refusal criterion (the server does not read it on /api/v1)."
     ]
   },
   {
