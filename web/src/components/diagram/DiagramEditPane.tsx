@@ -15,6 +15,7 @@ import { useDiagramDraft, type DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, useValidateDraft, type DraftCheck } from '@/hooks/useValidateDraft'
 import type { GraphValidationViolation } from '@/api/definitions'
 import type { DeclaredVariable, DefinitionGraph, ProcessDefinition } from '@/types/api'
+import { DESIGNER_ERROR_PREFIX, designerErrorKey } from '@/i18n/designerErrorMessages'
 import { addVariable, sameVariables } from '@/utils/canvas/declaredVariables'
 import { DeclaredVariablesContext, type DeclaredVariables } from './DeclaredVariablesContext'
 import { VariablesPanel } from './VariablesPanel'
@@ -23,7 +24,7 @@ import { nextDraftVersion, withLayoutPositions } from '@/utils/canvas/graphEdit'
 const DiagramEditor = lazy(() => import('./DiagramEditor'))
 type Sel = import('./DiagramEditor').Sel
 
-type SaveError = null | { kind: 'not_draft' | 'module' | 'duplicate' | 'other'; message: string }
+type SaveError = null | { kind: 'not_draft' | 'module' | 'duplicate' | 'other'; message: string; code?: string; status?: number }
 
 export interface DiagramEditPaneProps {
   def: ProcessDefinition
@@ -45,19 +46,20 @@ export interface DiagramEditPaneProps {
 }
 
 function classify(err: unknown): NonNullable<SaveError> {
-  const x = err as { status?: number; message?: string }
+  const x = err as { status?: number; message?: string; code?: string }
   const message = x?.message ?? ''
   if (x?.status === 409) {
-    if (/DRAFT/.test(message)) return { kind: 'not_draft', message }
-    if (/module-owned/.test(message)) return { kind: 'module', message }
-    if (/already exists/.test(message)) return { kind: 'duplicate', message }
+    if (/DRAFT/.test(message)) return { kind: 'not_draft', message, code: 'http_409', status: 409 }
+    if (/module-owned/.test(message)) return { kind: 'module', message, code: 'conflict_module_owned', status: 409 }
+    if (/already exists/.test(message)) return { kind: 'duplicate', message, code: 'conflict_duplicate', status: 409 }
   }
-  return { kind: 'other', message }
+  return { kind: 'other', message, code: x?.code, status: x?.status }
 }
 
 export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, onProblemsChange, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
+  const friendly = (x: { code?: string; status?: number }) => intl.formatMessage({ id: DESIGNER_ERROR_PREFIX + designerErrorKey(x.code, x.status) })
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
   const rawDraft = useDiagramDraft(seed, def.updated_at)
   const { reset } = rawDraft
@@ -162,8 +164,16 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     const fromSave = saveProblems && saveProblems.graph === draft.graph ? saveProblems.violations : []
     const all = [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
     // T-2811 (D1): the undeclared-variable error names the way out in words (the original text stays first, so the
-    // node anchor still finds its step).
-    return all.map((v) => (v.code === 'step_mapping_variable_undeclared' ? { ...v, message: `${v.message}. ${intl.formatMessage({ id: 'processDiagram.edit.vars.undeclaredFix' })}` } : v))
+    // node anchor still finds its step). Any other known server code is shown as its plain sentence; an unknown one
+    // keeps the server's own text.
+    return all.map((v) =>
+      v.code === 'step_mapping_variable_undeclared'
+        ? { ...v, message: `${v.message}. ${intl.formatMessage({ id: 'processDiagram.edit.vars.undeclaredFix' })}` }
+        : designerErrorKey(v.code) === 'fallback'
+          ? v
+          : { ...v, message: friendly(v) },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [check, saveProblems, draft.graph, intl])
   const blocking = violations.filter(isBlocking)
   // The saved draft's open problems (all of them: activation refuses what the live check only warns about). Counted for any
@@ -273,7 +283,13 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           tone="danger"
           action={error.kind === 'not_draft' ? <Button variant="secondary" size="sm" onClick={onReload} data-testid="edit-error-reload">{e('stale.reload')}</Button> : undefined}
         >
-          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: error.message }) : error.message}</span>
+          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: friendly(error) }) : friendly(error)}</span>
+          {(error.code || error.message) && (
+            <details className="lf-hint" data-testid="edit-error-details">
+              <summary>{intl.formatMessage({ id: `${DESIGNER_ERROR_PREFIX}details` })}</summary>
+              <small>{[error.status, error.code].filter(Boolean).join(' ')} {error.message}</small>
+            </details>
+          )}
         </Banner>
       )}
       {savedTick && !draft.dirty && !error && (
@@ -295,6 +311,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           check={check}
           initialSelected={demo?.selected}
           tenantId={tenantId}
+          parentOwnerModule={def.owner_module ?? null}
           toolbar={{
             onSave: () => void save(),
             onDiscard: () => {

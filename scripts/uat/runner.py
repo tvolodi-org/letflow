@@ -795,6 +795,8 @@ class Runner:
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
         self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
+        self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
+        self._definition_seen = set()  # (kind, tenant) already taken
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
         self.replay = False
@@ -1151,6 +1153,8 @@ class Runner:
             calls = self._execute(step, do, record)
             self._note_started_instances(step, calls)
             status, body, response = calls[0]
+            if any(self._is_definition_not_active(c[0], c[1]) for c in calls):
+                self._definition_report("after")
             results = self._assert_calls(step, do, calls, secret_step)
             record["status"] = status
             record["asserted"] = results
@@ -1192,6 +1196,26 @@ class Runner:
         except Exception as err:  # a bug in a process file must not skip the cleanup
             record.update(verdict="error", error=f"{type(err).__name__}: {err}")
             return self._finish(record, started, False)
+
+    def _definition_report(self, kind):
+        """T-2992: the read-only definition report of the current tenant, once per kind and tenant, saved in the run
+        dir. A failure is a note in the summary and never changes the verdict of the run."""
+        key = (kind, self.tenant)
+        if key in self._definition_seen or self.replay:
+            return
+        self._definition_seen.add(key)
+        try:
+            import definition_report
+            path, note = definition_report.capture(self, kind, sys.modules[__name__])
+        except Exception as err:  # noqa: BLE001 - never a verdict
+            path, note = None, f"{self.tenant}: definition report ({kind}) failed: {err}"
+        self.definition_reports.append({"tenant": self.tenant, "kind": kind, "path": path, "note": note})
+        print(f"definition report ({kind}) {self.tenant}: {path or note}", file=self.out, flush=True)
+
+    @staticmethod
+    def _is_definition_not_active(status, body):
+        return status == 409 and isinstance(body, dict) and "definition_not_active" in (
+            body.get("reason"), body.get("error"), body.get("limit"), body.get("detail"))
 
     def _blocked_line(self, record, started, step, why):
         """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
@@ -2178,6 +2202,8 @@ class Runner:
             with self._on(process["id"]):
                 if not self._fresh_process_tokens(process):
                     return False
+                if "/modules/stock" in json.dumps(process):
+                    self._definition_report("before")
                 self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
@@ -2972,6 +2998,13 @@ class Runner:
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
             lines += ["", f"> **FIRST FAILING STEP: {what}** - {first.get('error', first.get('verdict'))}"]
+            shown = [f"{d['kind']}: {d['path']}" for d in self.definition_reports if d["path"]]
+            if shown:
+                lines += [f"> definition reports: {'; '.join(shown)}"]
+        if self.definition_reports:
+            lines += ["", "## Definition reports (read-only, T-2992)", ""]
+            for d in self.definition_reports:
+                lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
         lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
                   "|---|---|---|---|---|---|---|"]
         for pid in dict.fromkeys(r["process"] for r in self.records if r.get("phase") in ("step", "cleanup", "inputs", "outputs")):
@@ -3763,6 +3796,12 @@ def build_parser():
     sweep.add_argument("--base-url")
     sweep.add_argument("--base-url-template")
     sweep.add_argument("--run-dir")
+    rep = sub.add_parser("definition-report", help="read-only report of the stock definitions of ONE QA tenant (T-2982)")
+    rep.add_argument("--tenant", required=True)
+    rep.add_argument("--admin", required=True, help="the keycloak user of the tenant admin")
+    rep.add_argument("--base-url")
+    rep.add_argument("--base-url-template")
+    rep.add_argument("--run-dir")
     return parser
 
 
@@ -3881,6 +3920,10 @@ def main(argv=None) -> int:
         import residue_sweep
 
         return residue_sweep.main(args, sys.modules[__name__])
+    if args.command == "definition-report":
+        import definition_report
+
+        return definition_report.main(args, sys.modules[__name__])
     return main_run(args)
 
 
