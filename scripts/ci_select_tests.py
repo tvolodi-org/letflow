@@ -121,6 +121,8 @@ STANDARD_BP_DOC_TEST = [
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-09: a migration change shifts the manifest positions the tenant tests pin.
+# G-10: every environment variable, application key, flag, secret and URL the product reads
+# must be in the config/env/flag registry, with its owner, its reason and its default.
 # G-03: the generated source-provenance matrix of the platform-call authority
 # rule: the catalogue validator refuses a write-like entry with a person input,
 # the activation refuses the foreign sources and the dual-route nodes, and the
@@ -138,6 +140,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
     "test/letflow/security_probe/g01_route_role_matrix_test.exs",
     "test/letflow/security_probe/g02_writer_start_inventory_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
@@ -146,7 +149,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g09_migration_impact_test.exs",
-    "test/letflow/security_probe/g03_source_provenance_test.exs",
+    "test/letflow/security_probe/g10_config_registry_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
     "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
