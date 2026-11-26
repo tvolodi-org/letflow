@@ -5,10 +5,10 @@ the four web screen routes of REQ-898 listed below (stop-gap rows until BP-MAINT
 
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
-| admin/maintenance | web/src/modules/maintenance/maintenanceRoutes.tsx:16 | route of the maintenance admin screen | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
 | requests -> MaintenanceRequestsPage | web/src/modules/maintenance/maintenanceRoutes.tsx:18 | list of work requests | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
 | requests/new -> MaintenanceRequestFormPage | web/src/modules/maintenance/maintenanceRoutes.tsx:19 | form for a new work request | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
 | requests/:id -> MaintenanceRequestsPage | web/src/modules/maintenance/maintenanceRoutes.tsx:20 | work request detail in the list | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
+| route `admin/maintenance` (container) | `web/src/modules/maintenance/maintenanceRoutes.tsx:16` | parent route of the three request screens; it has no page of its own, it only groups `requests`, `requests/new`, `requests/:id` | REQ-898, commit 6e6c35f7c (#5099) | route nesting in the router, not a user task | keep as a platform function |
 
 ## Orphan review (BA, D-169, T-2560, 2026-11-21): decision for every entry
 
