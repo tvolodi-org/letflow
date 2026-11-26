@@ -40,8 +40,11 @@ FUNCTIONS = [
     "tenant.install_default_modules",
     "tenant.notify_admin",
     "tenant.provision",
+    "tenant.purge",
+    "tenant.reactivate",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
+    "tenant.suspend",
     "tenant.validate",
 ]
 
