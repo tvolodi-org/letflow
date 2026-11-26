@@ -124,7 +124,8 @@ defmodule Letflow.TenantPurge do
         row = Repo.one(from(l in Lifecycle, where: l.tenant_id == ^id, lock: "FOR UPDATE"))
 
         cond do
-          row == nil or PlatformTenant.platform_tenant?(id) -> Repo.rollback(:not_found)
+          PlatformTenant.platform_tenant?(id) -> Repo.rollback(:not_found)
+          row == nil -> purge_unprovisioned(id, trigger, now, actor_id, platform_prefix)
           row.purged_at != nil -> :already_purged
           true -> do_purge(row, trigger, now, actor_id, platform_prefix)
         end
@@ -149,6 +150,10 @@ defmodule Letflow.TenantPurge do
 
     unless eligible?(row, tenant, now), do: Repo.rollback(:not_eligible)
 
+    purge_rows(row, tenant, trigger, now, actor_id, platform_prefix)
+  end
+
+  defp purge_rows(row, _tenant, trigger, now, actor_id, platform_prefix) do
     # The id of the LOCKED row, never the argument (INV-1/6).
     {:ok, schema} = TenantProvisioning.schema_name_for_tenant(row.tenant_id)
     tables = count_tables(schema)
@@ -191,6 +196,48 @@ defmodule Letflow.TenantPurge do
 
     :purged
   end
+
+  # T-2747: a tenant made through the Register Tenant form (`POST /onboarding`) has no lifecycle row.
+  # Only the PLATFORM_ADMIN route may purge it; the provisioner and the sweep keep `:not_found`.
+  # Eligible: `:inactive`, `tenant_type == "test"`, retention counted from the deactivation
+  # (`tenants.updated_at`). A lifecycle row (`deleted`, `purged_at`) is inserted as the purge marker,
+  # so reactivation is refused and the slug stays reserved, as for a provisioned tenant.
+  defp purge_unprovisioned(id, :platform_admin, now, actor_id, platform_prefix) do
+    tenant = Repo.one(from(t in Tenant, where: t.id == ^id, lock: "FOR UPDATE"))
+
+    cond do
+      tenant == nil ->
+        Repo.rollback(:not_found)
+
+      tenant.status != :inactive or tenant.tenant_type != "test" or
+          DateTime.compare(
+            now,
+            DateTime.add(
+              DateTime.from_naive!(tenant.updated_at, "Etc/UTC"),
+              Config.retention_days() * 86_400,
+              :second
+            )
+          ) == :lt ->
+        Repo.rollback(:not_eligible)
+
+      true ->
+        Repo.insert!(%Lifecycle{
+          tenant_id: id,
+          lifecycle: "deleted",
+          tier: "demo",
+          language: "en",
+          deletion_requested_at: now,
+          purged_at: now
+        })
+
+        row = Repo.get!(Lifecycle, id)
+        # The row is now `deleted`; do_purge/5 demands suspended/expired, so purge by hand.
+        purge_rows(row, tenant, :platform_admin, now, actor_id, platform_prefix)
+    end
+  end
+
+  defp purge_unprovisioned(_id, _trigger, _now, _actor_id, _platform_prefix),
+    do: Repo.rollback(:not_found)
 
   defp eligible?(_row, nil, _now), do: false
 

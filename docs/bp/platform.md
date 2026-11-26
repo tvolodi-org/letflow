@@ -91,7 +91,7 @@ The operator deactivates a tenant (its users get 403 tenant_inactive, its runtim
 2. **PLATFORM_ADMIN**: screen `admin/tenants`, call `POST /api/v1/tenants/:slug/reactivate`, function `Letflow.Identity.reactivate_tenant`
    Result: 200 active again; purged tenant 409 'tenant was purged'
 3. **PLATFORM_ADMIN**: screen `admin/tenants`, call `POST /api/v1/tenants/:slug/purge`, function `Letflow.TenantPurge.purge`
-   Result: 200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown, platform tenant or no lifecycle row 404
+   Result: 200 {tenant_id, status: deleted, purged_at}; not eligible (active or inside retention) 409 not_eligible; unknown or platform tenant 404; a tenant with no lifecycle row (Register Tenant form) is purged when deactivated, test-type and past retention (T-2747)
 
 **Refusals.**
 
