@@ -74,7 +74,7 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel")
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -1243,6 +1243,8 @@ class Runner:
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
             return self._repeat(role, do["repeat"], times, http_as, record)
+        if "sweep" in do:
+            return [self._sweep(role, do["sweep"], http_as, record)]
         if "upload" in do:
             info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
             record.update(method=info["method"], path=info["path"], request=info["request"])
@@ -1499,6 +1501,52 @@ class Runner:
                                                    "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
             raise RunnerError("upload: fields is a map of plain names to one-line values")
         return Multipart(fields, field, path.name, path.read_bytes(), ctype)
+
+    def _sweep(self, role, spec, http_as, record):
+        """T-2898: retire the throwaway definitions an EARLIER failed run left (a cleanup only knows its own ids).
+        List GET /api/v1/definitions (name filter, paged), keep the names that start with the scenario's throwaway
+        prefix and do not contain this run's marker, DELETE each (the product's own call: draft 204, active and
+        deprecated 200, archived 409, gone 404). One line per definition. A status outside `accept` fails the step;
+        nothing to sweep is '0 swept'. -> (200, {"swept": n, "already_gone": m, "lines": [...]}, text)."""
+        spec = substitute(spec, self.ctx)
+        prefix, marker = spec.get("prefix"), spec.get("exclude_contains")
+        sweep_prefix_problem(prefix, marker)
+        accept = spec.get("accept", SWEEP_ACCEPT)
+        found, cursor = [], None
+        for _ in range(SWEEP_MAX_PAGES):
+            path = "/api/v1/definitions?page_size=200&name=" + urllib.parse.quote(prefix, safe="")
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, _ = self.request(role, "GET", path, http_as=http_as)
+            if status != 200 or not isinstance(body, dict) or not isinstance(body.get("items"), list):
+                raise RunnerError(f"sweep: the list answered {status}, expected 200 with items")
+            for item in body["items"]:
+                name = item.get("name") if isinstance(item, dict) else None
+                if isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
+                    found.append((str(item["id"]), name, item.get("status")))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+        else:
+            raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
+        lines, swept, gone = [], 0, 0
+        for def_id, name, state in found:
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
+                raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept:
+                raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
+            outcome = "already gone" if status in (404, 409) else "swept"
+            swept += outcome == "swept"
+            gone += outcome != "swept"
+            line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
+            lines.append(line)
+            print(self.scrub(line), file=self.out, flush=True)
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        print(self.scrub(summary), file=self.out, flush=True)
+        record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
+        result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
 
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
@@ -2636,6 +2684,20 @@ def refuse_placeholders(text: str, source) -> None:
         raise ConfigError(f"{source}: placeholder {match.group()!r} is not allowed; use an input or a fixture")
 
 
+SWEEP_ACCEPT = [200, 204, 404, 409]
+SWEEP_MAX_PAGES = 50
+SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
+
+
+def sweep_prefix_problem(prefix, marker):
+    """Refuse a sweep that could reach a real definition: the prefix is a whole uat-tmp-<kind>- and this run's
+    marker is a real run id (never empty, or the sweep would also take this run's own definitions)."""
+    if not isinstance(prefix, str) or not SWEEP_PREFIX_RE.fullmatch(prefix):
+        raise RunnerError("sweep: prefix must be a throwaway prefix of the form uat-tmp-<kind>-")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
@@ -2701,6 +2763,18 @@ def validate_step(step, where) -> None:
         times = do.get("times", 2)
         if not isinstance(times, (int, str)) or (isinstance(times, int) and times < 2):
             raise ConfigError(f"{where}: repeat needs times of at least 2")
+    elif kind == "sweep":
+        spec = do["sweep"]
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "exclude_contains", "accept"}:
+            raise ConfigError(f"{where}: sweep is {{prefix, exclude_contains, accept?}}")
+        if isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
+                not SWEEP_PREFIX_RE.fullmatch(spec["prefix"]):
+            raise ConfigError(f"{where}: sweep prefix must be of the form uat-tmp-<kind>-")
+        if spec.get("exclude_contains") != "${run_id}":
+            raise ConfigError(f"{where}: sweep exclude_contains must be ${{run_id}}")
+        if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
+                                      and all(isinstance(c, int) for c in spec["accept"])):
+            raise ConfigError(f"{where}: sweep accept is a list of status codes")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:

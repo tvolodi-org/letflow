@@ -73,7 +73,7 @@ class Scenario(unittest.TestCase):
         self.assertEqual(blocked, {"D1", "D2", "D3", "D4"})
 
     def test_cleanup_uses_delete_for_throwaways_and_the_three_leftovers(self):
-        by_path = {c["do"]["path"]: c for c in self.process["cleanup"] if c["do"]["api"] == "DELETE"}
+        by_path = {c["do"]["path"]: c for c in self.process["cleanup"] if c["do"].get("api") == "DELETE"}
         for key in ("defX", "defY"):
             c = by_path["/api/v1/definitions/${%s}" % key]
             self.assertEqual(c["requires"], [key])
@@ -81,6 +81,8 @@ class Scenario(unittest.TestCase):
             c = by_path["/api/v1/definitions/" + uid]
             self.assertIn(404, c["expect"]["status"])
             self.assertIn(409, c["expect"]["status"])
+        sweeps = [c["do"]["sweep"] for c in self.process["cleanup"] if "sweep" in c["do"]]  # T-2898
+        self.assertEqual(sweeps, [{"prefix": "uat-tmp-designer-", "exclude_contains": "${run_id}"}])
         # every definition this run creates is a throwaway name
         for name in re.findall(r'"name": "([^"]+)"', self.text):
             self.assertTrue(name.startswith("uat-tmp-designer-"), name)
