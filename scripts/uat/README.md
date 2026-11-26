@@ -674,3 +674,14 @@ interrupted run and runs the same comparison after it. The watch of the run (the
 instances the run started are kept in `platform_watch.json` of the run directory, so the replay does not pass while
 an instance of that run is still open: the row `tenant residue check` says `instance <id> is still open` and the
 replay FAILS.
+
+## residue-sweep (T-2869, D-208)
+
+One-shot removal of the residue of a discarded walk from ONE QA tenant, by a reviewed list file (no SQL, no clicks):
+
+    python3 -B scripts/uat/runner.py residue-sweep test/uat/sweeps/residue-sweep-qoimeks-qa2.json --tenant qoimeks-qa2
+
+The list file names the tenant, its admin user, the documents to reverse (reason "D-208 discarded walk") and the tasks
+to complete. Exit 2 and no request for a retired tenant, a tenant other than the list file's, or a base url that is not
+the tenant's QA host. One line per item (done / already gone / refused (status)); "already gone" never fails the run.
+It ends by re-reading the residue baseline and printing its sha256. Run it ONCE before the next RC regression.

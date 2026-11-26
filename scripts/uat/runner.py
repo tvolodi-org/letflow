@@ -3157,6 +3157,12 @@ def build_parser():
                      help="let a step create a tenant (POST /api/v1/tenants); without it the step is skipped")
     dry.add_argument("--mail-trap-url", help="the mail trap (Mailpit) a wait_mail step reads "
                                             "(default env MAIL_TRAP_URL or " + MAIL_TRAP_URL_DEFAULT + ")")
+    sweep = sub.add_parser("residue-sweep", help="reverse the documents and complete the tasks of a reviewed list on ONE QA tenant (T-2869)")
+    sweep.add_argument("list_file", help="e.g. test/uat/sweeps/residue-sweep-qoimeks-qa2.json")
+    sweep.add_argument("--tenant", required=True)
+    sweep.add_argument("--base-url")
+    sweep.add_argument("--base-url-template")
+    sweep.add_argument("--run-dir")
     return parser
 
 
@@ -3271,6 +3277,10 @@ def main(argv=None) -> int:
         return main_cleanup(args)
     if args.command == "dry-run":
         return cmd_dry_run(args)
+    if args.command == "residue-sweep":
+        import residue_sweep
+
+        return residue_sweep.main(args, sys.modules[__name__])
     return main_run(args)
 
 
