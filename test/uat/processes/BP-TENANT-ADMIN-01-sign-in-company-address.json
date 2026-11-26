@@ -1,0 +1,75 @@
+{
+  "id": "BP-TENANT-ADMIN-01-sign-in-company-address",
+  "bp_entry": "BP-TENANT-ADMIN-01",
+  "title": "Sign in at the company's address: the address names the company's realm, the signed-in token maps the person to this company only",
+  "description": "API half of the sign-in. Before sign-in the page asks which realm belongs to the company address (the same answer the browser gets), then the person signs in on that realm (the runner's own login of the actor is the proof that the realm accepts the password), and the server maps the token to the person and the memberships of THIS company. The administrator of another company then uses the same address with their own token: the company of a request is decided by the realm of the token, never by the address, so they see their own company only and an id of this company answers the plain not-found, identical to an id that does not exist (the same refusal SEC-ID-02 plays in full). Read-only: nothing is created, so there is no cleanup. NOT automated here: the browser redirect and return (covered by the operator's real-browser check of 2026-11-21 22:54, headless Chromium, the three QA tenants, all OK), the phone app with its stored company code (needs a device or an emulator), the e-mail-first lookup (not enabled) and the missing/expired token (the runner always sends the named actor's token); see the entry BP-TENANT-ADMIN-01 for the paths and the entries BP-TENANT-ADMIN-37 and BP-TENANT-ADMIN-42 for the unknown host and code (SEC-ID-01).",
+  "tenant": "${tenant}",
+  "inputs": ["company_host", "other_company"],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {
+      "company_host": "qoimeks-qa2.letflow.qa.bizdala.com",
+      "other_company": "sss-rehearsal2"
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "says": "The page asks the company address which realm to sign in on: this company's own realm.",
+      "do": {"api": "GET", "path": "/api/tenant-config?host=${company_host}"},
+      "expect": {"status": 200, "json": {"$.oidc_authority": {"regex": "/realms/${tenant}\\Z"}, "$.client_id": {"exists": true}, "$.tenant_type": {"exists": true}}}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "says": "The administrator is signed in by the runner on that realm; the server answers the person.",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200, "json": {"$.user_id": {"exists": true}, "$.roles": {"exists": true}}},
+      "save": {"this_admin_id": "$.user_id"}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "says": "The person's memberships are this company's only.",
+      "do": {"api": "GET", "path": "/api/v1/me/memberships"},
+      "expect": {"status": 200, "json": {"$.memberships[0].tenant_slug": "${tenant}", "$.memberships[1]": {"absent": true}}}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "says": "The other company's realm, asked by company code, is a different realm from this company's.",
+      "do": {"api": "GET", "path": "/api/tenant-config?realm=${other_company}"},
+      "expect": {"status": 200, "json": {"$.oidc_authority": {"regex": "/realms/${other_company}\\Z"}}}
+    },
+    {
+      "id": "s5",
+      "actor": "rehearsal2-admin",
+      "says": "The administrator of the other company, signed in on their own realm and sending the request to this run's address, is mapped to THEIR company, not to this one.",
+      "do": {"api": "GET", "path": "/api/v1/me/memberships"},
+      "expect": {"status": 200, "json": {"$.memberships[0].tenant_slug": "${other_company}", "$.memberships[1]": {"absent": true}}}
+    },
+    {
+      "id": "s6",
+      "actor": "rehearsal2-admin",
+      "says": "A person of this company is not visible to them: the plain not-found, no name or user name.",
+      "do": {"api": "GET", "path": "/api/v1/identity/users/${this_admin_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found", "$.username": {"absent": true}}}
+    },
+    {
+      "id": "s7",
+      "actor": "rehearsal2-admin",
+      "says": "An id that does not exist gets the identical answer (no way to tell the two apart).",
+      "do": {"api": "GET", "path": "/api/v1/identity/users/${missing_id}"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    }
+  ],
+  "cleanup": []
+}

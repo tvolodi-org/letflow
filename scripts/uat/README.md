@@ -238,6 +238,10 @@ A step with `"actor": "anonymous"` sends no `Authorization` header and needs no 
   process cannot know.
 * Every step has an `expect`. A step without one is reported.
 * Put every undo in `cleanup`, with `requires`. A process that cannot undo something says so in its `description`.
+* Every document the process creates (a POST to a document collection: `/documents`, `/quick-counts`, `/counts`; derived
+  from the routers, a collection whose router has `:id/reverse` or `:id/cancel`) needs a `cleanup` step that reverses,
+  cancels or deletes that collection, or a top-level `"residue_allow": [{"type": "stock/documents[:kind]", "reason": "...",
+  "owner": "..."}]` entry. `check_processes.py --strict` fails the file, the step and the type otherwise (T-2885).
 * Never put a password, a token or a secret into a file. The runner gets tokens from the environment.
 * Never leave a literal `REPLACE-WITH-*` marker in a process, chain or fixture. The static check rejects it and the
   loader exits 2 before any request; provide the value as an input or by a fixture instead.

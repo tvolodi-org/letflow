@@ -24,6 +24,10 @@ A process file is checked for:
     `instances`, each a list of names; a ${name} in it must be defined like any other name;
   * a `wait_mail` step (the mail trap, G18): a recipient, a subject and a time the runner can read (a number,
     a numeric text or a ${name} of the context);
+  * (--strict, T-2885) every document a step CREATES (a POST to a document collection route: a route of a
+    module router without wildcards that the same router can undo with POST <it>/:id/reverse|cancel; /quick-counts counts as /documents) has a cleanup step of the same file that undoes that
+    collection (a reverse, cancel or delete), or a top-level `residue_allow` entry
+    {"type": "<collection>[:<kind>]", "reason": "...", "owner": "..."} with a reason and an owner;
   * bp_entry and a dry_run block {tenant, actors, inputs} when present (--strict: required).
 """
 
@@ -44,6 +48,10 @@ ACTOR_RE = re.compile(r"^\s*(actor-[A-Za-z0-9_.-]+):", re.M)
 SHARED_ROUTER = "lib/letflow/routers/shared_stock_access.ex"
 STOCK_ROUTER = "lib/letflow/modules/stock/router.ex"
 STOCK_MOUNT = ["modules", "stock"]
+
+
+UNDO_TAILS = ("reverse", "cancel")
+COLLECTION_ALIASES = {"quick-counts": "documents"}  # creates a stock document, undone through /documents/:id/...
 
 
 def default_root() -> Path:
@@ -82,6 +90,37 @@ class Routes:
                 target = self.shared if rel == SHARED_ROUTER else self.api
                 target.append((method.upper(), segments(route), mounts))
         self.loaded = bool(self.api)
+        self.families = self._families()
+
+    def _families(self):
+        """Document collections: (mounts, segs) of POST routes without wildcards that the router can undo."""
+        found = {}
+        for method, segs, mounts in self.api:
+            if method != "POST" or not segs or any(is_wild(s) for s in segs):
+                continue
+            undo = any(
+                m == "POST" and r == segs + [":id", t] and ms == mounts
+                for t in UNDO_TAILS for m, r, ms in self.api
+            )
+            if undo:
+                found[(tuple(map(tuple, mounts)), tuple(segs))] = mounts
+        for method, segs, mounts in self.api:  # aliases: /quick-counts -> /documents of the same router
+            if method == "POST" and segs and segs[-1] in COLLECTION_ALIASES and not any(is_wild(s) for s in segs):
+                target = segs[:-1] + [COLLECTION_ALIASES[segs[-1]]]
+                if (tuple(map(tuple, mounts)), tuple(target)) in found:
+                    found[(tuple(map(tuple, mounts)), tuple(segs))] = mounts
+        return found
+
+    def family_of(self, path: str):
+        """-> the collection name ("documents", "counts") a POST path creates, or None. Aliases resolve."""
+        psegs = segments(path)
+        if psegs[:2] == ["api", "v1"]:
+            psegs = psegs[2:]
+        for (_, segs), mounts in self.families.items():
+            if any(self._tail_matches(psegs, mount + list(segs)) and len(psegs) == len(mount) + len(segs) for mount in mounts):
+                name = segs[-1]
+                return "/".join(mounts[-1][-1:] + [COLLECTION_ALIASES.get(name, name)])
+        return None
 
     @staticmethod
     def _tail_matches(path_segs, route_segs) -> bool:
@@ -177,6 +216,61 @@ def _actors_of(step) -> set:
     return found
 
 
+def _post_bodies(step) -> list:
+    do = step.get("do") or {}
+    calls = [do] + [c for c in (do.get("parallel") or []) if isinstance(c, dict)]
+    if isinstance(do.get("repeat"), dict):
+        calls.append(do["repeat"])
+    return [c for c in calls if str(c.get("api", "")).upper() == "POST" and "path" in c]
+
+
+def check_cleanup_coverage(doc, name, routes, problems):
+    """T-2885: a created document type has a cleanup that undoes it, or a residue_allow with reason and owner."""
+    allow = doc.get("residue_allow", [])
+    allowed = set()
+    if not isinstance(allow, list):
+        problems.append(f"{name}: residue_allow must be a list of {{type, reason, owner}}")
+        allow = []
+    for i, entry in enumerate(allow):
+        ok = isinstance(entry, dict) and all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("type", "reason", "owner"))
+        if not ok:
+            problems.append(f"{name}: residue_allow[{i}] needs a type, a reason and an owner (all non-empty text)")
+        else:
+            allowed.add(entry["type"].strip())
+    undone = set()
+    for step in doc.get("cleanup") or []:
+        if not isinstance(step, dict):
+            continue
+        for call in _post_bodies(step) + [c for c in [step.get("do") or {}] if str(c.get("api", "")).upper() == "DELETE"]:
+            segs = segments(str(call.get("path", "")))
+            method = str(call.get("api", "")).upper()
+            if method == "POST" and segs and segs[-1] in UNDO_TAILS:
+                base = segs[:-2]
+            elif method == "DELETE":
+                base = segs[:-1]
+            else:
+                continue
+            family = routes.family_of("/" + "/".join(base))
+            if family:
+                undone.add(family)
+    for step in doc.get("steps") or []:
+        if not isinstance(step, dict) or not isinstance(step.get("do"), dict):
+            continue
+        for call in _post_bodies(step):
+            family = routes.family_of(str(call["path"]))
+            if not family:
+                continue
+            body = call.get("body")
+            kind = body.get("kind") if isinstance(body, dict) else None
+            dtype = f"{family}:{kind}" if isinstance(kind, str) else family
+            if family in undone or dtype in allowed or family in allowed:
+                continue
+            problems.append(
+                f"{name}: step {step.get('id')}: creates a {dtype} and no cleanup step undoes {family} "
+                "(reverse, cancel or delete it in `cleanup`, or add a residue_allow entry with type, reason and owner)"
+            )
+
+
 def check_platform_residue(doc, name, problems, defined):
     """The `platform_residue` block of a process: what the run watches on the platform tenant (G18)."""
     block = doc.get("platform_residue")
@@ -268,6 +362,8 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
         for name_ in sorted(refs(expr) - defined):
             problems.append(f"{name}: output {out_name}: ${{{name_}}} is not saved by any step")
     check_platform_residue(doc, name, problems, defined)
+    if strict and routes.loaded:
+        check_cleanup_coverage(doc, name, routes, problems)
     return set(outputs)
 
 

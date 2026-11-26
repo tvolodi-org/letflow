@@ -1,0 +1,132 @@
+{
+  "id": "SEC-MES-03",
+  "bp_entry": "BP-MES-03",
+  "title": "Module management per role: only the tenant administrator passes the permission; the storekeeper is refused every install and module change with one identical answer",
+  "description": "The module-management routes (settings, uninstall, reactivate, upgrade plan, upgrade, rollback, ensure-seeds) need the ModulesManage permission, which only the tenant administrator (and the platform administrator) holds; mes_core adds no permission, so the core rule applies to it. The storekeeper sends each of the seven requests naming the manufacturing module, with an empty body (the permission is checked before the body is read): every one is refused with 403 and the same body (Forbidden, insufficient permissions), and nothing changes. Not in this file (the static check cannot match the route mounted at the root of the two-part prefix): the install request POST on the module list itself, refused for the storekeeper by the same rule; and the administrator's passing side, which is not scripted because a real install, upgrade or ensure-seeds of the module cannot be undone on the shared QA company (the uninstall route is switched off in this product). Read-only; no cleanup.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenant/modules/mes_core/settings",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/uninstall",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/reactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/upgrade/plan",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/upgrade",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/rollback",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenant/modules/mes_core/ensure-seeds",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
