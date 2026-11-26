@@ -6,6 +6,7 @@
     {"number": "TRF-2026-000017", "id": "7e72cccb-0692-4250-9f08-2d2aa6404672"},
     {"number": "TRF-2026-000018", "id": "79c4b24c-906b-49ff-be3f-2b44f8770f20"}
   ],
+  "shared_stock_access": true,
   "tasks": [
     {"id": "3c3923cd-0750-41d2-921d-846e5ac57395"}
   ]
