@@ -1,0 +1,106 @@
+{
+  "id": "BP-PLATFORM-10-watch-platform",
+  "bp_entry": "BP-PLATFORM-10",
+  "title": "Watch the platform: the backup status and the dashboard of companies for the operator; everyone else refused (read-only)",
+  "description": "The platform administrator reads the backup status (200, 'configured' and the list of jobs) and the list of companies that the platform dashboard shows. A company administrator and a storekeeper are refused the backup status with the fixed 403 ; a caller without a sign-in gets 401. Read-only: nothing is created, there is no cleanup and no residue; the fixture tenant is not needed. UNMATCHED ADDRESSES are not probed: the static check of the runner cannot route-match an address that no route has, and the behaviour (the fixed 403 for a non-operator, the router's 404 for the operator) is covered by test/letflow/routers/platform_status_test.exs, event_retention_test.exs and platform_problem_reports_test.exs. GAP, a RUNNER limit and not a product gap: the three anonymous routes of the entry (GET /health, GET /ready, GET /metrics) are outside /api/, and the runner's static check requires every path to start with /api/; /health is read by the runner's own preflight (the build sha, at the start and at the end of every run) but is not a step with an expectation, and /ready and /metrics (no tenant label in the text) have no step. Runner task wanted: a step kind (or a rule) that allows the anonymous actor to call /health, /ready and /metrics. Screens (the health dashboard and the metrics page) are screen-only and are not run here.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator reads the backup status: 200 with the flag 'configured' and the list of jobs (each with its age). The list may be empty when no backup is configured on QA; that is an answer, not a failure.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-status/backup"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.configured": {
+            "exists": true
+          },
+          "$.jobs": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "The platform dashboard reads the list of companies: 200 and at least the platform company itself.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].slug": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "says": "A company administrator is refused the backup status with the fixed 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-status/backup"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "says": "A storekeeper is refused it too.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-status/backup"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "anonymous",
+      "says": "Without a sign-in the backup status is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-status/backup"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

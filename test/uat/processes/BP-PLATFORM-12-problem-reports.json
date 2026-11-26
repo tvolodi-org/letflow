@@ -1,0 +1,164 @@
+{
+  "id": "BP-PLATFORM-12-problem-reports",
+  "bp_entry": "BP-PLATFORM-12",
+  "title": "The platform owner reads the problem-report inbox on QA: list, review items, one report, refusals (read-only)",
+  "description": "The platform administrator reads the inbox of problem reports (200), the list of review items (200) and, when a report exists, one report with its thread; a filter or a class that the inbox does not know is refused (400) and an unknown report id answers 404. A company administrator is refused the inbox and the decision route (before anything runs) with the fixed 403; a caller without a sign-in gets 401. NOT automated, on purpose: deciding a report, adding a comment (JSON or with screenshots) and changing the state of a review item act on REAL reports of real companies, notify the reporter and cannot be undone (there is no delete), and the runner would have to create a report first as a company user (that sends a notification to the owner of the platform); they are covered by test/letflow/routers/platform_problem_reports_test.exs and platform_owner_items_test.exs. Reading the screenshot route needs a report with an image: not available on QA. If the inbox is not configured on the build, the list answers 503 'Problem reports are not available.' and the first step fails with that answer: that is a QA configuration fault, not a scenario fault. Nothing is created or changed, so there is nothing to clean up and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The owner reads the problem-report inbox (open reports, first page): 200 with the list. The first report id is remembered when there is one.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.reports": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "report_id": {
+          "pick": "$.reports[0].id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "The owner reads the list of review items (class review): 200.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports?class=review"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.reports": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "A status filter the inbox does not know is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports?status=no-such-state"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A class the inbox does not know is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports?class=no-such-class"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "One report with its thread: 200 and the same id (only the id is asserted; the text of a company's report is never copied into the log).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports/${report_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${report_id}"
+        }
+      },
+      "requires": [
+        "report_id"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "A report id that does not exist: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports/${uuid1}"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "says": "A company administrator is refused the inbox with the fixed 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "says": "A company administrator may not decide a report: refused before anything runs (the id is a fresh random one, nothing can change).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-problem-reports/${uuid1}/decision",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "anonymous",
+      "says": "Without a sign-in the inbox is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
