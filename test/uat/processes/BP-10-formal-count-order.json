@@ -167,7 +167,7 @@
           "org_unit_id": "${org_unit}",
           "kind": "selective",
           "planned_start": "2020-01-01T00:00:00+00:00",
-          "planned_end": "2099-12-31T23:59:59+00:00",
+          "planned_end": "2020-01-02T00:00:00+00:00",
           "chair_employee_id": "${responsible}",
           "member_employee_ids": [],
           "location_ids": [
