@@ -13,7 +13,6 @@ file under `generated/client1/`. The files carry no secret.
 import argparse
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -38,12 +37,12 @@ def build(out, seed=DEFAULT_SEED) -> list:
     """Write the workbook set (+ manifest.json, expected_counts.txt) into `out`; -> the sorted file names."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        _run([PILOT / "qoimeks_gen.py", "--out", Path(tmp) / "csv", "--seed", seed])
-        _run([PILOT / "qoimeks_convert.py", "convert", "--in", Path(tmp) / "csv", "--out", out, "--system", "client1",
-              "--org-unit-ext", "client1-ou", "--responsible-ext", "client1-resp", "--received-on", RECEIVED_ON,
-              "--allow-drops"])
-    return sorted(p.name for p in out.iterdir())
+    csv = out / "csv"  # T-2857: kept, the compare tools read the generated extract
+    _run([PILOT / "qoimeks_gen.py", "--out", csv, "--seed", seed])
+    _run([PILOT / "qoimeks_convert.py", "convert", "--in", csv, "--out", out, "--system", "client1",
+          "--org-unit-ext", "client1-ou", "--responsible-ext", "client1-resp", "--received-on", RECEIVED_ON,
+          "--allow-drops"])
+    return sorted(p.name for p in out.iterdir() if p.is_file())
 
 
 def main(argv=None):
