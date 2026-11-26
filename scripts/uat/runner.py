@@ -3763,6 +3763,12 @@ def build_parser():
     sweep.add_argument("--base-url")
     sweep.add_argument("--base-url-template")
     sweep.add_argument("--run-dir")
+    rep = sub.add_parser("definition-report", help="read-only report of the stock definitions of ONE QA tenant (T-2982)")
+    rep.add_argument("--tenant", required=True)
+    rep.add_argument("--admin", required=True, help="the keycloak user of the tenant admin")
+    rep.add_argument("--base-url")
+    rep.add_argument("--base-url-template")
+    rep.add_argument("--run-dir")
     return parser
 
 
@@ -3881,6 +3887,10 @@ def main(argv=None) -> int:
         import residue_sweep
 
         return residue_sweep.main(args, sys.modules[__name__])
+    if args.command == "definition-report":
+        import definition_report
+
+        return definition_report.main(args, sys.modules[__name__])
     return main_run(args)
 
 
