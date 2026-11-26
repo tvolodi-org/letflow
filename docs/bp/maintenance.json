@@ -29,7 +29,7 @@
           "lib/letflow/modules/maintenance/router.ex:50",
           "lib/letflow/modules/maintenance/requests.ex:75",
           "lib/letflow/modules/maintenance/access.ex:25",
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:22"
         ],
         "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
       }
@@ -176,7 +176,7 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:69",
           "lib/letflow/modules/maintenance/requests.ex:195",
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:21"
         ],
         "result": "200 with rows and next_cursor"
       },
@@ -192,7 +192,7 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:84",
           "lib/letflow/modules/maintenance/requests.ex:219",
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:23"
         ],
         "result": "200 with the request view (status, order reference, photo_count)"
       },
@@ -552,8 +552,8 @@
         ],
         "route": "web: admin/maintenance/requests/new",
         "code_refs": [
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:16",
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:22"
         ],
         "result": "the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page"
       },
@@ -565,7 +565,7 @@
         ],
         "route": "web: admin/maintenance/requests",
         "code_refs": [
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:21"
         ],
         "result": "the request list screen opens for a holder of MaintenanceRead"
       },
@@ -577,7 +577,7 @@
         ],
         "route": "web: admin/maintenance/requests/:id",
         "code_refs": [
-          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:23"
         ],
         "result": "the same page opens with one request selected, for a holder of MaintenanceRead"
       }
@@ -598,7 +598,7 @@
     "id": "BP-MAINTENANCE-10",
     "area": "maintenance",
     "title": "Web screens for work orders and My work orders",
-    "description": "The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src. Why it stays planned (re-checked 2026-11-21): no order screen and no My work orders list in web/src; REQ-899 is pending and has no build. The API half is BP-MAINTENANCE-04..08; the technician works from the core task inbox today.",
+    "description": "The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person, built on the task inbox (REQ-899, merged in #5111). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/orders, orders/new, orders/:id, maintenance/my-orders). Stays planned: the release flag :maintenance_enabled is off on QA, REQ-899 is still pending in the register, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-04..08. The phone screens of the technician (REQ-900) are not built.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -612,7 +612,64 @@
     "preconditions": [
       "BP-MAINTENANCE-04..08 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders -> MaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MaintenanceOrdersPage"
+        ],
+        "route": "web: admin/maintenance/orders",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:25"
+        ],
+        "result": "the order list opens for a holder of MaintenanceRead, filtered by status and asset card; a tenant without the module gets the not-found page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders/new -> MaintenanceOrderFormPage"
+        ],
+        "functions": [
+          "MaintenanceOrderFormPage"
+        ],
+        "route": "web: admin/maintenance/orders/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:26"
+        ],
+        "result": "the new-order form opens for a holder of MaintenanceOrderManage; one save creates the order, an optional assignee is sent with it"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders/:id -> MaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MaintenanceOrdersPage"
+        ],
+        "route": "web: admin/maintenance/orders/:id",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:27"
+        ],
+        "result": "the same page opens with one order selected in the detail pane; Assign opens the user picker (MaintenanceOrderManage)"
+      },
+      {
+        "actor": "TASK_WORKER (the technician, addressed by the work order)",
+        "forms": [
+          "maintenance/my-orders -> MyMaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MyMaintenanceOrdersPage"
+        ],
+        "route": "web: maintenance/my-orders",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:31"
+        ],
+        "result": "the signed-in user sees the orders addressed to them from the task inbox; needs TasksRead only, no maintenance permission"
+      }
+    ],
     "inputs": [
       "order fields"
     ],
@@ -621,8 +678,10 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-899"
+    "status": "partial",
+    "requirement": "REQ-899",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens."
   },
   {
     "id": "BP-MAINTENANCE-11",
