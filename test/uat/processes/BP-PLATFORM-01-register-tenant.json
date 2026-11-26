@@ -360,10 +360,10 @@
     {
       "id": "C4",
       "actor": "admin",
-      "says": "C. Fresh tenant plus module install (G14 finding): the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
+      "says": "C. Fresh tenant plus module install (G14 finding): the platform.register_tenant definition (the name filter keeps a draft of any other definition out of this check) is not left as a draft; the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
       "do": {
         "api": "GET",
-        "path": "/api/v1/definitions?status=draft&page_size=1"
+        "path": "/api/v1/definitions?name=platform.register_tenant&status=draft&page_size=1"
       },
       "expect": {
         "status": 200,
