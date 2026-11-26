@@ -238,6 +238,10 @@ A step with `"actor": "anonymous"` sends no `Authorization` header and needs no 
   process cannot know.
 * Every step has an `expect`. A step without one is reported.
 * Put every undo in `cleanup`, with `requires`. A process that cannot undo something says so in its `description`.
+* Every document the process creates (a POST to a document collection: `/documents`, `/quick-counts`, `/counts`; derived
+  from the routers, a collection whose router has `:id/reverse` or `:id/cancel`) needs a `cleanup` step that reverses,
+  cancels or deletes that collection, or a top-level `"residue_allow": [{"type": "stock/documents[:kind]", "reason": "...",
+  "owner": "..."}]` entry. `check_processes.py --strict` fails the file, the step and the type otherwise (T-2885).
 * Never put a password, a token or a secret into a file. The runner gets tokens from the environment.
 * Never leave a literal `REPLACE-WITH-*` marker in a process, chain or fixture. The static check rejects it and the
   loader exits 2 before any request; provide the value as an input or by a fixture instead.
@@ -350,6 +354,35 @@ with one line, never issued) and `second_place` (inputs `place`, `org_unit`; pro
 active stock location linked to the org unit). `second_place` leaves a found location and link untouched, retires a
 link and location it created, and ignores its retired fixtures on later runs. Run fixtures on QA with real tokens like
 any process.
+
+### QA tenant setup through the runner (module_installed, tenant_onboarded)
+
+Owner order D-174: module installs, tenant setup and QA tenant data are product processes, run through the
+runner, not by infra. Two parameterised fixtures take over the **local** modes of infra's `qa-tenant-onboard.py`
+(they talk to the product over the public API as the tenant admin actor; no ssh, no sudo). They are declared in
+the `fixtures` list of a process or chain as objects, next to the file-name fixtures:
+
+```json
+"fixtures": [
+  {"fixture": "module_installed", "module": ["org", "assets"]},
+  {"fixture": "tenant_onboarded", "legal_entity": "QOIMEKS", "modules": ["assets"],
+   "actors": {"storekeeper": {"roles": ["STOREKEEPER"], "permissions": ["StockQuickCount"]}}}
+]
+```
+
+| fixture | replaces | what it does |
+|---|---|---|
+| `module_installed` (`module`: a name or a list, in order; `tenant`: optional guard) | `modules <slug> [--module a,b]` | as the `admin` actor: `GET /api/v1/me/modules`; if the module is absent `POST /api/v1/tenant/modules` (`module_id`, `rationale`); 409 = already installed = OK; reads `/me/modules` again and fails when the module is still absent. Names are checked (`^[a-z][a-z0-9_]{0,63}$`, no empty or duplicate name) before any request. An unknown name or an unmet dependency fails the step with the product's own answer (status and code), never retried. The installed version is in the run log (`module_installed.version`, as numbers: the log masks a dotted number as a phone number) and in the context as `module_<name>_version`. **There is no cleanup: a module install is not removed by a test.** |
+| `tenant_onboarded` (`legal_entity`, `app_name`, `modules`, `actors`, `tenant`: all optional) | `config <slug>` and `verify <slug>` (the read-only parts) | a read-only assertion, never creates a tenant, a user or a record: a legal entity exists (`POST /api/v1/entities/query`, `org_legal_entity`, by code when given), `app_name` is set (`GET /api/v1/tenant/config-bundle`, `tenant_settings.app_name`; equal to `app_name` when given), the listed modules are installed, and each listed actor's `GET /api/v1/me/access` holds the roles and permissions. It fails naming **every** missing item. |
+
+`tenant` (optional) is a guard: the fixture is refused when the admin actor is not on that tenant (per-actor tenants
+as in section 1, the retired-tenant guard still applies to the run). Both fixtures are idempotent: a second run
+changes nothing.
+
+**What stays with infra** (platform work, not the runner's): the identity realm, the users and their passwords, the
+onboarding registry row, DNS, nginx hosts and certificates. **What is not ported**: the `config` writes (legal
+entity create, `PATCH /api/v1/tenant/settings`), which need owner input (the BIN, `ONBOARD_LEGAL_BIN`); the
+four-eyes switch and ledger settings, which only an OIDC browser session may change.
 
 ---
 
@@ -575,6 +608,11 @@ How to run the RC:
 whose name starts with the throwaway prefix `uat-tmp-<kind>-` and does not contain this run's id, listed through
 `GET /api/v1/definitions?name=<prefix>` paged; one line per definition, `accept` default 200/204/404/409, any other
 status fails; give it `expect: {status: 200}`),
+`{page_through: {path, page_size?, cursor?: "next_cursor", items?: "items", max_pages?}}` (T-2941: follows the cursor
+of a list route, at most 15 pages; per page status 200 and `count` (when present) equal to the items returned, else
+the step errors; the answer is the collected `{items, pages, truncated}`; the step's `expect` may also carry
+`age_at_least: {seconds, field?: created_at}` (no item old enough = the step is NOT RUN, "inconclusive: no old
+rows", never a pass) and `unique_ids: true | <field>` (no id twice across pages)),
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and

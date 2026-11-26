@@ -26,6 +26,8 @@ export default defineConfig({
   // instead. The formal, CI-safe regression coverage lives in the same
   // file's non-`@manual` describe block, against a disposable scratch
   // baseline directory.
+  // T-2947: refuses a non-local backend/base URL for the whole run (E2E_ALLOW_REMOTE=1 lifts it).
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

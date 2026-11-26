@@ -1,0 +1,395 @@
+{
+  "id": "BP-PLATFORM-11-service-catalogue-lifecycle",
+  "bp_entry": "BP-PLATFORM-11",
+  "title": "Maintain the global service catalogue on QA: register, refuse, publish, rescope, retire and delete a throwaway service",
+  "description": "DRAFT, NOT RUN (kept out of test/uat/processes/*.json on purpose, see the entry). The platform administrator lists the catalogue, registers a global service with a throwaway id (uat-tmp-svc-<run id>: 201, version 1, active), is refused a duplicate id (409) and an address in the reserved variable namespace (422, stable code), publishes version 2 (201), is refused a publish without a version (400) and a second version 2 (409), is refused narrowing the scope without a company (422), narrows the scope to the platform fixture company and widens it back to global (200 both; skipped with the note 'requires fixture_id' while the fixture tenant uat-tmp-fixture does not exist: the fixture is only READ here and never created), retires the service (200, retired; a second retire 409) and deletes it (204; a second delete 404). A company administrator is refused the list, a register and a delete with the fixed 403; a caller without a sign-in gets 401. The catalogue is global, so the throwaway service is the only entry this file touches; the cleanup deletes it (and the refused-address entry in case it was accepted) with 204 or 404. A service that a process definition references cannot be deleted (409): the throwaway one is referenced by nothing. Real services of the catalogue are never changed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the platform fixture tenant by its fixed slug (404 is an answer, not a failure). It is only READ here: this file never creates, changes or removes it.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator lists the catalogue (a small page): 200.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services?page_size=5"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A page size that is not a number is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services?page_size=abc"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "Register a global service with a throwaway id: 201, version 1, active.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services",
+        "body": {
+          "service_id": "uat-tmp-svc-${run_id}",
+          "endpoint_url": "https://example.test/uat-service",
+          "required_auth": "NONE",
+          "timeout_ms": 5000,
+          "scope": "global"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.service_id": "uat-tmp-svc-${run_id}",
+          "$.version": "1",
+          "$.status": "ACTIVE",
+          "$.scope": "global"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "The same id again is refused: 409.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services",
+        "body": {
+          "service_id": "uat-tmp-svc-${run_id}",
+          "endpoint_url": "https://example.test/uat-service",
+          "required_auth": "NONE",
+          "timeout_ms": 5000,
+          "scope": "global"
+        }
+      },
+      "expect_refused": {
+        "status": 409
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "An address that names the engine's reserved variable namespace is refused with the stable code (the body echoes neither the address nor the name). The id differs, so nothing exists if it were accepted by mistake; the cleanup removes it anyway.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services",
+        "body": {
+          "service_id": "uat-tmp-svc-${run_id}-r",
+          "endpoint_url": "https://example.test/{{variables._sys.x}}",
+          "required_auth": "NONE",
+          "timeout_ms": 5000,
+          "scope": "global"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "endpoint_url_reserved_variable"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "Publish version 2 with a new timeout: 201, the live row is version 2.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}/versions",
+        "body": {
+          "version": "2",
+          "endpoint_url": "https://example.test/uat-service-v2",
+          "timeout_ms": 6000
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.service_id": "uat-tmp-svc-${run_id}",
+          "$.version": "2",
+          "$.status": "ACTIVE",
+          "$.timeout_ms": 6000
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "A publish without a version is refused: 400.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}/versions",
+        "body": {
+          "endpoint_url": "https://example.test/uat-service-v3"
+        }
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "Publishing version 2 a second time is refused: 409.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}/versions",
+        "body": {
+          "version": "2"
+        }
+      },
+      "expect_refused": {
+        "status": 409
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "platform-admin",
+      "says": "Narrowing the scope to one company without naming the company is refused: 422.",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}",
+        "body": {
+          "scope": "tenant"
+        }
+      },
+      "expect_refused": {
+        "status": 422
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "platform-admin",
+      "says": "Narrow the scope to the fixture company (nothing references the throwaway service): 200, scope tenant, owner the fixture.",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}",
+        "body": {
+          "scope": "tenant",
+          "owner_tenant_id": "${fixture_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.scope": "tenant",
+          "$.owner_tenant_id": "${fixture_id}"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s11",
+      "actor": "platform-admin",
+      "says": "Widen it back to global (no owner): 200.",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}",
+        "body": {
+          "scope": "global",
+          "owner_tenant_id": null
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.scope": "global"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "says": "Retire the service: 200, status retired.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}/retire"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "RETIRED"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "platform-admin",
+      "says": "Retiring it again is refused: 409.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}/retire"
+      },
+      "expect_refused": {
+        "status": 409
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "platform-admin",
+      "says": "Delete the throwaway service (nothing references it): 204.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}"
+      },
+      "expect": {
+        "status": 204
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "platform-admin",
+      "says": "Deleting it again: 404, it no longer exists.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "says": "A company administrator is refused the catalogue list with the fixed 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "says": "A company administrator may not register a service: refused before the body is read (empty body, nothing can be created).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services",
+        "body": {}
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "admin",
+      "says": "A company administrator may not delete a service: the same 403 for an id that does not exist.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/admin/services/uat-no-such-service"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "anonymous",
+      "says": "Without a sign-in the catalogue is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "platform-admin",
+      "says": "Cleanup: delete the throwaway service if it is still there (204 deleted, 404 already gone).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "platform-admin",
+      "says": "Cleanup: delete the refused-address service too, in case it was accepted by mistake.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/admin/services/uat-tmp-svc-${run_id}-r"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

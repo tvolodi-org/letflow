@@ -279,6 +279,12 @@ authored scenario's prose fields):
 
 A requirement must name a mainstream product that does the thing it asks for; otherwise it is not built. A habit of a predecessor system (for example Qoimeks) is kept only if industry practice exists for it. Write the named product in the requirement's source comment.
 
+## Cleanup of created documents (T-2885)
+
+Every document a scenario file creates (a stock document, a quick count, a count) has a cleanup step in the same
+file that reverses, cancels or deletes it, or an explicit `residue_allow` entry `{type, reason, owner}`.
+`python3 scripts/uat/check_processes.py --strict <file>` fails a file that creates a document type with neither.
+
 ## Forbidden
 
 - No technical/implementation language in either authored scenarios or sign-off

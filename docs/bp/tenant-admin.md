@@ -5,13 +5,13 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `tenant-admin` has 48 process(es): 36 implemented, 12 partial. Executed by: 48 direct, 0 definition.
+The area `tenant-admin` has 48 process(es): 37 implemented, 11 partial. Executed by: 48 direct, 0 definition.
 
 ## The processes of the area
 
 | id | name | in one line | actors | status | executed by | scenario | security | machine-proven |
 |---|---|---|---|---|---|---|---|---|
-| BP-TENANT-ADMIN-01 | Sign in to the company's own address and map the person to the company | A person opens the company's address. The page asks the server which company this host belongs to (public tenant config: name, sign-in re... | any user of the company, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-TENANT-ADMIN-01 | Sign in to the company's own address and map the person to the company | CURRENT method (owner decision via the PM, 2026-11-21): the person opens the company's own address (https://<company>.letflow.qa.bizdala.... | any user of the company, TENANT_ADMIN | implemented | direct | yes | no | see report |
 | BP-TENANT-ADMIN-02 | See my access, modules and the first screen | After sign-in the app asks what the person may do: effective access (permissions), the modules installed for the company, and shows the d... | any user of the company | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-03 | Create and maintain a user of the company | The administrator adds a person to the company, lists users, opens one, and changes the profile (name, e-mail and so on). | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-04 | Import users from an Excel file | The administrator downloads the template, fills it, and loads it; a dry run validates without writing, the real load is atomic. | TENANT_ADMIN | implemented | direct | no | no | see report |
@@ -58,11 +58,11 @@ The area `tenant-admin` has 48 process(es): 36 implemented, 12 partial. Executed
 | BP-TENANT-ADMIN-45 | SECURITY: Shared stock access value lifecycle: create, use, rotate, revoke, refused after revoke, never in the status | Runner script of BP-TENANT-ADMIN-15 and BP-TENANT-ADMIN-39. | TENANT_ADMIN, STOREKEEPER, old phone app | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-46 | SECURITY: Platform routes need the platform role; the platform administrator is kept out of a company's approval and ledger switches | The company list, one company's record (also the caller's own), the company create and the backup status are refused to a tenant administ... | PLATFORM_ADMIN (platform company), TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-47 | SECURITY: The storekeeper does not hold the stock approve permission; the tenant administrator does (decision 0093) | Decision 0093: the stock approve, post and reverse tasks require StockApprove, checked at claim and completion before the addressing rule... | STOREKEEPER, TENANT_ADMIN | partial | direct | yes | yes | see report |
-| BP-TENANT-ADMIN-48 | Scroll a long list past a day: My Tasks inbox and the stock documents list | A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls... | STOREKEEPER or TENANT_ADMIN | partial | direct | no | no | see report |
+| BP-TENANT-ADMIN-48 | Scroll a long list past a day: the My Tasks inbox | A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls... | STOREKEEPER or TENANT_ADMIN | implemented | direct | yes | no | see report |
 
 ## BP-TENANT-ADMIN-01 -- Sign in to the company's own address and map the person to the company
 
-A person opens the company's address. The page asks the server which company this host belongs to (public tenant config: name, sign-in realm, branding, environment label), signs the person in through the company's own sign-in realm, and the server then maps the signed-in identity to a user and memberships of that company only.
+CURRENT method (owner decision via the PM, 2026-11-21): the person opens the company's own address (https://<company>.letflow.qa.bizdala.com). The page asks the server which company the address belongs to, is redirected to that company's own sign-in realm, signs in there and returns to the company address; the server then maps the token to a user and the memberships of that company only. Path 1 browser; path 2 phone app (PWA/APK) with a STORED COMPANY CODE (not an address); path 3 e-mail-first lookup: NOT ENABLED (web build flag VITE_EMAIL_FIRST_LOGIN is off, web/.env.example:30, web/src/auth/emailFirstFlag.ts:13; server mount LetflowLoginDiscovery enabled only outside prod, config/config.exs:123, deploy/.env.example:37 LETFLOW_LOGIN_DISCOVERY_ENABLED empty; its security row is BP-PLATFORM-19); path 4 security cases. No new login features (name@company, company chooser) are in this entry: they are on the later list.
 
 **Actors and their permissions.**
 
@@ -71,31 +71,52 @@ A person opens the company's address. The page asks the server which company thi
 
 **Steps.**
 
-1. **any user**: screen `/login`, call `GET /api/tenant-config`
-   Result: the page learns the company's sign-in realm and branding before login; an unknown host gets the not-found answer
-2. **any user**: call `GET /api/tenant-config/logo`
-   Result: the company's public logo bytes are read without a login
-3. **any user**: screen `/auth/callback`
-   Result: the sign-in callback exchanges the code and opens the app shell
-4. **any user**: call `GET /api/v1/me`
-   Result: the server returns the signed-in person (id, name, tenant) resolved from the token, never from a request member
-5. **any user**: call `GET /api/v1/me/memberships`
-   Result: the person's memberships of this company are listed
+1. **any user (browser)**: screen `/login (only with the e-mail-first flag; otherwise no screen: ProtectedRoute redirects at once)`, call `GET /api/tenant-config`
+   Result: PATH 1a, host to company: with no company code known the page asks by host (?host=); a company code in the address (?realm=) or stored in the tab (sessionStorage bpm_realm_slug) wins. A known active company with a realm answers its own sign-in realm, client id, branding and type; an unknown host, the bare host and no parameter answer the same default body (200, never an error); the answer is not cached after a failed read (tenantConfig.ts:96).
+2. **any user (browser)**: call `GET /api/tenant-config?realm=&company_check=1`
+   Result: PATH 1b, unknown company code: an explicit code that names no company never reaches the identity provider; the page shows the company-not-found screen (web/src/auth/CompanyNotFound.tsx) and forgets the code.
+3. **any user (browser)**.
+   Result: PATH 1c, redirect: the page redirects to the company's realm (authority from the config) with the return address <company address>/auth/callback (the realm slug is embedded when a code was used, so the callback finds the realm).
+4. **any user (browser)**: screen `/auth/callback`
+   Result: PATH 1d, return: the callback exchanges the code (signinRedirectCallback), keeps the user in memory only (OidcManager.ts:32, InMemoryWebStorage) and opens the saved page of the company address.
+5. **any user (browser)**.
+   Result: PATH 1e, session: the token is renewed 60 s before it expires (refresh token first, hidden frame as fallback); a failed renewal that the API client's 401 path cannot repair raises 'auth:session-expired': the session is cleared, a notice is kept and the person is sent to the same realm to sign in again. The session is not kept across a page reload (memory store).
+6. **any user**: call `GET /api/v1/me`, function `Letflow.Identity.resolve_tenant_by_realm/1`, `Letflow.Identity.verify_realm_ownership/2`
+   Result: PATH 1f, token to company: the server verifies the token, takes the company from the REALM of the token (iss /realms/<slug>), checks that the realm belongs to that company and maps the person; the address (Host) is not read on any /api/v1 route, so the company of a request is the token's. The answer is the person's own roles, permissions and user id.
+7. **any user**: call `GET /api/v1/me/memberships`
+   Result: the person's memberships of this company are listed (this company only).
+8. **any user (phone app, PWA or APK)**: screen `company-code entry screen`, call `GET /api/mobile/tenant-config`
+   Result: PATH 2, phone app: the app is NOT given a company address. It sends one server (build-time LETFLOW_API_BASE_URL, api_client.dart:395) the COMPANY CODE the person typed (?slug=); a known company answers its realm (company_found true), an unknown code answers the default body with company_found false and the app stops (tenantNotFound). After sign-in through the native OIDC library the app stores a pointer {realm_url, slug} of the last active company (LastActiveTenantPointer, written by writeLastActiveTenant) and the refresh token under that code, and reopens into that company.
+9. **any user**: call `POST /api/login-discovery`
+   Result: PATH 3, e-mail-first lookup: NOT ENABLED today (flags above). One line only; its uniform answers are the security row BP-PLATFORM-19.
 
 **Refusals.**
 
-- an unknown or inactive company host answers the not-found answer (tests tenant_config_host_test, tenant_config_inactive_test)
-- a token of another realm is not accepted for this company
+- unknown host, bare host, no parameter, unknown company code: the same default 200 body, no error and no hint which part failed (anti-oracle; SEC-ID-01, BP-TENANT-ADMIN-42); the logo of an unknown code is the plain 404
+- no or malformed Authorization header: 401 'missing or malformed Authorization header'; wrong, expired or unsigned token, unknown realm: 401 'invalid or expired bearer token' (auth_pipeline.ex:213-225; BP-TENANT-ADMIN-37)
+- a token of another company's realm: the company of the request is the token's, so the person of company A at company B's address sees A's own data only; an id of company B read by A answers the plain 404 'the requested resource was not found', identical to an id that does not exist (SEC-ID-02, BP-TENANT-ADMIN-43; this entry's scenario steps s5-s7). The server does NOT refuse by host: no /api/v1 plug reads the Host header (grep tenant_by_hostname in lib: only tenant_config.ex)
+- a realm that is not bound to the token's company: 401 'token realm does not match tenant' (auth_pipeline.ex:228)
+- a deactivated company: 403 tenant_inactive (auth_pipeline.ex:213)
+- no secret and no user existence in any answer: the public config carries only realm, client id, branding, type and env label (tenant_config.ex response allowlist); there is no per-user lookup in this process
+
+**Tests.**
+
+- `test/letflow/routers/mobile_tenant_config_test.exs`
+- `test/letflow/routers/tenant_config_host_test.exs`
+- `test/letflow/routers/tenant_config_inactive_test.exs`
+- `web/src/auth/__tests__/AuthProvider.tokenRenewal.test.tsx`
+- `web/src/auth/__tests__/CompanyNotFound.test.tsx`
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-TENANT-ADMIN-01-sign-in-company-address.json` (runner id `BP-TENANT-ADMIN-01-sign-in-company-address`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
+- automation: runner
 
 ## BP-TENANT-ADMIN-02 -- See my access, modules and the first screen
 
@@ -1717,21 +1738,18 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 - security: yes
 - automation: runner
 
-## BP-TENANT-ADMIN-48 -- Scroll a long list past a day: My Tasks inbox and the stock documents list
+## BP-TENANT-ADMIN-48 -- Scroll a long list past a day: the My Tasks inbox
 
-A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). The stock documents list (limit and cursor, rows and next cursor) is scrolled the same way. Read-only; nothing to clean up. Runner script: not written yet, the runner has no step that follows a cursor, keeps the oldest age seen and checks ids across pages (see gaps).
+A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). Read-only; nothing to clean up. The runner script follows the cursor (page_through step), asserts the oldest task is older than 24 hours ('inconclusive: no old rows' otherwise) and that ids are unique across pages.
 
 **Actors and their permissions.**
 
 - `STOREKEEPER or TENANT_ADMIN` -- TasksList
-- `STOREKEEPER or TENANT_ADMIN` -- StockRead
 
 **Steps.**
 
 1. **STOREKEEPER or TENANT_ADMIN**: screen `/tasks`, call `GET /api/v1/tasks/inbox?page_size=N&cursor=<next_cursor>`, function `Tasks.list_tasks/2`, `Pagination.decode_cursor/4`
    Result: each page answers 200 with items, count and next_cursor; the cursor carries the seek key of the last row and its own issue time, so an old last row does not expire it; the last page has next_cursor null
-2. **STOREKEEPER or TENANT_ADMIN**: call `GET /api/v1/modules/stock/documents?limit=1&cursor=<next_cursor>`, function `Documents.list/2`
-   Result: each page answers 200 with rows and next_cursor; rows do not repeat across pages
 
 **Refusals.**
 
@@ -1744,12 +1762,12 @@ A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with 
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-TENANT-ADMIN-48-long-list-scroll-past-a-day.json` (runner id `BP-TENANT-ADMIN-48`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
 ## Orphans (docs/bp/orphans-tenant-admin.md)
@@ -1763,5 +1781,5 @@ A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with 
 
 ## Gaps of the area
 
-- 38 process(es) have no runner scenario: BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-48
-- 12 process(es) are not implemented: BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-44, BP-TENANT-ADMIN-47, BP-TENANT-ADMIN-48
+- 36 process(es) have no runner scenario: BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41
+- 11 process(es) are not implemented: BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-44, BP-TENANT-ADMIN-47

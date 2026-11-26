@@ -74,7 +74,12 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep")
+PAGE_THROUGH_MAX_PAGES = 15
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep",
+            "module_installed", "tenant_onboarded", "page_through")
+# The module names of the product (the syntax the infra script checked before any request).
+MODULE_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+BUILTIN_FIXTURES = ("module_installed", "tenant_onboarded")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -444,6 +449,46 @@ def refused_results(spec: dict, status: int, body, text) -> list:
         said = (body.get("detail") or body.get("title")) if isinstance(body, dict) else None
         results.append({"what": "error code", "expected": code, "actual": code if hit else (said or "<absent>"), "ok": hit})
     return results
+
+
+SET_ASSERTS = {"age_at_least", "unique_ids"}
+
+
+def _parse_time(value):
+    try:
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def set_assertions(expect: dict, body) -> list:
+    """T-2941: the asserts on the set a page_through collected. age_at_least: {seconds, field?} or a number of
+    seconds: some item's field (default created_at) is at least that old; none is old enough -> the row is
+    `inconclusive` (a not-run with an owner, never a pass). unique_ids: true (or an id field name): no id twice."""
+    items = body.get("items") if isinstance(body, dict) else None
+    items = items if isinstance(items, list) else []
+    rows = []
+    if "age_at_least" in expect:
+        want = expect["age_at_least"]
+        seconds = want.get("seconds") if isinstance(want, dict) else want
+        field = want.get("field", "created_at") if isinstance(want, dict) else "created_at"
+        now = datetime.now(timezone.utc)
+        ages = [(now - t).total_seconds() for t in (_parse_time(i.get(field)) for i in items if isinstance(i, dict))
+                if t is not None]
+        ok = any(a >= float(seconds) for a in ages)
+        row = {"what": f"items[*].{field} age_at_least", "expected": seconds,
+               "actual": f"oldest {int(max(ages))}s" if ages else "no dated item", "ok": ok}
+        if not ok:
+            row["inconclusive"] = True
+        rows.append(row)
+    if "unique_ids" in expect:
+        key = expect["unique_ids"] if isinstance(expect["unique_ids"], str) else "id"
+        ids = [i.get(key) for i in items if isinstance(i, dict)]
+        dups = sorted({str(x) for x in ids if ids.count(x) > 1})
+        rows.append({"what": f"items[*].{key} unique", "expected": "no id twice",
+                     "actual": "duplicates: " + ", ".join(dups[:5]) if dups else f"{len(ids)} ids", "ok": not dups})
+    return rows
 
 
 def run_assertions(expect: dict, status: int, body, text=None, mask=False) -> list:
@@ -1095,6 +1140,9 @@ class Runner:
             record["status"] = status
             record["asserted"] = results
             failed = [r for r in results if not r["ok"]]
+            if failed and all(r.get("inconclusive") for r in failed):
+                return self._blocked_line(record, started, step, "inconclusive: no old rows (owner: BA)")
+            failed = [r for r in failed if not r.get("inconclusive")] or failed
             if failed:
                 first = failed[0]
                 what = first["what"]
@@ -1279,6 +1327,10 @@ class Runner:
             return [self._login(step, do, record)]
         if "first_signin" in do:
             return [self._first_signin(step, do, record)]
+        if "module_installed" in do:
+            return [self._module_installed(step, do, record)]
+        if "tenant_onboarded" in do:
+            return [self._tenant_onboarded(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
@@ -1286,6 +1338,8 @@ class Runner:
             return self._repeat(role, do["repeat"], times, http_as, record)
         if "sweep" in do:
             return [self._sweep(role, do["sweep"], http_as, record)]
+        if "page_through" in do:
+            return [self._page_through(role, do["page_through"], http_as, record)]
         if "upload" in do:
             info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
             record.update(method=info["method"], path=info["path"], request=info["request"])
@@ -1306,6 +1360,102 @@ class Runner:
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
+
+    # -- module_installed / tenant_onboarded: the local modes of the QA tenant setup (D-174) -------------
+
+    def _tenant_guard(self, role, spec, kind):
+        """The optional `tenant` of the fixture must be the tenant the actor lives on (a wrong run is refused)."""
+        want = spec.get("tenant")
+        have = self.actor_spec(role).get("tenant") or self.tenant
+        if want and want != have:
+            raise RunnerError(f"{kind}: the fixture is for tenant {want!r}, the actor {role!r} is on {have!r}")
+
+    @staticmethod
+    def _answer_of(body, text) -> str:
+        """The product's own short answer (closed codes and titles only, never a token) for a refusal."""
+        if isinstance(body, dict):
+            parts = [f"{k}={str(body[k])[:120]}" for k in ("error", "limit", "code", "title", "detail", "message")
+                     if isinstance(body.get(k), (str, int))]
+            if parts:
+                return ", ".join(parts)
+        return str(text or "")[:120] or "no answer"
+
+    def _installed_modules(self, role):
+        """-> (status, {module_id: version}) of GET /api/v1/me/modules; the map is None when it was not readable."""
+        status, body, _ = self.request(role, "GET", "/api/v1/me/modules")
+        items = body.get("installed_modules") if isinstance(body, dict) else None
+        if status != 200 or not isinstance(items, list):
+            return status, None
+        return status, {i["module_id"]: i.get("version") for i in items if isinstance(i, dict) and i.get("module_id")}
+
+    def _module_installed(self, step, do, record):
+        """The module is installed on the tenant of the actor: looked at first, installed only when absent
+        (POST /api/v1/tenant/modules; 409 = already there). A refusal of the product (unknown name, unmet
+        dependency) fails the step with its answer and is never retried. Nothing is uninstalled, ever."""
+        spec = do["module_installed"]
+        role = step.get("actor")
+        module = spec["module"]
+        self._tenant_guard(role, spec, "module_installed")
+        status, installed = self._installed_modules(role)
+        if installed is None:
+            raise RunnerError(f"module_installed {module}: GET /api/v1/me/modules answered {status}")
+        record["module_installed"] = {"module": module, "already": module in installed}
+        if module not in installed:
+            status, body, text = self.request(role, "POST", "/api/v1/tenant/modules", body={
+                "module_id": module, "rationale": f"UAT fixture module_installed (run {self.run_id})"})
+            if status not in (200, 201, 409):
+                raise RunnerError(f"module_installed {module}: the product refused the install with {status} "
+                                  f"({self._answer_of(body, text)})")
+            status, installed = self._installed_modules(role)
+            if installed is None or module not in installed:
+                raise RunnerError(f"module_installed {module}: absent from /api/v1/me/modules after the install")
+        # a dotted version is masked by the log's phone-number rule: the log holds its parts as numbers
+        parts = str(installed[module]).split(".")
+        version = [int(x) if x.isdigit() else x for x in parts]
+        record["module_installed"]["version"] = version
+        return 200, {"module_id": module, "version": version}, ""
+
+    def _tenant_onboarded(self, step, do, record):
+        """A read-only assertion that the tenant is set up: a legal entity, app_name, the modules and the
+        roles/permissions of the named actors. It never creates anything; the answer names every missing item."""
+        spec = do["tenant_onboarded"]
+        role = step.get("actor")
+        self._tenant_guard(role, spec, "tenant_onboarded")
+        missing = []
+        body = {"ok": True}
+        query = {"entity_type": "org_legal_entity", "filters": (
+            [{"field": "code", "op": "eq", "value": spec["legal_entity"]}] if spec.get("legal_entity") else [])}
+        status, found, _ = self.request(role, "POST", "/api/v1/entities/query", body=query)
+        items = found.get("items") if isinstance(found, dict) else None
+        if status != 200 or not items:
+            missing.append("legal entity" + (f" {spec['legal_entity']}" if spec.get("legal_entity") else "")
+                           + (f" (query answered {status})" if status != 200 else ""))
+        status, bundle, _ = self.request(role, "GET", "/api/v1/tenant/config-bundle")
+        settings = bundle.get("tenant_settings") if isinstance(bundle, dict) else None
+        app_name = settings.get("app_name") if isinstance(settings, dict) else None
+        if not isinstance(app_name, str) or not app_name.strip():
+            missing.append("app_name" + (f" (config-bundle answered {status})" if status != 200 else ""))
+        elif spec.get("app_name") and app_name != spec["app_name"]:
+            missing.append(f"app_name {spec['app_name']!r} (is {app_name!r})")
+        if spec.get("modules"):
+            status, installed = self._installed_modules(role)
+            if installed is None:
+                missing.append(f"modules (/me/modules answered {status})")
+            else:
+                missing += [f"module {m}" for m in spec["modules"] if m not in installed]
+        for actor, want in (spec.get("actors") or {}).items():
+            status, access, _ = self.request(actor, "GET", "/api/v1/me/access")
+            if status != 200 or not isinstance(access, dict):
+                missing.append(f"actor {actor}: /me/access answered {status}")
+                continue
+            missing += [f"actor {actor}: role {r}" for r in want.get("roles", []) if r not in (access.get("roles") or [])]
+            missing += [f"actor {actor}: permission {p}"
+                        for p in want.get("permissions", []) if p not in (access.get("permissions") or [])]
+        if missing:
+            raise RunnerError("tenant_onboarded: missing " + "; ".join(missing))
+        record["tenant_onboarded"] = {"legal_entity": True, "app_name": True, "modules": spec.get("modules") or [],
+                                      "actors": sorted(spec.get("actors") or {})}
+        return 200, body, ""
 
     def _login(self, step, do, record):
         """Sign in as a user of a realm that exists only since this run started. -> (200, {"signed_in": true}, "{}")
@@ -1570,8 +1720,9 @@ class Runner:
                 name = item.get("name") if isinstance(item, dict) else None
                 if versions_of is not None:
                     version = item.get("version") if isinstance(item, dict) else None
-                    if name == versions_of and isinstance(version, str) and version.startswith("uat-") \
-                            and marker not in version and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                    # T-2930: EVERY draft of the named definition (an old draft has no uat- version)
+                    if name == versions_of and marker not in str(version) \
+                            and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
                         found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
                 elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
                     found.append((str(item["id"]), name, item.get("status")))
@@ -1597,6 +1748,41 @@ class Runner:
         print(self.scrub(summary), file=self.out, flush=True)
         record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
         result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
+
+    def _page_through(self, role, spec, http_as, record):
+        """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
+        to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
+        age_at_least / unique_ids of the step's expect read that collected set."""
+        spec = substitute(spec, self.ctx)
+        size = int(spec.get("page_size", 50))
+        cap = min(int(spec.get("max_pages", PAGE_THROUGH_MAX_PAGES)), PAGE_THROUGH_MAX_PAGES)
+        items_key, cursor_key = spec.get("items", "items"), spec.get("cursor", "next_cursor")
+        base = str(spec["path"])
+        joiner = "&" if "?" in base else "?"
+        items, cursor, seen, pages = [], None, set(), 0
+        while pages < cap:
+            path = f"{base}{joiner}page_size={size}"
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, text = self.request(role, "GET", path, http_as=http_as)
+            pages += 1
+            if status != 200:
+                raise RunnerError(f"page_through: page {pages} answered {status}, expected 200")
+            page = body.get(items_key) if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                raise RunnerError(f"page_through: page {pages} has no list {items_key}")
+            if "count" in body and body["count"] != len(page):
+                raise RunnerError(f"page_through: page {pages} count {body['count']} but {len(page)} items")
+            items.extend(page)
+            cursor = body.get(cursor_key)
+            if not cursor:
+                break
+            if cursor in seen:
+                raise RunnerError(f"page_through: page {pages} repeats the cursor of an earlier page")
+            seen.add(cursor)
+        result = {"items": items, "pages": pages, "truncated": bool(cursor)}
+        record.update(method="GET", path=base, pages=pages)
         return (200, result, json.dumps(result))
 
     def _repeat(self, role, spec, times, http_as, record):
@@ -1670,6 +1856,9 @@ class Runner:
                 expects = [expect] * len(calls)
         rows = []
         for i, (e, (status, body, text)) in enumerate(zip(expects, calls)):
+            if isinstance(e, dict) and (SET_ASSERTS & set(e)):
+                rows.extend(set_assertions(e, body))
+                e = {k: v for k, v in e.items() if k not in SET_ASSERTS}
             for r in run_assertions(e, status, body, text, mask):
                 rows.append(dict(r, what=f"call {i + 1}: {r['what']}") if len(calls) > 1 else r)
         return rows
@@ -2753,8 +2942,8 @@ SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platfo
 
 
 def sweep_versions_problem(name, marker):
-    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions starting with uat- are
-    retired (never an active/seeded version, never a version without the uat- prefix)."""
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions (T-2930: whatever their
+    version string) are retired, never an active/seeded version and never another definition."""
     if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
         raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
     if not isinstance(marker, str) or len(marker) < 8:
@@ -2800,6 +2989,16 @@ def validate_step(step, where) -> None:
             if key in spec:
                 raise ConfigError(f"{where}: first_signin takes no {key}: the temporary password comes from the "
                                   "mail and the new one is made by the runner")
+    elif kind == "module_installed":
+        spec = do["module_installed"]
+        if not isinstance(spec, dict) or not isinstance(spec.get("module"), str) or not MODULE_NAME_RE.fullmatch(spec["module"]):
+            raise ConfigError(f"{where}: module_installed needs a module name of the form [a-z][a-z0-9_]{{0,63}}")
+        if spec.get("tenant") is not None and not (isinstance(spec["tenant"], str) and spec["tenant"].strip()):
+            raise ConfigError(f"{where}: module_installed tenant must be a text")
+    elif kind == "tenant_onboarded":
+        problem = tenant_onboarded_problem(do["tenant_onboarded"])
+        if problem:
+            raise ConfigError(f"{where}: tenant_onboarded {problem}")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2841,6 +3040,14 @@ def validate_step(step, where) -> None:
         if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
                                       and all(isinstance(c, int) for c in spec["accept"])):
             raise ConfigError(f"{where}: sweep accept is a list of status codes")
+    elif kind == "page_through":
+        spec = do["page_through"]
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \
+                or set(spec) - {"path", "page_size", "cursor", "items", "max_pages"}:
+            raise ConfigError(f"{where}: page_through is {{path, page_size?, cursor?, items?, max_pages?}}")
+        mp = spec.get("max_pages", 1)
+        if isinstance(mp, int) and not 1 <= mp <= PAGE_THROUGH_MAX_PAGES:
+            raise ConfigError(f"{where}: page_through max_pages is 1..{PAGE_THROUGH_MAX_PAGES}")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:
@@ -2942,7 +3149,7 @@ def load_fixture(path) -> dict:
     return doc
 
 
-def expand_fixtures(names, fixtures_dir, loaded=None, _stack=()) -> list:
+def expand_fixtures(names, fixtures_dir, loaded=None, _stack=(), built=None) -> list:
     """Fixture names -> fixture documents in run order: the `needs` of a fixture first, each fixture once per run.
     An unknown name is a ConfigError (exit 2: nothing runs)."""
     loaded = {} if loaded is None else loaded
@@ -2951,23 +3158,92 @@ def expand_fixtures(names, fixtures_dir, loaded=None, _stack=()) -> list:
             continue
         if name in _stack:
             raise ConfigError("fixtures: a cycle through " + " -> ".join(_stack + (name,)))
+        if built and name in built:
+            loaded[name] = built[name]
+            continue
         file = Path(fixtures_dir) / (str(name) + ".json")
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or not file.is_file():
             raise ConfigError(f"fixtures: unknown fixture {name!r} (no {file})")
         doc = load_fixture(file)
-        expand_fixtures(doc.get("needs") or [], fixtures_dir, loaded, _stack + (name,))
+        expand_fixtures(doc.get("needs") or [], fixtures_dir, loaded, _stack + (name,), built)
         loaded[name] = doc
     return list(loaded.values())
 
 
+def tenant_onboarded_problem(spec):
+    """Why a tenant_onboarded spec is wrong, or None."""
+    allowed = {"fixture", "tenant", "legal_entity", "app_name", "modules", "actors"}
+    if not isinstance(spec, dict) or set(spec) - allowed:
+        return "takes only " + ", ".join(sorted(allowed - {"fixture"}))
+    for key in ("tenant", "legal_entity", "app_name"):
+        if key in spec and not (isinstance(spec[key], str) and spec[key].strip()):
+            return f"{key} must be a text"
+    modules = spec.get("modules", [])
+    if not isinstance(modules, list) or not all(isinstance(m, str) and MODULE_NAME_RE.fullmatch(m) for m in modules):
+        return "modules is a list of module names"
+    actors = spec.get("actors", {})
+    if not isinstance(actors, dict):
+        return "actors is {actor: {roles, permissions}}"
+    for want in actors.values():
+        if not isinstance(want, dict) or set(want) - {"roles", "permissions"} or not all(
+                isinstance(v, list) and all(isinstance(n, str) for n in v) for v in want.values()):
+            return "actors is {actor: {roles: [...], permissions: [...]}}"
+    return None
+
+
+def builtin_fixture(entry) -> dict:
+    """A parameterised fixture of a process file -> a fixture document made of one native step per item:
+    {"fixture": "module_installed", "module": "assets" | ["org", "assets"], "tenant"?} and
+    {"fixture": "tenant_onboarded", ...}. Syntax is checked here, before any request."""
+    kind = entry.get("fixture")
+    if kind not in BUILTIN_FIXTURES:
+        raise ConfigError(f"fixtures: unknown fixture kind {kind!r} (one of {', '.join(BUILTIN_FIXTURES)})")
+    if kind == "module_installed":
+        modules = entry.get("module")
+        modules = modules if isinstance(modules, list) else [modules]
+        extra = set(entry) - {"fixture", "module", "tenant"}
+        if extra or not modules or len(set(map(str, modules))) != len(modules) or not all(
+                isinstance(m, str) and MODULE_NAME_RE.fullmatch(m) for m in modules):
+            raise ConfigError(f"fixtures: module_installed needs module names of the form [a-z][a-z0-9_]{{0,63}}, "
+                              f"no empty or duplicate name, and only module, tenant ({sorted(extra) or 'ok'})")
+        steps = [{"id": f"f{i + 1}", "actor": "admin", "do": {"module_installed": dict(
+                      {"module": m}, **({"tenant": entry["tenant"]} if entry.get("tenant") else {}))},
+                  "expect": {"status": 200}, "save": {f"module_{m}_version": "$.version"}}
+                 for i, m in enumerate(modules)]
+        doc = {"id": "module_installed-" + "+".join(modules),
+               "description": "The module is installed on the tenant of the admin actor (looked at first, installed "
+                              "only when absent, 409 = already there).",
+               "leaves": "A module install is never removed by a test: there is no cleanup.",
+               "provides": [f"module_{m}_version" for m in modules], "steps": steps, "cleanup": []}
+    else:
+        problem = tenant_onboarded_problem(entry)
+        if problem:
+            raise ConfigError(f"fixtures: tenant_onboarded {problem}")
+        spec = {k: v for k, v in entry.items() if k != "fixture"}
+        name = "tenant_onboarded-" + hashlib.sha1(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:8]
+        doc = {"id": name, "description": "A read-only assertion that the tenant is set up (legal entity, app_name, "
+                                          "modules, roles of the actors); creates nothing.",
+               "leaves": "Nothing: it only reads.", "provides": ["tenant_onboarded"],
+               "steps": [{"id": "f1", "actor": "admin", "do": {"tenant_onboarded": spec},
+                          "expect": {"status": 200}, "save": {"tenant_onboarded": "$.ok"}}], "cleanup": []}
+    for step in doc["steps"]:
+        validate_step(step, doc["id"])
+    return doc
+
+
 def fixtures_for(processes, fixtures_dir) -> list:
-    names = []
+    names, built = [], {}
     for p in processes:
         value = p.get("fixtures") or []
-        if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
-            raise ConfigError(f"{p['id']}: fixtures is a list of fixture names")
-        names += value
-    return expand_fixtures(names, fixtures_dir)
+        if not isinstance(value, list) or not all(isinstance(n, str) or (isinstance(n, dict) and "fixture" in n) for n in value):
+            raise ConfigError(f"{p['id']}: fixtures is a list of fixture names (or {{\"fixture\": kind, ...}} objects)")
+        for n in value:
+            if isinstance(n, dict):
+                doc = builtin_fixture(n)
+                built[doc["id"]] = doc
+                n = doc["id"]
+            names.append(n)
+    return expand_fixtures(names, fixtures_dir, built=built)
 
 
 def load_chain(path) -> tuple:
