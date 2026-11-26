@@ -199,6 +199,10 @@ function fromSplit(
 /** Files named `*Messages.ts` that are not catalogs (REQ-781). */
 const NOT_A_CATALOG = [
   { file: 'i18n/useMergedEntitiesMessages.ts', reason: 'a hook, not a catalog' },
+  {
+    file: 'i18n/designerErrorMessages.ts',
+    reason: 'a table of triples merged into processDiagramMessages, which is checked here; own test covers languages',
+  },
 ]
 
 /** Repo-relative (to src/) posix paths of every `*Messages.ts` file outside `__tests__`. */
