@@ -323,7 +323,7 @@ defmodule Letflow.Modules.Assets.KindChangePostingTest do
 
   # -- binding detection, reverse, tenancy ----------------------------------------------------------
 
-  test "P3 posting_check reads mismatch when the posting variable names another inventory number",
+  test "P3 a posting variable naming another inventory number is refused (T-2432)",
        ctx do
     m = ctx.ka
     receive_stock!(ctx.schema, ctx.tok_a, m, "25")
@@ -339,11 +339,10 @@ defmodule Letflow.Modules.Assets.KindChangePostingTest do
         &Map.put(&1, "inventory_number", "FORGED-#{&1["quantity"]}")
       )
 
-    assert {:ok, _} =
+    assert {:error, {:entity_write_refused, 0, :validation_failed}} =
              complete_as(ctx, task, admin(ctx), %{"posting" => Map.put(posting, "lines", lines)})
 
-    read = D.get!(ctx, id)
-    assert read["state"] == "posted" and read["posting_check"] == "mismatch"
+    assert D.get!(ctx, id)["state"] == "issued"
   end
 
   test "R3 reverse of a posted change of kind is 409 posting_inconsistent; nothing changes",

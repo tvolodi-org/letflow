@@ -283,7 +283,7 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
   defp worker_token(ctx),
     do: Letflow.AssetsRegisterFixture.token(ctx, :a, ["TASK_WORKER"], sub: "w-1")
 
-  test "P11 a changed posting variable of a hand over posts but reads mismatch", ctx do
+  test "P11 a changed posting variable of a hand over is refused or reads mismatch", ctx do
     m = ctx.ma
     to = D.place!(ctx.schema)
     D.commission!(ctx)
@@ -346,7 +346,7 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
       assert {:error, :invalid_arguments} = Handlers.post_document(multi, nil, args)
     end
 
-    test "H2 forged tenant keys in the posting variable are not copied", ctx do
+    test "H2 forged tenant keys in the posting variable are refused, nothing is written", ctx do
       m = ctx.ma
       D.commission!(ctx)
       doc = D.issue!(ctx, D.change_body(m))
@@ -364,7 +364,7 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
       holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
       :ok = D.tamper!(ctx, task, %{"posting" => forged})
 
-      assert {:ok, _} =
+      assert {:error, {:entity_write_refused, 0, :validation_failed}} =
                Engine.complete_task(
                  task.id,
                  %{
@@ -376,7 +376,7 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
                  credential: :oidc
                )
 
-      assert D.counts(ctx, doc["id"]) == %{entries: %{"change" => 1}, marks: 1}
+      assert D.counts(ctx, doc["id"]) == %{entries: %{}, marks: 0}
       %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{ctx.b.schema_name}".ledger_entry|)
       assert n == 0
     end
