@@ -106,7 +106,18 @@ def sweep(run, doc, out):
         else:
             refused += 1
             print(f"task {task_id}: refused ({status})", file=out)
+    if doc.get("shared_stock_access"):  # T-2980: the object a runner left (created before this sweep started)
+        line = run.retire_stale_shared_access(runner_now(), out)
+        if line.endswith(")") and "refused" in line:
+            refused += 1
+        elif not line:
+            print("shared-stock-access: nothing to retire", file=out)
     return 1 if refused else 0
+
+
+def runner_now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def baseline_sha(run):

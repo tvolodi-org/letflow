@@ -99,6 +99,25 @@ class Upload(FakeServerCase):
         self.assertIn(b"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n" + CONTENT
                       + b"\r\n--" + boundary + b"--\r\n", data)
 
+    def test_u1b_raw_body_is_the_file(self):
+        code, _ = self.play(process(extra={"raw": True, "field": None, "fields": None}))
+        self.assertEqual(code, 0)
+        path, ctype, data = Receiver.seen[0]
+        self.assertEqual(ctype, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertEqual(data, CONTENT)
+        line = self.step_line()
+        self.assertTrue(line["request"]["upload"]["raw"])
+        self.assertEqual(line["request"]["upload"]["sha256"], hashlib.sha256(CONTENT).hexdigest())
+        self.assertNotIn(CANARY, (self.run_dir / "run.jsonl").read_bytes())
+
+    def test_u1c_raw_needs_no_field_but_refuses_fields(self):
+        p = process(extra={"raw": True})
+        del p["steps"][0]["do"]["upload"]["field"]
+        code, _ = self.play(p)
+        self.assertNotEqual(code, 0)
+        self.assertIn("no fields", self.step_line()["error"])
+        self.assertEqual(Receiver.seen, [])
+
     def test_u2_sha_logged_content_never(self):
         self.play(process())
         line = self.step_line()
