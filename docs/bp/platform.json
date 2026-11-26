@@ -2204,5 +2204,61 @@
     "status": "partial",
     "gap": "D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure",
     "executed_by": "n/a"
+  },
+  {
+    "id": "BP-PLATFORM-26",
+    "area": "platform",
+    "title": "No bypass: every tenant-creating route starts an instance of platform.register_tenant",
+    "description": "The platform administrator (and the provisioner and a sign-up visitor) can ask for a tenant through four routes. None of them creates the tenant itself: each starts an instance of the platform.register_tenant process and answers 202 with the instance id. The runner scenario plays routes 1 and 2 on throwaway tenants (uat-tmp-*) and marks routes 3 and 4 as blocked with an owner.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "TenantsManage, InstancesStart, InstancesRead (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform.register_tenant definition is active on the platform tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [],
+        "functions": [
+          "Letflow.PlatformProcesses.start_register_tenant"
+        ],
+        "route": [
+          "POST /api/v1/onboarding",
+          "POST /api/v1/tenants",
+          "POST /admin/v1/tenants",
+          "POST /api/signup",
+          "GET /api/v1/instances/:id",
+          "GET /api/v1/instances/:id/history",
+          "GET /api/v1/instances/:id/timeline"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/onboarding.ex:511",
+          "lib/letflow/routers/tenants.ex:21",
+          "lib/letflow/routers/tenants.ex:119"
+        ],
+        "result": "202 with an instance id; the instance is of platform.register_tenant; its history opens with INSTANCE_STARTED"
+      }
+    ],
+    "inputs": [
+      "slug, display_name (and admin_email, hostname for onboarding)"
+    ],
+    "outputs": [
+      "an instance id per route"
+    ],
+    "refusals": [
+      "a 201 or a tenant answered at once from any of the four routes is the direct path: a defect"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_platform_26.py"
+    ],
+    "scenario": "test/uat/processes/BP-PLATFORM-26-no-bypass.json",
+    "uat": "runner scenario BP-PLATFORM-26 (routes 1 and 2 run; 3 and 4 blocked_by with an owner); a proof experiment, not a business process of a tenant",
+    "status": "partial",
+    "gap": "route 3 needs a provisioner credential the runner does not hold; route 4 needs the mailed verify link; 'no tenant row before the first step is armed' is proved in code only",
+    "executed_by": "n/a"
   }
 ]

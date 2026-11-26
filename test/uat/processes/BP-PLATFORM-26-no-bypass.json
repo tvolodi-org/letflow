@@ -1,0 +1,350 @@
+{
+  "id": "BP-PLATFORM-26-no-bypass",
+  "bp_entry": "BP-PLATFORM-26",
+  "title": "No bypass: every tenant-creating route starts an instance of platform.register_tenant and none creates a tenant directly",
+  "description": "Pilot acceptance map item 9, shown on QA. Four routes make a tenant: POST /api/v1/onboarding (lib/letflow/routers/onboarding.ex), POST /api/v1/tenants (tenants.ex handle_create, TenantsManage), POST /admin/v1/tenants (admin_v1.ex, provisioner credential) and POST /api/signup (signup.ex, public, then a verify link). Routes 1 and 2 are played: each asks for one throwaway tenant (uat-tmp-*), must answer 202 with an instance id (a 201 or an answer with the tenant at once is the direct path and the defect this scenario exists to show), the instance carries the definition id of platform.register_tenant (A1), its history opens with INSTANCE_STARTED, the timeline names the platform step validate, and the instance COMPLETES. Routes 3 and 4 carry blocked_by with owners (no provisioner credential in the runner; sign-up needs the mailed link). NOT asserted: that no tenant row exists before the first step is armed - the 202 and the first read race with the worker, so the runner cannot observe the moment; that part stays proved in code (system_start_test.exs, system_start_canary_test.exs, system_start_callers_test.exs, g02_writer_start_inventory_test.exs). The cleanup deactivates both throwaway tenants (QA cannot purge a tenant made through the routes). Defaults: hostname_suffix, stuck_after_s, run_within_s. Actors: admin = platform administrator.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "provisioned_slug"
+  ],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {
+      "provisioned_slug": "<set by the starter at run time>"
+    }
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "A1",
+      "actor": "admin",
+      "says": "The platform administrator reads the active definition platform.register_tenant: it exists, it is ACTIVE; its id is what every start below must carry.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/active/platform.register_tenant"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.name": "platform.register_tenant",
+          "$.status": "ACTIVE"
+        }
+      },
+      "save": {
+        "definition_id": "$.id"
+      }
+    },
+    {
+      "id": "R1a",
+      "actor": "admin",
+      "says": "Route 1 (POST /api/v1/onboarding): one throwaway tenant (uat-tmp-*) is asked for. The answer is 202 with an instance id and the slug: the route started an instance of the process; a 201 or a tenant answered at once is the direct synchronous path this scenario exists to show.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid1}",
+          "display_name": "UAT bypass ${run_id}",
+          "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
+          "admin_email": "byp-${uuid1}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.slug": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_id1": "$.instance_id",
+        "slug1": "$.slug"
+      }
+    },
+    {
+      "id": "R1b",
+      "actor": "admin",
+      "says": "Route 1: the instance carries the definition id of platform.register_tenant read in A1 (so its definition name is platform.register_tenant).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.definition_id": "${definition_id}"
+        }
+      },
+      "requires": [
+        "instance_id1"
+      ]
+    },
+    {
+      "id": "R1c",
+      "actor": "admin",
+      "says": "Route 1: the history opens with INSTANCE_STARTED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}/history?event_type=INSTANCE_STARTED"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].event_type": "INSTANCE_STARTED"
+        }
+      },
+      "requires": [
+        "instance_id1"
+      ]
+    },
+    {
+      "id": "R1d",
+      "actor": "admin",
+      "says": "Route 1: the engine armed the platform steps: the timeline names validate as its first step (the registration runs as platform steps, not as one call in the route).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}/timeline"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate"
+        }
+      },
+      "poll": {
+        "within_s": "${stuck_after_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instance_id1"
+      ]
+    },
+    {
+      "id": "R1e",
+      "actor": "admin",
+      "says": "Route 1: the instance runs to its end, so the tenant it made exists only as the product of the process.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instance_id1"
+      ]
+    },
+    {
+      "id": "R2a",
+      "actor": "admin",
+      "says": "Route 2 (POST /api/v1/tenants): one throwaway tenant (uat-tmp-*) is asked for. The answer is 202 with an instance id and the slug: the route started an instance of the process; a 201 or a tenant answered at once is the direct synchronous path this scenario exists to show.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-${uuid2}",
+          "display_name": "UAT bypass ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.slug": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_id2": "$.instance_id",
+        "slug2": "$.slug"
+      }
+    },
+    {
+      "id": "R2b",
+      "actor": "admin",
+      "says": "Route 2: the instance carries the definition id of platform.register_tenant read in A1 (so its definition name is platform.register_tenant).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.definition_id": "${definition_id}"
+        }
+      },
+      "requires": [
+        "instance_id2"
+      ]
+    },
+    {
+      "id": "R2c",
+      "actor": "admin",
+      "says": "Route 2: the history opens with INSTANCE_STARTED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}/history?event_type=INSTANCE_STARTED"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].event_type": "INSTANCE_STARTED"
+        }
+      },
+      "requires": [
+        "instance_id2"
+      ]
+    },
+    {
+      "id": "R2d",
+      "actor": "admin",
+      "says": "Route 2: the engine armed the platform steps: the timeline names validate as its first step (the registration runs as platform steps, not as one call in the route).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}/timeline"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "validate"
+        }
+      },
+      "poll": {
+        "within_s": "${stuck_after_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instance_id2"
+      ]
+    },
+    {
+      "id": "R2e",
+      "actor": "admin",
+      "says": "Route 2: the instance runs to its end, so the tenant it made exists only as the product of the process.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id2}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "requires": [
+        "instance_id2"
+      ]
+    },
+    {
+      "id": "R3a",
+      "actor": "admin",
+      "says": "Route 3 (POST /admin/v1/tenants, provisioner credential, body slug/display_name/admin_email): NOT RUN. The call itself cannot be written here (check_processes.py allows /api/ paths only), so the step reads the platform side after an operator's provisioner create: the registry answers 200 for the slug the starter supplies. When unblocked it is preceded by the provisioner call, which must answer 202 {tenant_id, status, poll} (not 201) with an instance of platform.register_tenant; a 201 is the direct path.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${provisioned_slug}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "blocked_by": "qa-provisioner-config: the runner holds no provisioner credential and cannot call a path outside /api/ (check_processes.py); owner: infra (QA provisioner config, T-2727), PM decision"
+    },
+    {
+      "id": "R4a",
+      "actor": "anonymous",
+      "says": "Route 4 (POST /api/signup): a good request is answered 202 check_your_mail and no tenant exists yet (a sign-up request is only a row); the instance starts after the mailed link is verified.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "email": "byp-${uuid4}@example.test",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.status": "check_your_mail"
+        }
+      },
+      "blocked_by": "T-2748 (sign-up screens and fields) and the QA mail verification, as BP-PLATFORM-02: the runner cannot follow the mailed link; owner: the sign-up task; the instance, its definition and the history cannot be asserted until then"
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "slug2"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug2}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com",
+    "stuck_after_s": "60",
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "definitions": [
+      "platform.register_tenant"
+    ],
+    "instances": [
+      "${instance_id1}",
+      "${instance_id2}"
+    ]
+  },
+  "residue_check": false
+}
