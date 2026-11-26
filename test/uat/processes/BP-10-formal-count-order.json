@@ -558,9 +558,7 @@
   ],
   "outputs": {
     "count_order_id": "${count_id}",
-    "count_entry_id": "${count_entry_id}",
-    "difference": "3",
-    "balance_after": "${balance_after}"
+    "difference": "3"
   },
   "cleanup": [
     {
