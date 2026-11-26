@@ -76,7 +76,7 @@ STABLE_EXTRA_S = 120
 ANONYMOUS_ACTOR = "anonymous"
 PAGE_THROUGH_MAX_PAGES = 15
 DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep",
-            "module_installed", "tenant_onboarded", "page_through")
+            "module_installed", "tenant_onboarded", "page_through", "client1_tool")
 # The module names of the product (the syntax the infra script checked before any request).
 MODULE_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 BUILTIN_FIXTURES = ("module_installed", "tenant_onboarded")
@@ -632,6 +632,10 @@ def trap_problem(url: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
+CLIENT1_TOOLS = ("headers", "balances_compare", "masters_compare")  # T-2857: the fixed allowlist of client1_tool
+CLIENT1_TOOLS_DIR = Path(__file__).resolve().parents[1] / "pilot"
+CLIENT1_TOOL_TIMEOUT_S = 120
+UUID_ARG_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
 UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
 UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
@@ -651,6 +655,17 @@ class Multipart:
         self.data = b"".join(parts) + content + f"\r\n--{self.boundary}--\r\n".encode()
         self.content_type = f"multipart/form-data; boundary={self.boundary}"
         self.summary = {"upload": {"field": field, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
+class RawFile(Multipart):
+    """The file as the WHOLE request body of its media type (the stock-workbook and records import routes read an
+    xlsx body, not a multipart form; T-2857). The log gets the same summary with `raw: true`."""
+
+    def __init__(self, filename: str, content: bytes, content_type: str):
+        self.data = content
+        self.content_type = content_type
+        self.summary = {"upload": {"raw": True, "file": filename, "content_type": content_type,
                                    "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
 
 
@@ -1343,7 +1358,11 @@ class Runner:
         if "upload" in do:
             info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
             record.update(method=info["method"], path=info["path"], request=info["request"])
+            if do["upload"].get("save_response") is True:
+                self._save_upload_response(do["upload"], info["result"])
             return [info["result"]]
+        if "client1_tool" in do:
+            return [self._client1_tool(do["client1_tool"], record)]
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
@@ -1648,7 +1667,7 @@ class Runner:
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "file" in spec and "field" in spec:  # an upload step: the call is a multipart body
+        if "file" in spec and ("field" in spec or spec.get("raw")):  # an upload step: multipart, or the raw file body
             body = self._multipart(spec)
             redacted = body.summary
         elif "body" in spec:
@@ -1677,7 +1696,8 @@ class Runner:
         return path
 
     def _multipart(self, spec) -> Multipart:
-        field = substitute(spec["field"], self.ctx)
+        raw = spec.get("raw") is True
+        field = "file" if raw else substitute(spec["field"], self.ctx)
         if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
             raise RunnerError("upload: field is a plain form field name")
         ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
@@ -1691,6 +1711,10 @@ class Runner:
         if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
                                                    "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
             raise RunnerError("upload: fields is a map of plain names to one-line values")
+        if raw:
+            if fields:
+                raise RunnerError("upload: a raw upload has no fields (the body is the file)")
+            return RawFile(path.name, path.read_bytes(), ctype)
         return Multipart(fields, field, path.name, path.read_bytes(), ctype)
 
     def _sweep(self, role, spec, http_as, record):
@@ -1750,6 +1774,52 @@ class Runner:
         result = {"swept": swept, "already_gone": gone, "lines": lines}
         return (200, result, json.dumps(result))
 
+    def _save_upload_response(self, spec, result):
+        """T-2857: the response body of an upload, kept as <run dir>/responses/<file stem>.json, which is the
+        file `qoimeks_convert.py headers --responses` reads (results[].record_id). Only the body is kept."""
+        rel = substitute(spec["file"], self.ctx)
+        stem = Path(str(rel)).stem
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", stem):
+            raise RunnerError("upload: save_response needs a plain file name")
+        out = self.run_dir / "responses"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / (stem + ".json")).write_text(result[2], encoding="utf-8")
+
+    def _client1_tool(self, spec, record):
+        """T-2857: one of a FIXED set of pilot tools, run as `python3 -I scripts/pilot/<tool>.py` with arguments built
+        only from the run dir and two ids of the context. No free-text argument. Exit 0 = step ok; exit 1 or 2
+        (or a crash) fails the step. The log keeps the RESULT / DIFF lines only, never a cell of the data."""
+        spec = substitute(spec, self.ctx)
+        tool = spec["tool"]
+        gen = self.run_dir / "generated-fixtures" / "client1"
+        csv = gen / "csv"
+        if tool == "headers":
+            for key in ("org_unit_id", "responsible_id"):
+                if not isinstance(spec.get(key), str) or not UUID_ARG_RE.fullmatch(spec[key]):
+                    raise RunnerError(f"client1_tool: {key} must be a record id")
+            argv = ["qoimeks_convert.py", "headers", "--out", gen, "--responses", self.run_dir / "responses",
+                    "--org-unit-id", spec["org_unit_id"], "--responsible-id", spec["responsible_id"]]
+        elif tool == "balances_compare":
+            argv = ["qoimeks_balances_compare.py", "--json-pages", self.run_dir / "pages" / "balances",
+                    "--csv", csv / "balances.csv", "--items", csv / "items.csv", "--locations", csv / "locations.csv"]
+        elif tool == "masters_compare":
+            argv = ["qoimeks_masters_compare.py", "--locations", csv / "locations.csv", "--items", csv / "items.csv",
+                    "--export-dir", self.run_dir / "pages" / "export"]
+        else:
+            raise RunnerError(f"client1_tool: no tool {tool}")
+        try:
+            done = subprocess.run([sys.executable, "-I", str(CLIENT1_TOOLS_DIR / argv[0]), *map(str, argv[1:])],
+                                  capture_output=True, text=True, timeout=CLIENT1_TOOL_TIMEOUT_S,
+                                  stdin=subprocess.DEVNULL)
+        except (subprocess.TimeoutExpired, OSError) as err:
+            raise RunnerError(f"client1_tool {tool}: did not finish ({type(err).__name__})") from None
+        lines = [ln for ln in done.stdout.splitlines() if ln.startswith(("RESULT", "DIFF", "wrote "))]
+        record.update(method="TOOL", path=tool, tool_exit=done.returncode, tool_lines=lines[:200])
+        if done.returncode != 0:
+            raise RunnerError(f"client1_tool {tool}: exit {done.returncode}, {len(lines)} result lines")
+        result = {"exit": 0, "lines": len(lines)}
+        return (200, result, json.dumps(result))
+
     def _page_through(self, role, spec, http_as, record):
         """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
         to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
@@ -1775,6 +1845,10 @@ class Runner:
             if "count" in body and body["count"] != len(page):
                 raise RunnerError(f"page_through: page {pages} count {body['count']} but {len(page)} items")
             items.extend(page)
+            if spec.get("save_as"):  # T-2857: page-001.json ... for the compare tools
+                pdir = self.run_dir / "pages" / str(spec["save_as"])
+                pdir.mkdir(parents=True, exist_ok=True)
+                (pdir / ("page-%03d.json" % pages)).write_text(text, encoding="utf-8")
             cursor = body.get(cursor_key)
             if not cursor:
                 break
@@ -2493,6 +2567,27 @@ class Runner:
         self.write_line(record)
         return verdict not in ("fail", "error")
 
+    def retire_stale_shared_access(self, started_at, out=None) -> str:
+        """T-2980: retire a shared-stock-access object an EARLIER run left (its cleanup call lost to a 503).
+        Only on a QA tenant of the sweep list, only when GET says exists and created_at is older than this run's
+        start; DELETE as the tenant admin; a 404 is 'already gone'. -> the line printed ('' when nothing to do)."""
+        out = out or self.out
+        if self.tenant not in SHARED_ACCESS_SWEEP_TENANTS or "admin" not in self.actors:
+            return ""
+        status, body, _ = self.request("admin", "GET", SHARED_ACCESS_PATH)
+        if status != 200 or not isinstance(body, dict) or body.get("exists") is not True:
+            return ""
+        created = str(body.get("created_at") or "")
+        if not created or created[:19] >= started_at[:19]:  # ISO UTC strings compare as text; a younger object is this run's
+            return ""
+        status, _, _ = self.request("admin", "DELETE", SHARED_ACCESS_PATH)
+        outcome = "retired" if status in (200, 204) else "already gone" if status == 404 else f"refused ({status})"
+        line = f"{self.tenant}: {outcome} shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        if outcome == "retired":
+            line = f"{self.tenant}: retired shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        print(line, file=out, flush=True)
+        return line
+
     def record_residue_baseline(self) -> bool:
         """Before the first process: record the existing documents and open tasks of every tenant the run touches,
         and the throwaway platform tenants that exist already. An unreadable baseline is a failing residue row,
@@ -2681,6 +2776,11 @@ class Runner:
         results = {}
         stopped = False
         cleanup_ok = True
+        if any(SHARED_ACCESS_PATH in json.dumps(p) for p in self.processes):
+            try:
+                self.retire_stale_shared_access(started_at)
+            except RunnerError as err:
+                print(f"{self.label}: shared-stock-access sweep skipped: {err}", file=self.out, flush=True)
         residue_ok = self.record_residue_baseline()
         self._save_safety_expectations()  # what a cleanup replay of this run has to judge (G-08)
         try:
@@ -2925,6 +3025,8 @@ def refuse_placeholders(text: str, source) -> None:
 
 
 SWEEP_ACCEPT = [200, 204, 404, 409]
+SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
+SHARED_ACCESS_SWEEP_TENANTS = ("qoimeks-qa2",)  # the QA tenants of the reviewed sweep list (T-2980)
 SWEEP_MAX_PAGES = 50
 SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
 
@@ -2965,11 +3067,16 @@ def validate_step(step, where) -> None:
         validate_call(do, where)
     elif kind == "upload":
         spec = do["upload"]
-        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
-                                                  for k in ("path", "field", "file")):
-            raise ConfigError(f"{where}: upload needs a path, a field and a file")
+        need = ("path", "file") if isinstance(spec, dict) and spec.get("raw") is True else ("path", "field", "file")
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip() for k in need):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file (a raw upload: a path and a file)")
         if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
             raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
+    elif kind == "client1_tool":
+        spec = do["client1_tool"]
+        if not isinstance(spec, dict) or spec.get("tool") not in CLIENT1_TOOLS or \
+                set(spec) - {"tool", "org_unit_id", "responsible_id"}:
+            raise ConfigError(f"{where}: client1_tool is {{tool: {'|'.join(CLIENT1_TOOLS)}, org_unit_id?, responsible_id?}}")
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
@@ -3043,8 +3150,10 @@ def validate_step(step, where) -> None:
     elif kind == "page_through":
         spec = do["page_through"]
         if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \
-                or set(spec) - {"path", "page_size", "cursor", "items", "max_pages"}:
-            raise ConfigError(f"{where}: page_through is {{path, page_size?, cursor?, items?, max_pages?}}")
+                or set(spec) - {"path", "page_size", "cursor", "items", "max_pages", "save_as"}:
+            raise ConfigError(f"{where}: page_through is {{path, page_size?, cursor?, items?, max_pages?, save_as?}}")
+        if "save_as" in spec and not (isinstance(spec["save_as"], str) and re.fullmatch(r"[a-z0-9_]{1,30}", spec["save_as"])):
+            raise ConfigError(f"{where}: page_through save_as is a short plain name")
         mp = spec.get("max_pages", 1)
         if isinstance(mp, int) and not 1 <= mp <= PAGE_THROUGH_MAX_PAGES:
             raise ConfigError(f"{where}: page_through max_pages is 1..{PAGE_THROUGH_MAX_PAGES}")
@@ -3654,6 +3763,12 @@ def build_parser():
     sweep.add_argument("--base-url")
     sweep.add_argument("--base-url-template")
     sweep.add_argument("--run-dir")
+    rep = sub.add_parser("definition-report", help="read-only report of the stock definitions of ONE QA tenant (T-2982)")
+    rep.add_argument("--tenant", required=True)
+    rep.add_argument("--admin", required=True, help="the keycloak user of the tenant admin")
+    rep.add_argument("--base-url")
+    rep.add_argument("--base-url-template")
+    rep.add_argument("--run-dir")
     return parser
 
 
@@ -3772,6 +3887,10 @@ def main(argv=None) -> int:
         import residue_sweep
 
         return residue_sweep.main(args, sys.modules[__name__])
+    if args.command == "definition-report":
+        import definition_report
+
+        return definition_report.main(args, sys.modules[__name__])
     return main_run(args)
 
 
