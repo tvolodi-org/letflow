@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `master` has 16 process(es): 12 implemented, 4 partial. Executed by: 16 direct, 0 definition.
+The area `master` has 16 process(es): 13 implemented, 3 partial. Executed by: 16 direct, 0 definition.
 
 ## The processes of the area
 
@@ -22,11 +22,11 @@ The area `master` has 16 process(es): 12 implemented, 4 partial. Executed by: 16
 | BP-MASTER-09 | Receive, assign, release and retire a code | Barcodes, QR codes and RFID tags are first received into the tenant (a batch of values with a kind), then assigned to one place, item or... | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | no | see report |
 | BP-MASTER-10 | Print code labels | A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
 | BP-MASTER-11 | Security: permission matrix of the master data routes | Who may do what in org, locations, catalog lots and codes, and who is refused. | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
-| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MASTER-13 | Security: crafted write requests are refused and change nothing | Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key wit... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | no | yes | see report |
-| BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | direct | no | yes | see report |
-| BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | direct | no | yes | see report |
+| BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | direct | yes | yes | see report |
+| BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | direct | yes | yes | see report |
 
 ## BP-MASTER-01 -- Maintain legal entities and sites
 
@@ -415,7 +415,7 @@ A token of tenant A used on an id that belongs to tenant B, on every master rout
 **Steps.**
 
 1. **TENANT_ADMIN**: screen `admin/org`, `admin/locations`, `admin/codes`, call `PATCH /api/v1/modules/locations/nodes/:id`, `POST /api/v1/modules/codes/:id/assign`, `POST /api/v1/modules/org/units/:id/retire`, function `Letflow.Modules.RouterKit.render`
-   Result: 404 with the body of an unknown path, the record of tenant B unchanged
+   Result: 404 with the plain not-found body (the same as an unknown id) on change, move and retire of a place and on release, value change, retire and assign of a code; the records still work for this tenant's administrator
 
 **Refusals.**
 
@@ -424,12 +424,12 @@ A token of tenant A used on an id that belongs to tenant B, on every master rout
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-MASTER-12-other-tenant-uniform-404.json` (runner id `BP-MASTER-12`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 
 ## BP-MASTER-13 -- Security: crafted write requests are refused and change nothing
@@ -490,6 +490,10 @@ A call with no credential, a wrong or expired token, a token of another tenant n
 - UAT: planned -- no runner scenario yet.
 - security: yes
 
+**Gaps.**
+
+- WHY PARTIAL: the runner always sends the actor's own valid token; it has no step kind for a call with no credential, a malformed header or an expired token (only http_as: shared_access and per-actor tokens exist). Needs a runner task: a step with `auth: none | bad`. The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline.
+
 ## BP-MASTER-15 -- Security: import types, size and format limits
 
 The generic import loads master data from files. Only a holder of EntitiesRecordsImportAnyType loads module-managed types; the STOREKEEPER only opening lines. A request over 200 records, with a wrong schema version, an unreadable or oversized xlsx, a header that is not a field, or a malformed CSV is refused before any row is written.
@@ -512,13 +516,17 @@ The generic import loads master data from files. Only a holder of EntitiesRecord
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-MASTER-15-import-limits.json` (runner id `BP-MASTER-15`)
 
 **Status.**
 
 - implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
+
+**Gaps.**
+
+- WHY PARTIAL: the JSON part is walked (storekeeper 403 on catalog_item, location_node, org_unit and code_tag; admin 413 over 200 records; 422 unknown schema version; 422 records not a list). The xlsx and CSV limits (xlsx_unreadable, xlsx_too_large, csv_malformed, csv_unknown_header) need a request body that is a file; the runner has no file-upload step kind. Needs a runner task. Elixir tests: import_test.exs of each module.
 
 ## BP-MASTER-16 -- Security: the scan lookup fails closed
 
@@ -540,13 +548,17 @@ A scan of an unknown code, or of a code assigned to a record type whose scope is
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-MASTER-16-scan-lookup-fails-closed.json` (runner id `BP-MASTER-16`)
 
 **Status.**
 
 - implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
+
+**Gaps.**
+
+- WHY PARTIAL: unknown code (404) and a retired code (200, value only) are walked. The 404 for a code assigned to a scoped or undeclared target type needs a tenant with a record type whose scope is not tenant-wide; the QA tenants have none and a walkthrough must not declare one. Covered by the Elixir resolve_router_test.
 
 ## Orphans (docs/bp/orphans-master.md)
 
@@ -554,5 +566,5 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 12 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10, BP-MASTER-12, BP-MASTER-14, BP-MASTER-15, BP-MASTER-16
-- 4 process(es) are not implemented: BP-MASTER-12, BP-MASTER-14, BP-MASTER-15, BP-MASTER-16
+- 9 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10, BP-MASTER-14
+- 3 process(es) are not implemented: BP-MASTER-14, BP-MASTER-15, BP-MASTER-16

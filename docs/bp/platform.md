@@ -865,14 +865,14 @@ Lists each security process kind the owner named (D-170) with its status and, wh
 **Steps.**
 
 1. **anyone**: call `any authenticated route, for example GET /api/v1/tenants`, function `Letflow.Plugs.AuthPipeline`
-   Result: a missing header, unknown slug, garbage, revoked, expired or inactive-owner token all get the byte-identical 401 'invalid or expired bearer token'; a PLATFORM_ADMIN token of another tenant presented to a platform route gets the fixed 403 (BP-PLATFORM-16). Status: planned for the runner (it always sends one valid token); covered by test/letflow/plugs/auth_pipeline_test.exs
+   Result: a missing header, unknown slug, garbage, revoked, expired or inactive-owner token all get the byte-identical 401 'invalid or expired bearer token'; a PLATFORM_ADMIN token of another tenant presented to a platform route gets the fixed 403 (BP-PLATFORM-16). Runner coverage today: the other-company token (SEC-ID-02, entry BP-TENANT-ADMIN-43) and the tenant administrator on platform routes (BP-PLATFORM-16, SEC-ID-05). Not covered by the runner: missing, garbage, revoked or expired token, because the runner has no per-step Authorization (a runner feature, not written here); covered by test/letflow/plugs/auth_pipeline_test.exs
 2. **anyone**: call `GET /api/tenant-config?host=`, function `Letflow.Routers.TenantConfig`
-   Result: unknown host: the standard answer, no tenant information; per-address 429 on repeated lookups. Status: planned (runner scenario for an unknown host is a plain GET; to be written with the first runner extension); covered by test/letflow/routers/tenant_config_host_test.exs
+   Result: unknown host: the standard answer, no tenant information; per-address 429 on repeated lookups. Runner coverage today: SEC-ID-01 (entry BP-TENANT-ADMIN-42) walks the unknown host, the bare host and the unknown company code and compares them with the default answer; the per-address 429 is not walked (it would lock the QA address). Unit coverage: test/letflow/routers/tenant_config_host_test.exs
 
 **Refusals.**
 
-- token lookup: wrong, expired, other-tenant token: 401 identical body (task 1); status planned
-- unknown host: standard tenant-config answer (task 2); status planned
+- token lookup: other-company token walked by SEC-ID-02; wrong, expired or revoked token only in test/letflow/plugs/auth_pipeline_test.exs (runner lacks a per-step Authorization)
+- unknown host: walked by SEC-ID-01 (BP-TENANT-ADMIN-42); the 429 limit is covered by test/letflow/routers/tenant_config_host_test.exs only
 - upload types and limits: the platform area's own upload is the problem-report attachment (BP-PLATFORM-12, lib/letflow/routers/platform_problem_reports.ex); other uploads belong to areas assets, maintenance, tenant-admin (record attachments, documents) and are listed there
 - old-address access: not a platform route; belongs to area stock (old-app compatibility address, lib/letflow/modules/stock/old_app_voice.ex)
 - voice and webhook inputs: belong to area stock (voice) and area tenant-admin (webhooks, lib/letflow/routers/webhooks.ex)
@@ -890,12 +890,12 @@ Lists each security process kind the owner named (D-170) with its status and, wh
 **Status.**
 
 - implementation: `partial`
-- UAT: planned (see tasks); the other kinds are owned by the named areas
+- UAT: token (other company) and host kinds are walked by SEC-ID-02 and SEC-ID-01 (owned by area tenant-admin); the other kinds are owned by the named areas (stock SEC-OLD-*, SEC-STOCK-*). This coverage list has no scenario of its own on purpose
 - security: yes
 
 **Gaps.**
 
-- no runner scenario yet for token lookup and unknown host
+- stays partial: the missing/garbage/revoked/expired-token case needs a runner step kind with its own Authorization header (runner feature, not in this task); the host rate limit is not walked on purpose
 
 ## BP-PLATFORM-23 -- Check a certificate by its public handle (no login)
 

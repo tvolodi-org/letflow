@@ -1,0 +1,135 @@
+{
+ "id": "BP-MASTER-16",
+ "bp_entry": "BP-MASTER-16",
+ "title": "The scan lookup: unknown code is the plain not-found, a retired code gives nothing but the value",
+ "description": "The administrator receives a new code. The storekeeper scans it: 200 with status not_assigned and no target. The storekeeper scans a value nobody received: 404, the same answer as for a missing path id. The administrator retires the code; the storekeeper scans it again: 200 with status retired and no target (the caller learns nothing but the value it sent). NOT covered here (needs a tenant with a record type whose scope is not tenant-wide, which the QA tenants do not have): a code assigned to a scoped or undeclared target type answers the same 404 (Elixir test resolve_router_test); the entry stays partial for that reason. Needs module codes installed. A retired code stays retired (no undo exists); its value carries the run id.",
+ "tenant": "${tenant}",
+ "inputs": [],
+ "dry_run": {
+  "tenant": "qoimeks-qa2",
+  "actors": {
+   "admin": "qoimeks-qa2-admin",
+   "storekeeper": "qoimeks-qa2-storekeeper"
+  },
+  "inputs": {}
+ },
+ "steps": [
+  {
+   "id": "s1",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/receive",
+    "body": {
+     "idempotency_key": "uat-${run_id}-16s1",
+     "entries": [
+      {
+       "value": "UAT-${run_id}-16",
+       "kind": "epc"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "status": 201,
+    "json": {
+     "$[0].status": "not_assigned"
+    }
+   },
+   "save": {
+    "code_id": "$[0].code_id"
+   }
+  },
+  {
+   "id": "s2",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/resolve",
+    "body": {
+     "value": "UAT-${run_id}-16"
+    }
+   },
+   "expect": {
+    "status": 200,
+    "json": {
+     "status": "not_assigned"
+    }
+   }
+  },
+  {
+   "id": "s3",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/resolve",
+    "body": {
+     "value": "UAT-unknown-${run_id}-16"
+    }
+   },
+   "expect": {
+    "status": 404,
+    "json": {
+     "$.title": "Not Found",
+     "$.detail": "the requested resource was not found"
+    }
+   }
+  },
+  {
+   "id": "s4",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/${code_id}/retire",
+    "body": {
+     "idempotency_key": "uat-${run_id}-16s4"
+    }
+   },
+   "expect": {
+    "status": 200
+   }
+  },
+  {
+   "id": "s5",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/resolve",
+    "body": {
+     "value": "UAT-${run_id}-16"
+    }
+   },
+   "expect": {
+    "status": 200,
+    "json": {
+     "status": "retired",
+     "value": "UAT-${run_id}-16"
+    }
+   }
+  }
+ ],
+ "outputs": {},
+ "cleanup": [
+  {
+   "id": "c1",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/modules/codes/${code_id}/retire",
+    "body": {
+     "idempotency_key": "uat-${run_id}-16c1"
+    }
+   },
+   "expect": {
+    "status": [
+     200,
+     404,
+     422
+    ]
+   },
+   "requires": [
+    "code_id"
+   ]
+  }
+ ]
+}

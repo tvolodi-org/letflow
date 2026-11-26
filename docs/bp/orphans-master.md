@@ -48,3 +48,11 @@ stock/document_print_source.ex:91, assets/cards.ex:301); they run inside the pro
   (`assets/counts.ex:587`, `assets/count_freeze.ex:72`). History: added 2026-11-02, `a9b6d5ed2` (GH #3588, REQ-646, "subtree
   read by one recursive query"). Proposal: KEEP as the public face of the Tree function (moduledoc line 22 names it); owner may
   remove the delegate and point tests at `Tree`.
+
+## Gaps that keep security entries partial (T-2552)
+
+Not orphans: these are things the product or the runner lacks, so a map entry stays `partial`.
+
+- BP-MASTER-14: a runner step that sends no credential, a malformed header or an expired token (runner feature, `auth: none`/`bad`). Meanwhile: Elixir auth pipeline tests; the other-company token is walked in BP-MASTER-12 and SEC-ID-02.
+- BP-MASTER-15: a runner step that sends a file body (xlsx, CSV) for the xlsx/csv limits (runner feature, file upload). Meanwhile: JSON limits walked in BP-MASTER-15; Elixir import tests.
+- BP-MASTER-16: a QA tenant with a record type whose scope is not tenant-wide (environment fixture). Meanwhile: unknown and retired code walked in BP-MASTER-16; Elixir resolve_router_test.

@@ -355,6 +355,35 @@ active stock location linked to the org unit). `second_place` leaves a found loc
 link and location it created, and ignores its retired fixtures on later runs. Run fixtures on QA with real tokens like
 any process.
 
+### QA tenant setup through the runner (module_installed, tenant_onboarded)
+
+Owner order D-174: module installs, tenant setup and QA tenant data are product processes, run through the
+runner, not by infra. Two parameterised fixtures take over the **local** modes of infra's `qa-tenant-onboard.py`
+(they talk to the product over the public API as the tenant admin actor; no ssh, no sudo). They are declared in
+the `fixtures` list of a process or chain as objects, next to the file-name fixtures:
+
+```json
+"fixtures": [
+  {"fixture": "module_installed", "module": ["org", "assets"]},
+  {"fixture": "tenant_onboarded", "legal_entity": "QOIMEKS", "modules": ["assets"],
+   "actors": {"storekeeper": {"roles": ["STOREKEEPER"], "permissions": ["StockQuickCount"]}}}
+]
+```
+
+| fixture | replaces | what it does |
+|---|---|---|
+| `module_installed` (`module`: a name or a list, in order; `tenant`: optional guard) | `modules <slug> [--module a,b]` | as the `admin` actor: `GET /api/v1/me/modules`; if the module is absent `POST /api/v1/tenant/modules` (`module_id`, `rationale`); 409 = already installed = OK; reads `/me/modules` again and fails when the module is still absent. Names are checked (`^[a-z][a-z0-9_]{0,63}$`, no empty or duplicate name) before any request. An unknown name or an unmet dependency fails the step with the product's own answer (status and code), never retried. The installed version is in the run log (`module_installed.version`, as numbers: the log masks a dotted number as a phone number) and in the context as `module_<name>_version`. **There is no cleanup: a module install is not removed by a test.** |
+| `tenant_onboarded` (`legal_entity`, `app_name`, `modules`, `actors`, `tenant`: all optional) | `config <slug>` and `verify <slug>` (the read-only parts) | a read-only assertion, never creates a tenant, a user or a record: a legal entity exists (`POST /api/v1/entities/query`, `org_legal_entity`, by code when given), `app_name` is set (`GET /api/v1/tenant/config-bundle`, `tenant_settings.app_name`; equal to `app_name` when given), the listed modules are installed, and each listed actor's `GET /api/v1/me/access` holds the roles and permissions. It fails naming **every** missing item. |
+
+`tenant` (optional) is a guard: the fixture is refused when the admin actor is not on that tenant (per-actor tenants
+as in section 1, the retired-tenant guard still applies to the run). Both fixtures are idempotent: a second run
+changes nothing.
+
+**What stays with infra** (platform work, not the runner's): the identity realm, the users and their passwords, the
+onboarding registry row, DNS, nginx hosts and certificates. **What is not ported**: the `config` writes (legal
+entity create, `PATCH /api/v1/tenant/settings`), which need owner input (the BIN, `ONBOARD_LEGAL_BIN`); the
+four-eyes switch and ledger settings, which only an OIDC browser session may change.
+
 ---
 
 ## 3. Running
