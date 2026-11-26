@@ -42,7 +42,7 @@
     {
       "id": "s3",
       "actor": "admin",
-      "blocked_by": "runner gap, owner: the operator (human-only row): a raw xlsx request body. The check route reads the file as the whole body of media type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; the runner's upload step sends multipart/form-data and gets xlsx_unreadable. The file is the export of s1 edited so that the item at the place has quantity balance_before + 5, one row has a negative quantity (remark, only that article left out) and one row an unknown article (remark, row skipped)",
+      "blocked_by": "runner gap, owner: the operator (human-only row): a raw xlsx request body (the upload step of T-2864 exists but sends multipart/form-data, which these two routes do not parse, so it cannot play them). The check route reads the file as the whole body of media type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; the runner's upload step sends multipart/form-data and gets xlsx_unreadable. The file is the export of s1 edited so that the item at the place has quantity balance_before + 5, one row has a negative quantity (remark, only that article left out) and one row an unknown article (remark, row skipped)",
       "do": {"upload": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/check?org_unit_id=${org_unit}", "field": "file", "file": "generated/client1/03-items-01.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}},
       "expect": {"status": 200}
     },
