@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `tenant-admin` has 47 process(es): 36 implemented, 11 partial. Executed by: 47 direct, 0 definition.
+The area `tenant-admin` has 48 process(es): 36 implemented, 12 partial. Executed by: 48 direct, 0 definition.
 
 ## The processes of the area
 
@@ -58,6 +58,7 @@ The area `tenant-admin` has 47 process(es): 36 implemented, 11 partial. Executed
 | BP-TENANT-ADMIN-45 | SECURITY: Shared stock access value lifecycle: create, use, rotate, revoke, refused after revoke, never in the status | Runner script of BP-TENANT-ADMIN-15 and BP-TENANT-ADMIN-39. | TENANT_ADMIN, STOREKEEPER, old phone app | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-46 | SECURITY: Platform routes need the platform role; the platform administrator is kept out of a company's approval and ledger switches | The company list, one company's record (also the caller's own), the company create and the backup status are refused to a tenant administ... | PLATFORM_ADMIN (platform company), TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-47 | SECURITY: The storekeeper does not hold the stock approve permission; the tenant administrator does (decision 0093) | Decision 0093: the stock approve, post and reverse tasks require StockApprove, checked at claim and completion before the addressing rule... | STOREKEEPER, TENANT_ADMIN | partial | direct | yes | yes | see report |
+| BP-TENANT-ADMIN-48 | Scroll a long list past a day: My Tasks inbox and the stock documents list | A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls... | STOREKEEPER or TENANT_ADMIN | partial | direct | no | no | see report |
 
 ## BP-TENANT-ADMIN-01 -- Sign in to the company's own address and map the person to the company
 
@@ -1716,6 +1717,41 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 - security: yes
 - automation: runner
 
+## BP-TENANT-ADMIN-48 -- Scroll a long list past a day: My Tasks inbox and the stock documents list
+
+A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). The stock documents list (limit and cursor, rows and next cursor) is scrolled the same way. Read-only; nothing to clean up. Runner script: not written yet, the runner has no step that follows a cursor, keeps the oldest age seen and checks ids across pages (see gaps).
+
+**Actors and their permissions.**
+
+- `STOREKEEPER or TENANT_ADMIN` -- TasksList
+- `STOREKEEPER or TENANT_ADMIN` -- StockRead
+
+**Steps.**
+
+1. **STOREKEEPER or TENANT_ADMIN**: screen `/tasks`, call `GET /api/v1/tasks/inbox?page_size=N&cursor=<next_cursor>`, function `Tasks.list_tasks/2`, `Pagination.decode_cursor/4`
+   Result: each page answers 200 with items, count and next_cursor; the cursor carries the seek key of the last row and its own issue time, so an old last row does not expire it; the last page has next_cursor null
+2. **STOREKEEPER or TENANT_ADMIN**: call `GET /api/v1/modules/stock/documents?limit=1&cursor=<next_cursor>`, function `Documents.list/2`
+   Result: each page answers 200 with rows and next_cursor; rows do not repeat across pages
+
+**Refusals.**
+
+- a malformed cursor or a cursor of another list answers 422 (the same text for both)
+- a page size outside the allowed range answers 400
+
+**Tests.**
+
+- `test/letflow/api/pagination_test.exs`
+
+**Runner scenario.**
+
+- none yet
+
+**Status.**
+
+- implementation: `partial`
+- UAT: planned -- no runner scenario yet.
+- security: no
+
 ## Orphans (docs/bp/orphans-tenant-admin.md)
 
 | function | file:line | what it does | history | why it exists | proposed action |
@@ -1727,5 +1763,5 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 
 ## Gaps of the area
 
-- 37 process(es) have no runner scenario: BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41
-- 11 process(es) are not implemented: BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-44, BP-TENANT-ADMIN-47
+- 38 process(es) have no runner scenario: BP-TENANT-ADMIN-01, BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-48
+- 12 process(es) are not implemented: BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-44, BP-TENANT-ADMIN-47, BP-TENANT-ADMIN-48

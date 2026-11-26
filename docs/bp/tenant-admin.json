@@ -3390,5 +3390,81 @@
     "gaps": [
       "The storekeeper's direct claim and completion of the administrator's posting task by its id, and the task's absence from the storekeeper's My Tasks, need the id of a task found in another actor's inbox and an 'absent from a list' check: the runner has neither (runner tasks, not a product gap). They stay with test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs."
     ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-48",
+    "area": "tenant-admin",
+    "title": "Scroll a long list past a day: My Tasks inbox and the stock documents list",
+    "description": "A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). The stock documents list (limit and cursor, rows and next cursor) is scrolled the same way. Read-only; nothing to clean up. Runner script: not written yet, the runner has no step that follows a cursor, keeps the oldest age seen and checks ids across pages (see gaps).",
+    "actors": [
+      {
+        "role": "STOREKEEPER or TENANT_ADMIN",
+        "permission": "TasksList"
+      },
+      {
+        "role": "STOREKEEPER or TENANT_ADMIN",
+        "permission": "StockRead"
+      }
+    ],
+    "preconditions": [
+      "an active tenant with a long inbox: more than one page of tasks and at least one task older than 24 hours (qoimeks-qa2 had more than 400 open tasks on 2026-11-21; read it at run time, do not assume)",
+      "the product carries the fix of T-2571 (merged as 9315ba6fa)"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "/tasks"
+        ],
+        "functions": [
+          "Tasks.list_tasks/2",
+          "Pagination.decode_cursor/4"
+        ],
+        "route": "GET /api/v1/tasks/inbox?page_size=N&cursor=<next_cursor>",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:147",
+          "lib/letflow/routers/tasks.ex:244",
+          "lib/letflow/routers/tasks.ex:298",
+          "lib/letflow/tasks.ex:240",
+          "lib/letflow/api/pagination.ex:230",
+          "web/src/api/tasks.ts:63",
+          "web/src/router.tsx:154"
+        ],
+        "result": "each page answers 200 with items, count and next_cursor; the cursor carries the seek key of the last row and its own issue time, so an old last row does not expire it; the last page has next_cursor null"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Documents.list/2"
+        ],
+        "route": "GET /api/v1/modules/stock/documents?limit=1&cursor=<next_cursor>",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:708",
+          "lib/letflow/modules/stock/documents.ex:1543",
+          "lib/letflow/modules/stock/documents.ex:1757"
+        ],
+        "result": "each page answers 200 with rows and next_cursor; rows do not repeat across pages"
+      }
+    ],
+    "inputs": [
+      "page size"
+    ],
+    "outputs": [
+      "number of pages read",
+      "age of the oldest task seen"
+    ],
+    "refusals": [
+      "a malformed cursor or a cursor of another list answers 422 (the same text for both)",
+      "a page size outside the allowed range answers 400"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "gaps": [
+      "No runner script yet (runner task, not a product gap): the runner (scripts/uat/runner.py, README section 8) has no step kind that follows next_cursor until it is null or a page cap, no way to keep the oldest created time seen and compare it with now minus 24 hours, and no check that ids are unique across pages; the `repeat` step only replays the same request. A script without those would pass without ever crossing a day or comparing pages, which is the silent pass the task forbids ('inconclusive: no old rows' must fail). The runner task needs: a paging step (path, cursor field, page size, max pages, save per-page counts), an age assert (oldest item older than N hours, else fail 'inconclusive: no old rows') and a unique-ids assert. The Elixir regression test of the fix is test/letflow/api/pagination_test.exs and the tasks list tests."
+    ],
+    "tests": [
+      "test/letflow/api/pagination_test.exs"
+    ]
   }
 ]
