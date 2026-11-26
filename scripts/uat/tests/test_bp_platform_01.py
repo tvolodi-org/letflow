@@ -153,7 +153,7 @@ class StepsBToH(unittest.TestCase):
         return {"items": [], "steps": rows}
 
     V1 = ["start", "validate", "create", "provision", "record_lifecycle", "record_onboarding", "bind_realm",
-          "grant_first_admins", "install_default_modules", "notify", "end"]
+          "grant_first_admins", "install_default_modules", "notify_gate", "notify", "end"]
     DRAFT = ["start", "validate", "create", "provision", "bind_realm", "grant_first_admins", "notify"]
     V2 = DRAFT + ["notify_file", "end"]
 
@@ -229,8 +229,9 @@ class StepsBToH(unittest.TestCase):
     def test_f_the_edited_version_has_the_file_step_and_g_the_rollback_does_not(self):
         self.assertTrue(self.verdict("F8", self.log(self.V2)))
         self.assertFalse(self.verdict("F8", self.log(self.V1)))
-        self.assertTrue(self.verdict("G5", self.log(self.DRAFT + ["end"])))
+        self.assertTrue(self.verdict("G5", self.log(self.V1)))
         self.assertFalse(self.verdict("G5", self.log(self.V2)))
+        self.assertFalse(self.verdict("G5", self.log(self.DRAFT + ["end"])))
 
     def test_f1_the_draft_graph_is_the_shipped_one_plus_a_file_step_without_a_path(self):
         graph = self.steps["F1"]["do"]["body"]["graph"]

@@ -290,7 +290,7 @@
     {
       "id": "C2",
       "actor": "admin",
-      "says": "C. The step log lists the nine steps in order, each completed (who/when/duration are on the row; no value is on it).",
+      "says": "C. The step log of the seeded v2 definition (run 20261126T035144Z-25c9dc, definition_v2.ex): the start row [0], the eight platform steps [1]..[8] in order, the notify_gate gateway [9] (completed), the notify step [10] (taken because B1 sends admin_email, so notify_admin is true) and the end [11]. Who/when/duration are on the row; no value is on it.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id1}/timeline"
@@ -318,15 +318,17 @@
           "$.steps[7].result": "completed",
           "$.steps[8].node_id": "install_default_modules",
           "$.steps[8].result": "completed",
-          "$.steps[9].node_id": "notify",
+          "$.steps[9].node_id": "notify_gate",
           "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "completed",
           "$.steps[1].started_at": {
             "exists": true
           },
           "$.steps[1].duration_ms": {
             "exists": true
           },
-          "$.steps[10].node_id": "end"
+          "$.steps[11].node_id": "end"
         }
       }
     },
@@ -1097,7 +1099,7 @@
     {
       "id": "F8",
       "actor": "admin",
-      "says": "F. The step log lists the six steps and then the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
+      "says": "F. The step log of the edited draft (its own graph, no gateway): five platform steps, then the mail step and the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id3}/timeline"
@@ -1245,7 +1247,7 @@
     {
       "id": "G5",
       "actor": "admin",
-      "says": "G. The step log has no file step any more: the seventh row is the end of the process.",
+      "says": "G. The step log has no file step any more: it is the seeded v2 log again (definition_v2.ex): eight platform steps, the notify_gate gateway [9], notify [10] (admin_email is sent, so notify_admin is true) and the end [11].",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id4}/timeline"
@@ -1263,13 +1265,21 @@
           "$.steps[2].result": "completed",
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].node_id": "record_lifecycle",
           "$.steps[4].result": "completed",
-          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].node_id": "record_onboarding",
           "$.steps[5].result": "completed",
-          "$.steps[6].node_id": "notify",
+          "$.steps[6].node_id": "bind_realm",
           "$.steps[6].result": "completed",
-          "$.steps[7].node_id": "end"
+          "$.steps[7].node_id": "grant_first_admins",
+          "$.steps[7].result": "completed",
+          "$.steps[8].node_id": "install_default_modules",
+          "$.steps[8].result": "completed",
+          "$.steps[9].node_id": "notify_gate",
+          "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "completed",
+          "$.steps[11].node_id": "end"
         }
       }
     },
