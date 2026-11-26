@@ -13,7 +13,12 @@ export const MODULE_ATOMS_TENANT_ADMIN = [
 ]
 
 export const NAV_ROLE_PERMISSIONS = {
-  admin: [...ACCESS_FIXTURES.tenantAdmin.permissions, ...MODULE_ATOMS_TENANT_ADMIN, 'MyPreferencesSet'],
+  // `OutboundDestinationsManage` is a CORE atom, not a module atom (T-2597, pilot gap G14: the
+  // per-tenant outbound allow-list). The matrix grants it to the tenant administrator, so the admin
+  // screen carries it -- navVisibility.test.ts (N9) pins this set to the matrix, atom for atom.
+  // (Role names are spelled out only in web/src/auth/access; a role name in a comment here trips
+  // tests/guards/no-role-literals.spec.ts.)
+  admin: [...ACCESS_FIXTURES.tenantAdmin.permissions, ...MODULE_ATOMS_TENANT_ADMIN, 'MyPreferencesSet', 'OutboundDestinationsManage'],
   storekeeper: [...ACCESS_FIXTURES.storekeeper.permissions, 'MyPreferencesSet'],
   worker: [...ACCESS_FIXTURES.taskWorker.permissions, 'MyPreferencesSet'],
   /** A custom role: the task atoms only. Not in the matrix, so no golden check beyond "every atom exists". */
@@ -23,4 +28,4 @@ export const NAV_ROLE_PERMISSIONS = {
 export type NavRole = keyof typeof NAV_ROLE_PERMISSIONS
 
 /** Module ids the tenant of the role screens has installed (all registered modules). */
-export const ALL_MODULE_IDS = ['exam', 'org', 'locations', 'codes', 'catalog_items', 'stock', 'assets']
+export const ALL_MODULE_IDS = ['exam', 'org', 'locations', 'codes', 'catalog_items', 'stock', 'assets', 'maintenance']

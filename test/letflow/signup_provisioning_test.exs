@@ -9,6 +9,7 @@ defmodule Letflow.SignupProvisioningTest do
   use Letflow.DataCase, async: false
   @moduletag :unit
 
+  import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureLog
   import Letflow.Test.SignupHelpers
 
@@ -227,6 +228,182 @@ defmodule Letflow.SignupProvisioningTest do
       stub = Stub.start!([{409, %{"error" => "other"}}], [{404, %{}}])
       configure!(stub)
       assert Provisioning.run(r.tenant_id) == {:failed, "invalid_request"}
+    end
+  end
+
+  describe "chosen slug and the user's own retry (T-2748)" do
+    test "P20 the chosen slug is the host sent to the realm provisioner" do
+      r = ready_row(slug: "my-co")
+      stub = stub_created(r.tenant_id)
+      configure!(stub)
+
+      assert Provisioning.run(r.tenant_id) == :ok
+      assert [post] = Stub.posts(stub)
+      assert post.body["hostname"] == "my-co.qa.example.test"
+    end
+
+    test "P21 a failed request: verify keeps the link valid; only retry:true resumes a retryable one" do
+      enable!()
+      r = ready_row()
+      token = "retry-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set: [
+          token_hash: :crypto.hash(:sha256, token),
+          token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+          state: "failed",
+          step: "provisioning_failed",
+          last_error: "unavailable"
+        ]
+      )
+
+      assert request(:post, "/api/signup/verify", %{"token" => token}).status == 200
+      assert row(r.tenant_id).state == "failed"
+
+      assert %{"state" => "failed", "reason" => "unavailable"} =
+               request(:post, "/api/signup/status", %{"token" => token}) |> json()
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state in ["provisioning", "verified", "completed", "failed"]
+      refute row(r.tenant_id).last_error == nil and row(r.tenant_id).state == "failed"
+    end
+
+    test "P22 a permanent failure is not resumed by retry" do
+      enable!()
+      r = ready_row()
+      token = "perm-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set: [
+          token_hash: :crypto.hash(:sha256, token),
+          token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+          state: "failed",
+          step: "provisioning_failed",
+          last_error: "demo_cap_reached"
+        ]
+      )
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state == "failed"
+    end
+  end
+
+  describe "visitor retry is bounded; host checked before the realm (T-2748, SF-13)" do
+    defp failed_row!(attrs) do
+      r = ready_row()
+      token = "bound-token-" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+      Repo.update_all(
+        from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set:
+          [
+            token_hash: :crypto.hash(:sha256, token),
+            token_expires_at: DateTime.add(DateTime.utc_now(), 3600),
+            state: "failed",
+            step: "provisioning_failed"
+          ] ++ attrs
+      )
+
+      {r, token}
+    end
+
+    test "P23 a visitor retry does not reset the attempt budget; an exhausted budget is refused" do
+      enable!(max_attempts: 5)
+      {r, token} = failed_row!(last_error: "unavailable", step_attempts: 5)
+
+      assert request(:post, "/api/signup/verify", %{"token" => token, "retry" => true}).status ==
+               200
+
+      assert row(r.tenant_id).state == "failed"
+      assert row(r.tenant_id).step_attempts == 5
+      assert Provisioning.retry_failed(r.tenant_id) == :not_retryable
+
+      {r2, _} = failed_row!(last_error: "attempts_exhausted", step_attempts: 1)
+      assert Provisioning.retry_failed(r2.tenant_id) == :not_retryable
+
+      {r3, _} = failed_row!(last_error: "unavailable", step_attempts: 2)
+      assert Provisioning.retry_failed(r3.tenant_id) == :ok
+      assert row(r3.tenant_id).step_attempts == 2
+    end
+
+    test "P27 a retry after another visitor took the released slug is a 409 slug_taken, not a crash" do
+      enable!()
+      {a, token} = failed_row!(last_error: "unavailable", step_attempts: 1, slug: "race-co")
+      b = ready_row(slug: "race-co", email: "other@example.test")
+      b_before = row(b.tenant_id)
+
+      resp = request(:post, "/api/signup/verify", %{"token" => token, "retry" => true})
+      assert resp.status == 409
+      assert %{"error" => "slug_taken"} = json(resp)
+      assert row(a.tenant_id).state == "failed"
+      assert row(b.tenant_id).state == b_before.state
+      assert row(b.tenant_id).slug == "race-co"
+      assert Provisioning.retry_failed(a.tenant_id) == :slug_taken
+
+      # the same e-mail has a newer live request: not retryable, no crash
+      {c, _} = failed_row!(last_error: "unavailable", step_attempts: 1)
+      _live = ready_row()
+      assert Provisioning.retry_failed(c.tenant_id) == :not_retryable
+      assert row(c.tenant_id).state == "failed"
+    end
+
+    test "P24 a host outside the allowed suffixes creates no realm" do
+      r = ready_row(slug: "my-co")
+      stub = stub_created(r.tenant_id)
+      configure!(stub, hostname_domain: "other.example.test")
+
+      assert Provisioning.run(r.tenant_id) == {:failed, "invalid_tenant"}
+      assert Stub.posts(stub) == []
+      assert row(r.tenant_id).state == "failed"
+      assert row(r.tenant_id).last_error == "invalid_tenant"
+    end
+
+    test "P25 GET /slug and the verify retry answer 429 once the address bucket is drained" do
+      enable!()
+      ip = {198, 51, 100, 77}
+
+      statuses =
+        for _ <- 1..40, do: request(:get, "/api/signup/slug?slug=my-co", nil, ip: ip).status
+
+      assert 200 in statuses
+      assert 429 in statuses
+
+      assert request(:post, "/api/signup/verify", %{"token" => "x", "retry" => true}, ip: ip).status ==
+               429
+    end
+
+    test "P26 two visitors behind one proxy peer do not share a bucket; the 429 carries retry-after and the privacy headers" do
+      enable!()
+      prev = Application.get_env(:letflow, Letflow.Plugs.ClientIp)
+      Application.put_env(:letflow, Letflow.Plugs.ClientIp, trusted_proxies: [{{10, 0, 0, 0}, 8}])
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:letflow, Letflow.Plugs.ClientIp, prev),
+          else: Application.delete_env(:letflow, Letflow.Plugs.ClientIp)
+      end)
+
+      peer = {10, 0, 0, 1}
+
+      get = fn real ->
+        request(:get, "/api/signup/slug?slug=my-co", nil,
+          ip: peer,
+          headers: [{"x-real-ip", real}]
+        )
+      end
+
+      last = for(_ <- 1..40, do: get.("198.51.100.10")) |> List.last()
+      assert last.status == 429
+      assert Plug.Conn.get_resp_header(last, "retry-after") != []
+      assert Plug.Conn.get_resp_header(last, "cache-control") == ["private, no-store"]
+      assert Plug.Conn.get_resp_header(last, "referrer-policy") == ["no-referrer"]
+      assert Plug.Conn.get_resp_header(last, "x-robots-tag") == ["noindex, nofollow"]
+
+      assert get.("203.0.113.99").status == 200
     end
   end
 

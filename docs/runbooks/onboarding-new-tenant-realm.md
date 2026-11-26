@@ -1,5 +1,11 @@
 # Runbook: giving a newly onboarded tenant a realm and a first administrator
 
+> **EXCEPTION PROCEDURE ONLY.** A tenant is created by the process (`platform.register_tenant`, or the
+> public sign-up route) and is runnable: the process makes the realm and the first administrator, and
+> shows its progress and step log. Nobody asks infra to create a realm per tenant. The manual recipe
+> below is for a failed or lost case only (a realm that was not created, was deleted or was lost).
+> DNS, the wildcard certificate and the platform provisioner are platform maintenance done once, not per tenant.
+
 The whole procedure for a real company (realm, tenant, host, modules, checks, accounts, walk, rollback) is `docs/runbooks/production-tenant-onboarding.md`; this page keeps the realm details it cites.
 
 ISS-1030 / Q-1012 / GH #2312. Design: `lib/letflow/design/iss1030-onboarding-administrator.md`

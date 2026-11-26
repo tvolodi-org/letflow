@@ -43,7 +43,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
 
   @unused_uuid "00000000-0000-4000-8000-000000000004"
 
-  # The 24 platform routes (design 7.1 plus ISS-1030's bind-realm and, in PR 2, the pending-admins list and revoke): {router, method, concrete local path, body}.
+  # The 34 platform routes (design 7.1 plus ISS-1030's bind-realm and, in PR 2, the pending-admins list and revoke, plus T-2588's platform function catalogue): {router, method, concrete local path, body}.
   @routes [
     {Letflow.Routers.PlatformProblemReports, :get, "/", nil},
     {Letflow.Routers.PlatformProblemReports, :get, "/" <> @unused_uuid, nil},
@@ -79,7 +79,9 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
     {Letflow.Routers.AdminServices, :patch, "/no-such-service", %{}},
     {Letflow.Routers.AdminServices, :delete, "/no-such-service", nil},
     {Letflow.Routers.AdminServices, :post, "/no-such-service/versions", %{}},
-    {Letflow.Routers.AdminServices, :post, "/no-such-service/retire", nil}
+    {Letflow.Routers.AdminServices, :post, "/no-such-service/retire", nil},
+    # T-2588 (pilot gap G2): the COMPILED platform function catalogue (platform scope).
+    {Letflow.Routers.PlatformFunctions, :get, "/", nil}
   ]
 
   defp dispatch(router, conn), do: router.call(conn, router.init([]))
@@ -95,7 +97,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
   end
 
   defp assert_all_forbidden(fixture, roles) do
-    assert length(@routes) == 33
+    assert length(@routes) == 34
 
     for {label, status} <- platform_route_statuses(fixture, roles) do
       assert status == 403, "#{label}: expected 403, got #{status}"

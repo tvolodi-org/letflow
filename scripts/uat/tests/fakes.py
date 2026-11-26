@@ -40,6 +40,9 @@ class FakeStock:
         self.docs = {}
         self.tasks = []
         self.log = []  # (method, path, who, body)
+        self.users = dict(USERS)  # role -> keycloak user name: the fake knows the token of these users
+        self.platform_roles = set()  # the roles that may read the tenant registry (the platform administrator)
+        self.tenants = []  # the tenant registry: [{"slug": ..., "status": ...}]
         self.health_calls = 0
         self.sha_at_end = None  # a sha served from the second /health call on
         self.no_sha = False
@@ -66,6 +69,12 @@ class FakeStock:
         self.task_items = None  # override both task listings; cursors are row offsets in this fake
         self.open_task_calls = 0
         self.open_task_faults = {}  # GET /tasks call number -> non-2xx answer
+        # the platform tenant: the definitions of the tenant and the instances a run starts (G18)
+        self.definitions = []  # [{"id", "name", "version", "status"}]
+        self.definitions_forbidden = False  # the definitions list answers 403
+        self.instances = {}  # instance id -> {"status", "variables"}
+        self.instance_starts = False  # POST /api/v1/instances may start an instance
+        self.instance_status = "ACTIVE"  # the status a started instance gets
         self.lock = threading.Lock()
 
     def sha(self):
@@ -109,16 +118,18 @@ def make_handler(state):
                     if method == "GET" and path.endswith("/movements"):
                         return self.reply(200, [])
                     return self.reply(404, {"title": "no route"})
-                who = next((r for r, u in USERS.items() if auth == f"Bearer TOKEN_{u}_{SECRET}"), None)
-                match = re.fullmatch(r"Bearer TOKEN_(adm|sk)_(\d+)_" + SECRET, auth)
+                who = next((r for r, u in state.users.items() if auth == f"Bearer TOKEN_{u}_{SECRET}"), None)
+                match = re.fullmatch(r"Bearer TOKEN_([^_]+)_(\d+)_" + SECRET, auth)
                 if match:
-                    role, serial = next(r for r, u in USERS.items() if u == match.group(1)), int(match.group(2))
-                    if state.token_serials.get(role) != serial:
-                        state.token_serials[role] = serial
-                        state.token_uses[role] = 0
-                    state.token_uses[role] += 1
-                    if state.token_ttl is None or state.token_uses[role] <= state.token_ttl:
-                        who = role
+                    role = next((r for r, u in state.users.items() if u == match.group(1)), None)
+                    serial = int(match.group(2))
+                    if role is not None:
+                        if state.token_serials.get(role) != serial:
+                            state.token_serials[role] = serial
+                            state.token_uses[role] = 0
+                        state.token_uses[role] += 1
+                        if state.token_ttl is None or state.token_uses[role] <= state.token_ttl:
+                            who = role
                 state.log.append((method, self.path, who, body))
                 if who is None:
                     return self.reply(401, {"title": "unauthorized"})
@@ -141,6 +152,23 @@ def make_handler(state):
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
+            if path == "/api/v1/tenants":
+                if who not in state.platform_roles:
+                    return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
+                if method == "GET":
+                    return self.reply(200, {"items": list(state.tenants), "next_cursor": None})
+                if method == "POST":
+                    slug = (body or {}).get("slug")
+                    state.tenants.append({"slug": slug, "status": "active"})
+                    return self.reply(201, {"slug": slug, "status": "active"})
+            if method == "POST" and path.startswith("/api/v1/tenants/") and path.endswith("/deactivate"):
+                if who not in state.platform_roles:
+                    return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
+                slug = path.split("/")[4]
+                for row in state.tenants:
+                    if row["slug"] == slug:
+                        row["status"] = "inactive"
+                return self.reply(200, {"slug": slug, "status": "inactive"})
             if method == "GET" and path == base + "/balances":
                 rows = [] if state.qty == 0 else [{"sku": "item-1", "quantity": f"{state.qty}.000000000", "unit_ref": "uom-1"}]
                 return self.reply(200, {"rows": rows})
@@ -242,10 +270,60 @@ def make_handler(state):
                 return self.reply(200, self.task_page(items))
             if method == "GET" and path.startswith("/api/v1/instances/"):
                 inst = path.rsplit("/", 1)[1]
+                if inst in state.instances:
+                    row = state.instances[inst]
+                    return self.reply(200, {"instance_id": inst, "status": row.get("status", "ACTIVE"),
+                                            "variables": row.get("variables") or {}})
                 if inst == "inst-decoy":
                     return self.reply(200, {"variables": {"document_id": "doc-other"}})
                 task = next((t for t in state.tasks if t["instance_id"] == inst), None)
                 return self.reply(200, {"variables": {"document_id": task["doc"]}}) if task else self.reply(404, {})
+            if method == "POST" and path == "/api/v1/instances":
+                if not state.instance_starts:
+                    return self.reply(404, {"title": "no route"})
+                instance_id = f"inst-started-{len(state.instances) + 1}"
+                state.instances[instance_id] = {"status": state.instance_status, "variables": {}}
+                return self.reply(201, {"instance_id": instance_id, "status": state.instance_status})
+            if method == "POST" and path.startswith("/api/v1/instances/") and path.endswith("/cancel"):
+                inst = path.split("/")[4]
+                if inst not in state.instances:
+                    return self.reply(404, {"title": "not found"})
+                state.instances[inst]["status"] = "CANCELLED"
+                return self.reply(200, {"instance_id": inst, "status": "CANCELLED"})
+            if method == "GET" and path == "/api/v1/definitions":
+                if state.definitions_forbidden:
+                    return self.reply(403, {"title": "Forbidden"})
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                name = (query.get("name", [""])[0] or "").lower()
+                status = (query.get("status", [""])[0] or "").lower()
+                rows = [dict(d) for d in state.definitions
+                        if (not name or name in str(d.get("name", "")).lower())
+                        and (not status or str(d.get("status", "")).lower() == status)]
+                return self.reply(200, {"items": rows, "next_cursor": None})
+            if method == "POST" and path.startswith("/api/v1/definitions/") and path.endswith("/activate"):
+                ident = path.split("/")[4]
+                row = next((d for d in state.definitions if d.get("id") == ident and d.get("status") == "ACTIVE"), None)
+                if row is None:
+                    return self.reply(404, {"title": "not found"})
+                row["status"] = "DEPRECATED"
+                state.definitions.append({"id": f"{ident}-v2", "name": row["name"], "version": "2.0.0",
+                                          "status": "ACTIVE"})
+                return self.reply(200, {"id": f"{ident}-v2", "name": row["name"], "version": "2.0.0",
+                                        "status": "ACTIVE"})
+            if method == "POST" and path.startswith("/api/v1/definitions/") and path.endswith("/rollback"):
+                ident = path.split("/")[4]
+                rows = [d for d in state.definitions if d.get("name") == ident or d.get("id") == ident]
+                if not rows:
+                    return self.reply(404, {"title": "not found"})
+                active = next((d for d in rows if d.get("status") == "ACTIVE"), None)
+                previous = [d for d in rows if d.get("status") == "DEPRECATED"]
+                if active is None or not previous:
+                    return self.reply(409, {"title": "no version to roll back to"})
+                active["status"] = "DEPRECATED"
+                target = previous[-1]
+                target["status"] = "ACTIVE"
+                return self.reply(200, {"id": target["id"], "name": target["name"],
+                                        "version": target["version"], "status": "ACTIVE"})
             if method == "POST" and path.startswith("/api/v1/tasks/"):
                 task_id, action = path.rsplit("/", 2)[1:]
                 task = next((t for t in state.tasks if t["id"] == task_id), None)
@@ -321,6 +399,96 @@ def make_handler(state):
     return Handler
 
 
+class FakeMailpit:
+    """A fake Mailpit trap: the search endpoint the runner reads by recipient, and the messages it holds.
+    The body of a message is never a part of the search answer (the real trap answers with a summary)."""
+
+    def __init__(self):
+        self.messages = []  # [{"ID", "Subject", "To": [{"Address"}], "Text"}]
+        self.queries = []  # the queries the runner sent
+        self.empty_searches = 0  # the first N searches answer with no message (a mail that arrives late)
+        self.lock = threading.Lock()
+
+    def add(self, subject, recipient, body="the body of the mail", mid=None, summary_subject=True,
+            summary_recipient=True):
+        """Put a mail into the trap. summary_subject=False / summary_recipient=False: the search answer carries
+        no subject / no recipient (the runner then reads the message itself)."""
+        with self.lock:
+            mid = mid or f"m{len(self.messages) + 1}"
+            self.messages.append({"ID": mid, "Subject": subject, "To": [{"Address": recipient}], "Text": body,
+                                  "summary_subject": summary_subject, "summary_recipient": summary_recipient})
+            return mid
+
+
+def make_mailpit_handler(state):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def reply(self, status, body=None):
+            data = json.dumps(body).encode() if body is not None else b""
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            parsed = urllib.parse.urlsplit(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            if parsed.path == "/api/v1/search":
+                term = (query.get("query", [""])[0] or "").strip()
+                limit = int(query.get("limit", ["25"])[0] or 25)
+                with state.lock:
+                    state.queries.append(term)
+                    rows = []
+                    if state.empty_searches > 0:
+                        state.empty_searches -= 1
+                        return self.reply(200, {"messages": [], "total": 0})
+                    for message in state.messages:
+                        addresses = [str(a.get("Address", "")).lower() for a in message["To"]]
+                        if term.lower().startswith("to:"):
+                            wanted = term[3:].strip().lower()
+                            if wanted not in addresses:
+                                continue
+                        row = {"ID": message["ID"]}
+                        if message.get("summary_recipient", True):
+                            row["To"] = message["To"]
+                        if message.get("summary_subject", True):
+                            row["Subject"] = message["Subject"]
+                        rows.append(row)
+                    return self.reply(200, {"messages": rows[:limit], "total": len(rows)})
+            if parsed.path.startswith("/api/v1/message/"):
+                mid = parsed.path.rsplit("/", 1)[1]
+                with state.lock:
+                    message = next((m for m in state.messages if m["ID"] == mid), None)
+                if message is None:
+                    return self.reply(404, {"title": "no message"})
+                return self.reply(200, {"ID": message["ID"], "Subject": message["Subject"], "To": message["To"],
+                                        "Text": message["Text"]})
+            return self.reply(404, {"title": "no route"})
+
+    return Handler
+
+
+class FakeTrapCase:
+    """Mixin: a fake Mailpit trap on 127.0.0.1 (no network beyond it)."""
+
+    def start_trap(self):
+        self.trap = FakeMailpit()
+        self.trap_server = ThreadingHTTPServer(("127.0.0.1", 0), make_mailpit_handler(self.trap))
+        self.trap_thread = threading.Thread(target=self.trap_server.serve_forever,
+                                            kwargs={"poll_interval": 0.01}, daemon=True)
+        self.trap_thread.start()
+        self.addCleanup(self.stop_trap)
+        self.trap_url = f"http://127.0.0.1:{self.trap_server.server_address[1]}"
+        return self.trap_url
+
+    def stop_trap(self):
+        self.trap_server.shutdown()
+        self.trap_server.server_close()
+
+
 class FakeServerCase(unittest.TestCase):
     def setUp(self):
         self.state = FakeStock()
@@ -352,9 +520,10 @@ class FakeServerCase(unittest.TestCase):
     def process(self):
         return runner.load_process(PROCESS_FILE)
 
-    def run_process(self, process=None, inputs=None, **kwargs):
+    def run_process(self, process=None, inputs=None, actors=None, **kwargs):
         out = io.StringIO()
-        r = runner.Runner(process or self.process(), base_url=self.base, tenant="qoimeks-qa2", actors=USERS,
+        r = runner.Runner(process or self.process(), base_url=self.base, tenant="qoimeks-qa2",
+                          actors=USERS if actors is None else actors,
                           run_dir=self.run_dir, inputs=dict(INPUTS if inputs is None else inputs),
                           poll_interval=0.01, out=out, **kwargs)
         code = r.run()

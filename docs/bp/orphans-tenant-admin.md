@@ -1,8 +1,8 @@
 # Orphans of the area tenant-admin
 
-Every inventory item of the area (87 routes, 11 business rules, 20 screens) is named by at least one process task in
-`docs/bp/tenant-admin.json`, so there is no orphan row. Checked with `python3 scripts/uat/check_catalog.py tenant-admin`
-(COVERAGE 118/118).
+Every inventory item of the area but one (88 routes, 11 business rules, 20 screens) is named by at least one process
+task in `docs/bp/tenant-admin.json`; the one exception is the row below. Checked with
+`python3 scripts/uat/check_catalog.py tenant-admin` (COVERAGE 119/119).
 
 Partial entries and why (T-2550; the machine-readable form is the `gaps` field of each entry in `docs/bp/tenant-admin.json`):
 
@@ -20,6 +20,10 @@ Items covered only by a weak reason (the owner may want to give them a real proc
 
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
+| GET /api/v1/notification-templates/catalogue | lib/letflow/routers/notification_templates.ex:60 | reads the compiled catalogue of the registered notification template keys and the placeholder allow-list of each | T-2600 (pilot gap G5b), commit c0b6d37ae, 2026-11-23 | the designer's notification-step editor reads it to offer the templates a service step may use; the tenant's own text stays behind the route of BP-TENANT-ADMIN-26, and no designer-area process of that editor exists yet | give a process |
+| GET /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:34 | lists the tenant allow-list of outbound channels and recipient domains | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
+| POST /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:41 | adds a channel or a recipient domain to the allow-list | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
+| DELETE /api/v1/outbound-destinations | lib/letflow/routers/outbound_destinations.ex:55 | removes an allow-list entry | T-2597 (pilot gap G14), 2026-11-24 | deny-by-default guardrail: only the holder of OutboundDestinationsManage changes what a definition may send to; no process of the tenant-admin area drives it yet | give a process |
 
 Review T-2559 (D-169): the five weakly covered items above are decided as (a) USED: the three routes are called by the
 sign-in and mobile start-up tasks (BP-TENANT-ADMIN-01, -02, -17, code_refs resolve per check_catalog), and the three

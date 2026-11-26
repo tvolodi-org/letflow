@@ -40,6 +40,7 @@ defmodule Letflow.ServiceCatalogTest do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Letflow.Api.Pagination
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ServiceScopeValidator
   alias Letflow.Identity.Tenant
@@ -694,8 +695,8 @@ defmodule Letflow.ServiceCatalogTest do
   # cursor prefixes, never interchangeable" from design §5.
   # ---------------------------------------------------------------------------------
 
-  describe "REQ-192 list_all/1 <-> list_for_tenant/2: SCA:/SC: cursor cross-endpoint isolation (INV-9)" do
-    test "a cursor minted by list_for_tenant/2 (SC: prefix) is rejected by list_all/1 with {:error, :wrong_endpoint}" do
+  describe "REQ-192 list_all/1 <-> list_for_tenant/2: SCA2:/SC2: cursor cross-endpoint isolation (INV-9)" do
+    test "a cursor minted by list_for_tenant/2 (SC2: prefix) is rejected by list_all/1 with {:error, :wrong_endpoint}" do
       tenant = insert_tenant!()
       register!(%{scope: :global})
       register!(%{scope: :global})
@@ -704,13 +705,13 @@ defmodule Letflow.ServiceCatalogTest do
                ServiceCatalog.list_for_tenant(%{page_size: 1}, tenant.id)
 
       assert is_binary(sc_cursor)
-      assert String.starts_with?(Base.url_decode64!(sc_cursor, padding: false), "SC:")
+      assert String.starts_with?(Base.url_decode64!(sc_cursor, padding: false), "SC2:")
 
       assert {:error, :wrong_endpoint} =
                ServiceCatalog.list_all(%{page_size: 1, cursor: sc_cursor})
     end
 
-    test "a cursor minted by list_all/1 (SCA: prefix) is rejected by list_for_tenant/2 with {:error, :wrong_endpoint}" do
+    test "a cursor minted by list_all/1 (SCA2: prefix) is rejected by list_for_tenant/2 with {:error, :wrong_endpoint}" do
       tenant = insert_tenant!()
       register!(%{scope: :global})
       register!(%{scope: :global})
@@ -718,18 +719,18 @@ defmodule Letflow.ServiceCatalogTest do
       assert {:ok, %{next_cursor: sca_cursor}} = ServiceCatalog.list_all(%{page_size: 1})
 
       assert is_binary(sca_cursor)
-      assert String.starts_with?(Base.url_decode64!(sca_cursor, padding: false), "SCA:")
+      assert String.starts_with?(Base.url_decode64!(sca_cursor, padding: false), "SCA2:")
 
       assert {:error, :wrong_endpoint} =
                ServiceCatalog.list_for_tenant(%{page_size: 1, cursor: sca_cursor}, tenant.id)
     end
 
-    test "SCA: is not merely a longer match of SC: -- an SC:-prefixed cursor never accidentally satisfies list_all/1's own prefix check" do
+    test "SCA2: is not merely a longer match of SC2: -- neither prefix satisfies the other's check" do
       # Guards against a regression where @list_all_cursor_prefix and
       # @list_cursor_prefix accidentally shared a common prefix relationship
       # (e.g. if list_all/1 had been given "S:" and list_for_tenant/2 "SC:",
       # a naive `starts_with?` check could misfire in one direction). With
-      # the real prefixes ("SC:" vs "SCA:") neither is a prefix of the
+      # the real prefixes ("SC2:" vs "SCA2:") neither is a prefix of the
       # other, so both cross-checks above must independently fail closed.
       tenant = insert_tenant!()
       register!(%{scope: :global})
@@ -738,7 +739,51 @@ defmodule Letflow.ServiceCatalogTest do
       assert {:ok, %{next_cursor: sc_cursor}} =
                ServiceCatalog.list_for_tenant(%{page_size: 1}, tenant.id)
 
-      refute String.starts_with?(Base.url_decode64!(sc_cursor, padding: false), "SCA:")
+      assert {:ok, %{next_cursor: sca_cursor}} = ServiceCatalog.list_all(%{page_size: 1})
+
+      refute String.starts_with?(Base.url_decode64!(sc_cursor, padding: false), "SCA2:")
+      refute String.starts_with?(Base.url_decode64!(sca_cursor, padding: false), "SC2:")
+    end
+
+    test "the current and the previous cursor generation are told apart by their prefix alone" do
+      # A `service_id` is a free-form string and may contain a colon, so the
+      # number of colon-separated fields cannot say which generation a cursor
+      # belongs to. The prefix does.
+      tenant = insert_tenant!()
+      register!(%{scope: :global})
+      # Registered last, so it is the newest row and therefore the one the
+      # first page's cursor points at.
+      newest = register!(%{service_id: "acme:billing", scope: :global})
+
+      assert {:ok, %{items: [first], next_cursor: current}} =
+               ServiceCatalog.list_for_tenant(%{page_size: 1}, tenant.id)
+
+      assert first.service_id == newest.service_id
+
+      payload = Base.url_decode64!(current, padding: false)
+      assert String.starts_with?(payload, "SC2:")
+
+      # The issue time comes first (that is the field the 24h expiry window
+      # counts from) and the service_id comes last (so a colon inside it
+      # cannot shift the slots).
+      ["SC2", mint_str, created_at_str, service_id] = String.split(payload, ":", parts: 4)
+
+      {mint_us, ""} = Integer.parse(mint_str)
+      assert_in_delta System.system_time(:microsecond) - mint_us, 0, 60_000_000
+
+      {created_at_us, ""} = Integer.parse(created_at_str)
+      assert created_at_us == DateTime.to_unix(first.created_at, :microsecond)
+      assert service_id == "acme:billing"
+
+      # The previous generation carries the seek key only, under its own
+      # prefix -- it is read as that, never as the current form.
+      previous =
+        "SC:"
+        |> Pagination.build_raw_cursor(DateTime.to_unix(DateTime.utc_now(), :microsecond), "x:1")
+        |> Pagination.encode_cursor()
+
+      assert {:ok, %{items: [_]}} =
+               ServiceCatalog.list_for_tenant(%{page_size: 1, cursor: previous}, tenant.id)
     end
   end
 
@@ -776,6 +821,154 @@ defmodule Letflow.ServiceCatalogTest do
     setup do
       Repo.delete_all(Entry)
       :ok
+    end
+
+    test "rows older than 24 hours remain pageable through both catalog list functions" do
+      tenant = insert_tenant!("cursor-issue-time-catalog")
+      entries = for _ <- 1..3, do: register!(%{scope: :global})
+      on_exit(fn -> Enum.each(entries, &cleanup_entry!(&1.service_id)) end)
+      ids = Enum.map(entries, & &1.service_id)
+      old = DateTime.utc_now() |> DateTime.add(-2 * 86_400, :second) |> DateTime.truncate(:second)
+      Repo.update_all(from(e in Entry, where: e.service_id in ^ids), set: [created_at: old])
+
+      for list_page <- [
+            fn cursor -> ServiceCatalog.list_all(%{cursor: cursor, page_size: 1}) end,
+            fn cursor ->
+              ServiceCatalog.list_for_tenant(%{cursor: cursor, page_size: 1}, tenant.id)
+            end
+          ] do
+        assert {:ok, %{items: [_], next_cursor: cursor1}} = list_page.(nil)
+        assert {:ok, %{items: [_], next_cursor: cursor2}} = list_page.(cursor1)
+        assert {:ok, %{items: [_], next_cursor: nil}} = list_page.(cursor2)
+      end
+    end
+
+    test "a service_id containing a colon is paged exactly once per row (the id never shifts the cursor slots)" do
+      tenant = insert_tenant!("cursor-colon-service-id")
+
+      # The colon-carrying service_id is registered last and sorts highest,
+      # so it heads the listing's (created_at DESC, service_id DESC) order
+      # under either tiebreak -- and it is therefore the row whose cursor
+      # the second page has to read.
+      ids = ["aaa-one", "aaa-two", "acme:billing"]
+
+      for id <- ids, do: register!(%{service_id: id, scope: :global})
+
+      same = DateTime.utc_now() |> DateTime.truncate(:second)
+      Repo.update_all(from(e in Entry, where: e.service_id in ^ids), set: [created_at: same])
+
+      for list_page <- [
+            fn cursor -> ServiceCatalog.list_all(%{cursor: cursor, page_size: 1}) end,
+            fn cursor ->
+              ServiceCatalog.list_for_tenant(%{cursor: cursor, page_size: 1}, tenant.id)
+            end
+          ] do
+        assert {:ok, %{items: [first]}} = list_page.(nil)
+        assert first.service_id == "acme:billing"
+
+        # Walking the pages must visit every row exactly once and stop: a
+        # cursor whose slots shift (a colon inside the service_id) makes the
+        # second page restart at the top of the list, and a client that
+        # follows `next_cursor` until it is nil then never stops.
+        {seen, _last_cursor} =
+          Enum.reduce_while(1..6, {[], nil}, fn _page, {seen, cursor} ->
+            case list_page.(cursor) do
+              {:ok, %{items: [item], next_cursor: nil}} ->
+                {:halt, {Enum.reverse([item.service_id | seen]), nil}}
+
+              {:ok, %{items: [item], next_cursor: next}} ->
+                {:cont, {[item.service_id | seen], next}}
+
+              {:ok, %{items: [], next_cursor: nil}} ->
+                {:halt, {Enum.reverse(seen), nil}}
+            end
+          end)
+
+        # Every row exactly once -- a repeat means the page restarted at the
+        # top of the list.
+        assert Enum.sort(seen) == Enum.sort(ids)
+        assert length(seen) == length(ids)
+      end
+    end
+
+    test "a legacy two-slot cursor with a colon in its service_id pages the rows behind it" do
+      tenant = insert_tenant!("cursor-legacy-colon-service-id")
+      colon_id = "acme:billing"
+      register!(%{service_id: colon_id, scope: :global})
+      register!(%{service_id: "plain-one", scope: :global})
+
+      base = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.update_all(from(e in Entry, where: e.service_id == ^colon_id),
+        set: [created_at: base]
+      )
+
+      Repo.update_all(from(e in Entry, where: e.service_id == "plain-one"),
+        set: [created_at: DateTime.add(base, -60, :second)]
+      )
+
+      # The pre-fix two-slot form: "<prefix><created_at_us>:<service_id>". Its
+      # service_id is free-form and may contain a colon -- which is exactly
+      # what the three-slot form must never be confused with.
+      legacy =
+        "SC:"
+        |> Pagination.build_raw_cursor(DateTime.to_unix(base, :microsecond), colon_id)
+        |> Pagination.encode_cursor()
+
+      legacy_admin =
+        "SCA:"
+        |> Pagination.build_raw_cursor(DateTime.to_unix(base, :microsecond), colon_id)
+        |> Pagination.encode_cursor()
+
+      assert {:ok, %{items: [%Entry{service_id: "plain-one"}], next_cursor: nil}} =
+               ServiceCatalog.list_for_tenant(%{cursor: legacy, page_size: 1}, tenant.id)
+
+      assert {:ok, %{items: [%Entry{service_id: "plain-one"}], next_cursor: nil}} =
+               ServiceCatalog.list_all(%{cursor: legacy_admin, page_size: 1})
+    end
+
+    test "a legacy two-slot cursor is never read as the three-slot form" do
+      # A service_id whose last colon-separated segment is a number is the
+      # case the three-slot form swallows: its datetime slot would read that
+      # segment as a timestamp and the seek key would be nonsense (a 1970
+      # created_at), which loses rows instead of returning them.
+      colon_id = "acme:123"
+      register!(%{service_id: colon_id, scope: :global})
+      register!(%{service_id: "plain-one", scope: :global})
+
+      base = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.update_all(from(e in Entry, where: e.service_id == ^colon_id),
+        set: [created_at: base]
+      )
+
+      Repo.update_all(from(e in Entry, where: e.service_id == "plain-one"),
+        set: [created_at: DateTime.add(base, -60, :second)]
+      )
+
+      legacy =
+        "SCA:"
+        |> Pagination.build_raw_cursor(DateTime.to_unix(base, :microsecond), colon_id)
+        |> Pagination.encode_cursor()
+
+      assert {:ok, %{items: [%Entry{service_id: "plain-one"}], next_cursor: nil}} =
+               ServiceCatalog.list_all(%{cursor: legacy, page_size: 1})
+    end
+
+    test "a legacy two-slot cursor for a row older than 24 hours answers expired, never wrong rows" do
+      register!(%{service_id: "acme:billing", scope: :global})
+      register!(%{service_id: "plain-one", scope: :global})
+
+      old = DateTime.utc_now() |> DateTime.add(-2 * 86_400, :second) |> DateTime.truncate(:second)
+      ids = ["acme:billing", "plain-one"]
+      Repo.update_all(from(e in Entry, where: e.service_id in ^ids), set: [created_at: old])
+
+      legacy =
+        "SCA:"
+        |> Pagination.build_raw_cursor(DateTime.to_unix(old, :microsecond), "acme:billing")
+        |> Pagination.encode_cursor()
+
+      assert {:error, :expired} = ServiceCatalog.list_all(%{cursor: legacy, page_size: 1})
     end
 
     test "next_cursor is non-nil while more rows remain, and nil on the final page" do

@@ -103,6 +103,45 @@ export const diagramEditorFixScreens: HarnessScreen[] = [
     ),
   },
   {
+    // T-2812 (D2): saved draft with one open problem: amber banner, never green.
+    name: 'pd-edit-saved-1-problem',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (saved, 1 problem)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ saved: true, violations: [{ code: 'step_mapping_variable_undeclared', message: "Node 'check' reads mapping admin_email: the variable is not declared" }] }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    name: 'pd-edit-saved-2-problems',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (saved, 2 problems)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{
+            saved: true,
+            violations: [
+              { code: 'step_mapping_variable_undeclared', message: "Node 'check' reads mapping admin_email: the variable is not declared" },
+              { code: 'node_unreachable', message: "Node 'order' is not reachable from the start" },
+            ],
+          }}
+        />
+      </Frame>
+    ),
+  },
+  {
     // The editor after clicking "Add step": an extra Human Task node is to the far right; fitView
     // brings it into the viewport. The node is unconnected to show it was just added.
     name: 'pd-edit-add-step-result',

@@ -711,6 +711,7 @@ defmodule Letflow.Simulation.Req206SwiftrouteTest do
           prefix: schema_name
         )
 
+      Letflow.OutboundAllowFixture.allow_definition!(schema_name, definition.id)
       {:ok, %{definition: activated}} = Definitions.activate(definition.id, prefix: schema_name)
 
       # Start an instance — token parks at ops-review, escalation timer armed.

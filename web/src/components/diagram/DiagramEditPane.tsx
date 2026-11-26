@@ -14,7 +14,10 @@ import { definitionsApi } from '@/api/definitions'
 import { useDiagramDraft, type DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, useValidateDraft, type DraftCheck } from '@/hooks/useValidateDraft'
 import type { GraphValidationViolation } from '@/api/definitions'
-import type { DefinitionGraph, ProcessDefinition } from '@/types/api'
+import type { DeclaredVariable, DefinitionGraph, ProcessDefinition } from '@/types/api'
+import { addVariable, sameVariables } from '@/utils/canvas/declaredVariables'
+import { DeclaredVariablesContext, type DeclaredVariables } from './DeclaredVariablesContext'
+import { VariablesPanel } from './VariablesPanel'
 import { nextDraftVersion, withLayoutPositions } from '@/utils/canvas/graphEdit'
 
 const DiagramEditor = lazy(() => import('./DiagramEditor'))
@@ -33,8 +36,12 @@ export interface DiagramEditPaneProps {
   onSaved: (saved: ProcessDefinition, copied: boolean) => void
   /** Refetch the definition (after a not_draft conflict or a stale warning). */
   onReload: () => void
+  /** The number of open problems of the SAVED draft (0 while the draft has unsaved edits or no check has finished): the page disables Publish on it. */
+  onProblemsChange?: (count: number) => void
   /** Screen harness only: a fixed starting state (selection, problems, a banner) for the screenshots. */
   demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean; stale?: boolean; versionTaken?: boolean; loading?: boolean }
+  /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
+  tenantId?: string | null
 }
 
 function classify(err: unknown): NonNullable<SaveError> {
@@ -48,12 +55,35 @@ function classify(err: unknown): NonNullable<SaveError> {
   return { kind: 'other', message }
 }
 
-export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo }: DiagramEditPaneProps) {
+export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, onProblemsChange, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
   const rawDraft = useDiagramDraft(seed, def.updated_at)
   const { reset } = rawDraft
+  // T-2811 (D1): the declared variables of the process. `savedVariables` is what the server holds (the clean base);
+  // `variables` adds what was declared on this screen. Undefined from the server = unknown: nothing is sent unless added.
+  const storedVariables = def.variable_schemas
+  const [savedVariables, setSavedVariables] = useState<DeclaredVariable[]>(storedVariables ?? [])
+  const [variables, setVariables] = useState<DeclaredVariable[]>(storedVariables ?? [])
+  const variablesKnown = storedVariables !== undefined
+  const variablesDirty = !sameVariables(variables, savedVariables)
+  const variablesRef = useRef(variables)
+  variablesRef.current = variables
+  const declared = useMemo<DeclaredVariables>(
+    () => ({
+      variables,
+      add: (name, type) => {
+        const r = addVariable(variablesRef.current, name, type)
+        if (!r.ok) return r.reason
+        variablesRef.current = r.list
+        setVariables(r.list)
+        return null
+      },
+    }),
+    [variables],
+  )
+  const savedKeys = useMemo(() => new Set(savedVariables.map((v) => v.variable_key)), [savedVariables])
   const [saving, setSaving] = useState(false)
   // Editing is frozen for the WHOLE save (the preliminary read included): a success replaces the draft with the saved graph,
   // so an edit made meanwhile would be lost silently. The ref is set synchronously, before React re-renders.
@@ -69,6 +99,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
   const draft = useMemo<DiagramDraft>(
     () => ({
       ...rawDraft,
+      dirty: rawDraft.dirty || variablesDirty,
       apply: (result, key) => (savingRef.current ? 'saving' : rawDraft.apply(result, key)),
       setGraph: (g, key) => {
         if (!savingRef.current) rawDraft.setGraph(g, key)
@@ -80,7 +111,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
         if (!savingRef.current) rawDraft.redo()
       },
     }),
-    [rawDraft],
+    [rawDraft, variablesDirty],
   )
   const isDraftDef = def.status === 'DRAFT'
   const [error, setError] = useState<SaveError>(demo?.error ?? null)
@@ -93,6 +124,13 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
   const [saveProblems, setSaveProblems] = useState<{ graph: DefinitionGraph; violations: GraphValidationViolation[] } | null>(null)
 
   useEffect(() => onDirtyChange(draft.dirty), [draft.dirty, onDirtyChange])
+  // A reloaded definition (clean) brings its stored variables along.
+  useEffect(() => {
+    if (!dirtyRef.current) {
+      setSavedVariables(storedVariables ?? [])
+      setVariables(storedVariables ?? [])
+    }
+  }, [storedVariables, def.updated_at])
   // Leaving the pane (unmount) never leaves a stale lock behind.
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
@@ -110,19 +148,36 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     else reset(seed, def.updated_at)
   }, [seed, def.updated_at, reset])
 
-  const live = useValidateDraft(def.id, draft.graph, !editorDirty && !demo?.violations)
-  const check: DraftCheck = demo?.violations ? { phase: 'invalid', violations: demo.violations } : live.check
-  const checked = check.phase === 'invalid' ? check.violations : []
-  const fromSave = saveProblems && saveProblems.graph === draft.graph ? saveProblems.violations : []
-  const violations = [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
+  const live = useValidateDraft(def.id, draft.graph, !editorDirty && !demo?.violations, undefined, variablesKnown || variables.length > 0 ? variables : undefined)
+  const demoViolations = demo?.violations
+  const liveCheck = live.check
+  const check: DraftCheck = useMemo(
+    () => (demoViolations ? { phase: 'invalid', violations: demoViolations } : liveCheck),
+    [demoViolations, liveCheck],
+  )
+  // Memoised: a fresh array on every render made the editor's node list new every render, and React Flow's store
+  // answered each one with a state update: maximum update depth (React error 185, T-2738).
+  const violations = useMemo(() => {
+    const checked = check.phase === 'invalid' ? check.violations : []
+    const fromSave = saveProblems && saveProblems.graph === draft.graph ? saveProblems.violations : []
+    const all = [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
+    // T-2811 (D1): the undeclared-variable error names the way out in words (the original text stays first, so the
+    // node anchor still finds its step).
+    return all.map((v) => (v.code === 'step_mapping_variable_undeclared' ? { ...v, message: `${v.message}. ${intl.formatMessage({ id: 'processDiagram.edit.vars.undeclaredFix' })}` } : v))
+  }, [check, saveProblems, draft.graph, intl])
   const blocking = violations.filter(isBlocking)
+  // The saved draft's open problems (all of them: activation refuses what the live check only warns about). Counted for any
+  // clean server-backed draft, also one opened without saving in this mount; savedTick only controls the banner.
+  const savedProblems = isDraftDef && !editorDirty && !draft.dirty && !error ? violations.length : 0
+  useEffect(() => onProblemsChange?.(savedProblems), [savedProblems, onProblemsChange])
+  useEffect(() => () => onProblemsChange?.(0), [onProblemsChange])
 
   const blockedReason =
     editorDirty
       ? e('lock.editorDirty')
       : error?.kind === 'module'
         ? e('save.moduleOwned')
-        : blocking.length > 0
+        : blocking.length > 0 && savedProblems === 0
           ? e('save.blocked', { count: blocking.length })
           : null
 
@@ -132,19 +187,24 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     setStale(false)
     setSaveProblems(null)
     const sent = draft.graph
+    const sentVariables = variablesRef.current
+    // The variable list is sent whole (it replaces the stored one) when the server told us the stored list or the user added
+    // one; otherwise the old behaviour stands (a version copy keeps the declared variables of the source).
+    const sendVariables = variablesKnown || sentVariables.length > 0
     try {
       let saved: ProcessDefinition
       if (isDraftDef) {
-        saved = await definitionsApi.update(def.id, { graph: draft.graph })
+        saved = await definitionsApi.update(def.id, sendVariables ? { graph: draft.graph, variable_schemas: sentVariables } : { graph: draft.graph })
       } else {
         saved = await definitionsApi.create({
           name: def.name,
           version,
           description: def.description,
           graph: draft.graph,
-          copy_variable_schemas_from: def.id,
+          ...(sendVariables ? { variable_schemas: sentVariables } : { copy_variable_schemas_from: def.id }),
         })
       }
+      setSavedVariables(sentVariables)
       // The server acknowledged the save: only now does the draft become the clean base.
       draft.reset(withLayoutPositions(saved.graph), saved.updated_at)
       setSavedTick(true)
@@ -160,7 +220,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     } finally {
       stopSaving()
     }
-  }, [isDraftDef, def, draft, version, onSaved])
+  }, [isDraftDef, def, draft, version, onSaved, variablesKnown])
 
   const save = useCallback(async () => {
     startSaving()
@@ -216,16 +276,25 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: error.message }) : error.message}</span>
         </Banner>
       )}
-      {savedTick && !draft.dirty && !error && <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>}
+      {savedTick && !draft.dirty && !error && (
+        savedProblems > 0 ? (
+          <div data-testid="edit-saved-with-problems"><Banner tone="warning">{e('savedWithProblems', { count: savedProblems })}</Banner></div>
+        ) : (
+          <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>
+        )
+      )}
       {demo?.loading ? (
         <Skeleton />
       ) : (
+      <DeclaredVariablesContext.Provider value={declared}>
+      <VariablesPanel graph={draft.graph} savedKeys={savedKeys} />
       <Suspense fallback={<Skeleton />}>
         <DiagramEditor
           draft={draft}
           violations={violations}
           check={check}
           initialSelected={demo?.selected}
+          tenantId={tenantId}
           toolbar={{
             onSave: () => void save(),
             onDiscard: () => {
@@ -237,6 +306,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           }}
         />
       </Suspense>
+      </DeclaredVariablesContext.Provider>
       )}
       <ConfirmDialog
         open={confirmDiscard}
@@ -247,6 +317,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
         confirmVariant="danger"
         onConfirm={() => {
           draft.reset(seed, def.updated_at)
+          setVariables(savedVariables)
           setError(null)
           setStale(false)
           setSaveProblems(null)

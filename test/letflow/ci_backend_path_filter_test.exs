@@ -117,7 +117,11 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"scripts/oss_audit/scanner.py", true, true},
     {"scripts/oss_audit/rules.py", true, true},
     {"scripts/companion/move_list.tsv", true, true},
+    {"scripts/uat/runner.py", true, true},
+    {"scripts/uat/check_processes.py", true, true},
+    {"scripts/uat/tests/test_platform_residue.py", true, true},
     {"docs/open-source/audit-report.md", true, true},
+    {"docs/platform-steps.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
     {"web/vite.config.ts", true, true},
@@ -128,6 +132,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"docs/status/requirement_status.index.yaml", true, true},
     {"docs/status/work_board_cutover.yaml", true, true},
     {"docs/roles.md", true, true},
+    {"docs/security-advisories.md", true, true},
     {"docs/runbooks/x.md", true, false},
     {"docs/frontend/x-ui-widget-vocabulary.md", true, true},
     {"docs/migration/stage-7-simulation-uat-parity.md", true, true},
@@ -459,6 +464,14 @@ defmodule Letflow.CiBackendPathFilterTest do
       assert "docs/roles.md" in Enum.map(violations(re), &elem(&1, 0))
     end
 
+    test "dropping the docs/security-advisories.md alternative is reported by table and scan" do
+      src = regex_source() |> drop_alternative(~S{docs/security-advisories\.md$})
+      re = compile!(src)
+
+      assert {"docs/security-advisories.md", true} in table_violations(re)
+      assert "docs/security-advisories.md" in Enum.map(violations(re), &elem(&1, 0))
+    end
+
     test "dropping the handoffs/registry.json alternative is reported" do
       src = regex_source() |> drop_alternative(~S{handoffs/registry\.json$})
       re = compile!(src)
@@ -536,6 +549,24 @@ defmodule Letflow.CiBackendPathFilterTest do
 
     test "scripts/pilot/qoimeks_masters_compare.py alone sets backend=true (REQ-881)" do
       assert %{"backend" => "true"} = run_filter(["scripts/pilot/qoimeks_masters_compare.py"])
+    end
+  end
+
+  # T-2606 (G18): the UAT runner and the static check of the process files are Python tooling with their own
+  # stdlib unit tests (scripts/uat/tests). No mix test maps to them, so without this rule a change of the
+  # runner would merge without any product CI job running: the backend gate runs
+  # test/scripts/uat_tooling_test.exs, which runs that suite.
+  describe "UAT runner tooling" do
+    test "scripts/uat/runner.py alone sets backend=true" do
+      assert %{"backend" => "true"} = run_filter(["scripts/uat/runner.py"])
+    end
+
+    test "a test of the UAT tooling alone sets backend=true" do
+      assert %{"backend" => "true"} = run_filter(["scripts/uat/tests/test_platform_residue.py"])
+    end
+
+    test "the tooling of the runner is covered by a test the backend gate runs" do
+      assert File.exists?("test/scripts/uat_tooling_test.exs")
     end
   end
 end

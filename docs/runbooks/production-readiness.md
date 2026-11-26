@@ -72,7 +72,7 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 
 | Setting | Required in :prod | When unset | Source |
 |---|---|---|---|
-| `CORS_ALLOWED_ORIGINS` | no (exact origins supplement the company suffix rule) | the exact list is empty; separately configured company suffixes still permit valid HTTPS company origins (prod block only) | `config/runtime.exs` (REQ-118) |
+| `CORS_ALLOWED_ORIGINS` | no (the app's own origins; a company's own host needs no entry since T-2621 — a LISTED origin is allowed on EVERY host, so list the app's own origins only) | the exact list is empty; only a company origin on its OWN host is allowed (the CORS decision is per host) | `config/runtime.exs` (REQ-118, T-2621) |
 | `DATABASE_URL` | yes | raises at boot (prod block) | `config/runtime.exs` |
 | `LETFLOW_AUTH_FAILURES_PER_MIN` | no | nothing written; the limiter keeps its built-in defaults; a non-positive-integer value raises | `config/runtime.exs`, `Letflow.Plugs.AuthAttemptLimit` |
 | `LETFLOW_BACKUP_STATUS_DIR` | no | nil: the readiness answer says backup status is "not configured here" | `config/runtime.exs`, `docs/runbooks/backup-restore.md` |
@@ -92,12 +92,16 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_MAIL_TIMEOUT_MS` | no | default value of the smtp parser | `config/runtime.exs`, `Letflow.LoginDiscovery.Notifier.Smtp.Config` |
 | `LETFLOW_MODULE_ROLLOUT_HALT_AFTER` | no | default value 3 (range 1 to 1000); an invalid value raises | `config/runtime.exs`, `Letflow.ModuleUpgrade.Settings` |
 | `LETFLOW_MODULE_UPGRADE_ON_BOOT` | no | default value false (exactly true or false) | `config/runtime.exs` (REQ-772) |
+| `LETFLOW_START_PLATFORM_STEP_RUNNER` | no | default false; exactly `true` turns the platform step runner on (T-2703). With it off, an instance that reaches a platform step STARTS and NEVER RUNS: it waits at the node with no error and no DLQ entry (T-2707) | `config/runtime.exs` |
+| `LETFLOW_SEED_PLATFORM_DEFINITIONS` | no | default false; exactly `true` seeds the shipped platform definitions (platform.register_tenant) idempotently at boot (T-2739). Production stays off; the QA deploy seeds through the running app and fails when the definition is missing | `config/runtime.exs` |
 | `LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS` | no | default value 1000; an invalid value raises | `config/runtime.exs`, `Letflow.ModuleUpgrade.Settings` (REQ-773) |
 | `LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS` | no | default value: empty list (off); a name outside the realm alphabet raises | `config/runtime.exs` (ISS-1030) |
 | `LETFLOW_PLATFORM_TENANT_ID` | no for boot; yes for any platform-scope operation | nothing written; a warning goes to standard error and platform-scope operations are denied for every caller; a malformed value raises | `config/runtime.exs`, `Letflow.PlatformTenant` |
 | `LETFLOW_OWNER_LIST_SHA256` | no; QA only for the owner list import (T-1963) | nothing written; the `/maintenance/v1` owner-list import answers 404 | `config/runtime.exs`, `Letflow.Routers.MaintenanceOwnerListV1`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROBLEM_REPORT_EXPORT_SHA256` | no; QA only for the problem-report handoff (T-1948) | nothing written; the `/maintenance/v1` export answers 404 | `config/runtime.exs`, `Letflow.Plugs.ReportExportAuth`, `docs/runbooks/problem-report-handoff.md` |
-| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; the provisioner credential stays unset in production until the owner approves production provisioning (D-019 item 9); this suffix list alone opens no provisioner route and is set to `ai-letflow.com` at the production go for the company host (D-158: `PUT /api/v1/tenants/:slug/hostname`, CORS, login mail) | nothing written | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
+| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; the provisioner credential stays unset in production until the owner approves production provisioning (D-019 item 9); this suffix list alone opens no provisioner route and is set to `ai-letflow.com` at the production go for the company host (D-158: `PUT /api/v1/tenants/:slug/hostname`, login mail) | nothing written; the list grants no CORS allowance (T-2621: the CORS decision is per host) | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
+| `LETFLOW_PROVISIONER_CREATE_VIA_PROCESS` | no; stays unset in production until the owner approves production provisioning (D-019 item 9). Switching it on outside QA/runner tenants is the owner's step after T-2610 is green twice, never a task's | default false: the old synchronous create path; with it on and the platform step runner off the old path is used | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
+| `LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 30: seconds a process create holds the request before it answers 202 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written; the `/admin/v1` provisioner routes answer 404 | `config/runtime.exs`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value: a built-in module list | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 25 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
@@ -150,6 +154,12 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `POOL_SIZE` | no | default value 30 (prod block) | `config/runtime.exs` (ISS-0908) |
 | `PORT` | no | default value 4000 (prod block) | `config/runtime.exs` (ISS-0015) |
 | `RESERVED_HEADROOM` | no | default value 2 (prod block) | `config/runtime.exs` (ISS-0908) |
+
+### QA deploy wiring
+
+| Wiring | What | Why | Owner | Rollback |
+|---|---|---|---|---|
+| Network join (T-2780) | `deploy/docker-compose.qa.yml`: service `app` is on `default` and `provisioner_callers`, the external network `tenant-provisioner-qa_callers` | `platform.register_tenant` must reach the tenant-provisioner (`http://10.203.118.2:8080`); inside the app container 127.0.0.1 is the container itself. No port is published, no host network; sign-up stays off | the external network belongs to infra (tenant-provisioner-qa); the compose lines belong to the product | remove the `networks:` lines of `app` and the top-level `provisioner_callers` block, then redeploy (`deploy/redeploy-qa.sh`) |
 
 ## Open owner questions
 

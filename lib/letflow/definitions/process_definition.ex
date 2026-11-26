@@ -135,6 +135,38 @@ defmodule Letflow.Definitions.ProcessDefinition do
     field(:owner_manifest_hash, :string)
     field(:owner_body_hash, :string)
 
+    # T-2591 (pilot gap G3; decision record
+    # `docs/migration/decisions/0094-platform-call-authority.md`, decision (e)): the permission
+    # a caller must hold to START an instance of THIS version. NULL means "no extra
+    # requirement": an ordinary definition starts as it always did.
+    #
+    # The value is a permission ATOM NAME as a string (the same spelling
+    # `Letflow.Api.Authorization` uses, e.g. "TenantsManage"), because the column is read
+    # back without the atom table. `Letflow.Definitions.StartPermission` parses it and
+    # refuses an unknown name.
+    #
+    # D-180 EXTENSION POINT (not built here): the later fork/binding slice adds the lineage of
+    # a tenant's own copy of a standard definition (a `custom` marker and a
+    # `based_on: <standard key>@<version>` reference) to THIS table, as further NULLABLE
+    # columns beside this one. Nothing here assumes a definition is editable by whoever can
+    # see it, nor that a tenant has exactly one definition per key.
+    field(:start_permission, :string)
+
+    # T-2604 (pilot gap G16): the DECLARED TEST CASES of this version -- the
+    # guardrail that runs them before the version may be activated (owner
+    # decision D-176's "automatic test run before activation").
+    #
+    # NULL means "no declared case": the version activates exactly as it did
+    # before this guardrail existed. The value is a JSON array of case
+    # objects; `Letflow.Definitions.TestCases` owns the shape, the bounds and
+    # the runner. It is authored by the definition's author, like the graph.
+    #
+    # D-180 EXTENSION POINT (not built here): the later fork/binding slice
+    # adds the lineage of a tenant's own copy of a standard definition (a
+    # `custom` marker and a `based_on: <standard key>@<version>` reference) to
+    # THIS table, as further NULLABLE columns beside this one.
+    field(:test_cases, {:array, :map})
+
     timestamps(inserted_at: :created_at, type: :utc_datetime_usec)
   end
 
@@ -147,7 +179,16 @@ defmodule Letflow.Definitions.ProcessDefinition do
   @spec create_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
   def create_changeset(definition, attrs) do
     definition
-    |> cast(attrs, [:name, :version, :description, :stage, :graph, :created_by])
+    |> cast(attrs, [
+      :name,
+      :version,
+      :description,
+      :stage,
+      :graph,
+      :created_by,
+      :start_permission,
+      :test_cases
+    ])
     |> validate_required([:name, :version, :graph, :created_by])
     |> validate_common()
   end
@@ -166,7 +207,15 @@ defmodule Letflow.Definitions.ProcessDefinition do
   @spec update_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
   def update_changeset(definition, attrs) do
     definition
-    |> cast(attrs, [:name, :version, :description, :stage, :graph])
+    |> cast(attrs, [
+      :name,
+      :version,
+      :description,
+      :stage,
+      :graph,
+      :start_permission,
+      :test_cases
+    ])
     |> validate_required([:name, :version, :graph])
     |> validate_common()
   end
@@ -182,6 +231,7 @@ defmodule Letflow.Definitions.ProcessDefinition do
     |> validate_length(:name, min: 1, max: 255)
     |> validate_length(:version, min: 1, max: 255)
     |> validate_length(:stage, max: 255)
+    |> validate_length(:start_permission, max: 64)
     |> unique_constraint([:name, :version], name: :uq_definition_version)
     |> unique_constraint(:name, name: :uq_active_definition)
   end

@@ -79,6 +79,17 @@ defmodule Letflow.Audit do
   `chain_hash` itself is `Base.encode16(:crypto.hash(:sha256, canonical_string),
   case: :lower)` -- 64 lowercase hex characters.
 
+  ## `actor_kind` is NOT part of the hashed form (T-2588)
+
+  `audit_entries.actor_kind` -- "user" against "system" (T-2588, pilot gap G2,
+  decision (d) of `docs/migration/decisions/0094-platform-call-authority.md`) --
+  is deliberately NOT one of the eleven fields above: the canonical hashed form
+  is REQ-195's and stays as it is, because adding a field to it would change
+  the hash of every row ever written and break every stored chain. The column
+  is protected the other way: `audit_entries`' own migration installs a
+  `BEFORE UPDATE`/`BEFORE DELETE` trigger that refuses any change to a row,
+  so the kind a row was written with cannot be edited afterwards.
+
   ## Verification recomputes; it does not just check linkage (AC6)
 
   `verify_chain/2` recomputes each entry's hash from that entry's own
@@ -250,6 +261,7 @@ defmodule Letflow.Audit do
       id: id,
       tenant_id: tenant_id,
       actor_id: Map.get(attrs, :actor_id),
+      actor_kind: Map.get(attrs, :actor_kind) || actor_kind_for(Map.get(attrs, :actor_id)),
       action: Map.fetch!(attrs, :action),
       resource_type: Map.fetch!(attrs, :resource_type),
       resource_id: Map.fetch!(attrs, :resource_id),
@@ -634,6 +646,21 @@ defmodule Letflow.Audit do
   # single implementation of the canonical form -- there is no second,
   # independently-drifting copy.
   # -----------------------------------------------------------------------
+
+  # The KIND of the actor a row records (T-2588, pilot gap G2, decision (d) of
+  # docs/migration/decisions/0094-platform-call-authority.md): "user" when the
+  # row names a person, "system" when the caller is not a person (module code, a
+  # seed task, a job) or when the actor it passed could not be resolved to a
+  # person at all. It is what tells "nobody" from "the system" IN THE ROW --
+  # `actor_id: nil` alone cannot (REQ-195's disposition predates this column).
+  defp actor_kind_for(actor_id) when is_binary(actor_id) do
+    case Ecto.UUID.cast(actor_id) do
+      {:ok, _uuid} -> "user"
+      :error -> "system"
+    end
+  end
+
+  defp actor_kind_for(_other), do: "system"
 
   defp compute_hash(fields) do
     fields

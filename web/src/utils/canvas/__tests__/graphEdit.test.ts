@@ -4,9 +4,10 @@ import { resolve } from 'node:path'
 import type { DefinitionGraph, GraphNode } from '@/types/api'
 import {
   MAX_EDGES, MAX_NODES, SCRIPT_KEY_RE, addNode, connect, connectionRefusal, deleteEdges, deleteNodes, hasServiceBinding,
-  moveNode, nextDraftVersion, positionOf, readAttrs, replaceServiceWithScript, scriptBindingHint, setEdge, setNodeAttr,
-  setNodeLabel, setScriptBinding,
+  moveNode, nextDraftVersion, positionOf, readAttrs, removeNotifyStep, removePlatformCall, replaceServiceWithScript,
+  scriptBindingHint, setEdge, setNodeAttr, setNodeLabel, setNotifyStep, setPlatformCall, setScriptBinding,
 } from '../graphEdit'
+import type { NotifyStep } from '../notifyStep'
 
 const root = resolve(__dirname, '../../../../..')
 const fixture = (name: string) => JSON.parse(readFileSync(resolve(root, 'test/fixtures/process_designer', name), 'utf8'))
@@ -132,5 +133,98 @@ describe('script binding (P5)', () => {
     const g = must(setScriptBinding(svc({}), 's', { key: 'calc', version: 1 })).graph
     const fx = fixture('edited_graph_script.json') as DefinitionGraph
     expect(readAttrs(node(g))).toEqual(readAttrs(fx.nodes.find((n) => n.node_type === 'SERVICE_TASK') as GraphNode))
+  })
+})
+
+// T-2599 (pilot gap G5a): the route kinds of a step are EXCLUSIVE — a platform call, a script and a service
+// binding never live on one node (the server refuses a node that carries a platform call beside an endpoint, a
+// service id or a script key: `Letflow.Definitions.PlatformCalls`).
+describe('graphEdit — the platform call', () => {
+  const svc = (a: object): DefinitionGraph => ({
+    nodes: [{ id: 's', node_type: 'SERVICE_TASK', label: null, attributes: attrs(a) }],
+    edges: [],
+  })
+  const node = (g: DefinitionGraph) => g.nodes[0] as GraphNode
+  const CALL = {
+    function: 'platform.validate_registration',
+    args: { slug: { var: 'tenant_slug' } },
+    reads: { tenant_slug: 'string' },
+    writes: {},
+  }
+
+  it('a platform call replaces the script and the service binding in one step', () => {
+    const g0 = svc({ script_key: 'calc', script_version: 1, service_id: 'x', endpoint: 'http://e', timeout_ms: 5 })
+    const a = readAttrs(node(must(setPlatformCall(g0, 's', CALL)).graph))
+    expect(a.platform_call).toEqual(CALL)
+    expect(a.script_key).toBeUndefined()
+    expect(a.script_version).toBeUndefined()
+    expect(a.service_id).toBeUndefined()
+    expect(a.endpoint).toBeUndefined()
+    expect(a.timeout_ms).toBe(5)
+  })
+
+  it('a script binding replaces a platform call in one step', () => {
+    const g0 = svc({ platform_call: CALL })
+    const a = readAttrs(node(must(setScriptBinding(g0, 's', { key: 'calc' })).graph))
+    expect(a.platform_call).toBeUndefined()
+    expect(a.script_key).toBe('calc')
+  })
+
+  it('a platform call can be dropped, and the other attributes stay', () => {
+    const g0 = svc({ platform_call: CALL, label: 'x' })
+    const a = readAttrs(node(must(removePlatformCall(g0, 's')).graph))
+    expect(a.platform_call).toBeUndefined()
+    expect(a.label).toBe('x')
+  })
+})
+
+// T-2600 (pilot gap G5b): the route kinds of a step are EXCLUSIVE — a notification, a platform call, a script
+// and a service binding never live on one node (the server refuses a node that carries a notification beside
+// an endpoint, a service id, a script key or a platform call: `Letflow.Definitions.NotifyCalls`).
+describe('graphEdit — the notification step', () => {
+  const svc = (a: object): DefinitionGraph => ({
+    nodes: [{ id: 's', node_type: 'SERVICE_TASK', label: null, attributes: attrs(a) }],
+    edges: [],
+  })
+  const node = (g: DefinitionGraph) => g.nodes[0] as GraphNode
+  const STEP: NotifyStep = {
+    channel: 'email',
+    templateKey: 'tenant_registered',
+    recipientVar: 'admin_email',
+    fileName: '',
+    values: {},
+  }
+
+  it('a notification replaces the script, the service binding and the platform call in one step', () => {
+    const g0 = svc({
+      script_key: 'calc',
+      script_version: 1,
+      service_id: 'x',
+      endpoint: 'http://e',
+      platform_call: { function: 'tenant.provision' },
+      timeout_ms: 5,
+    })
+    const a = readAttrs(node(must(setNotifyStep(g0, 's', STEP)).graph))
+    expect(a.notify).toEqual({ template_key: 'tenant_registered', recipient: { var: 'admin_email' }, values: {} })
+    expect(a.script_key).toBeUndefined()
+    expect(a.script_version).toBeUndefined()
+    expect(a.service_id).toBeUndefined()
+    expect(a.endpoint).toBeUndefined()
+    expect(a.platform_call).toBeUndefined()
+    expect(a.timeout_ms).toBe(5)
+  })
+
+  it('a script binding replaces a notification in one step', () => {
+    const g0 = svc({ notify: { template_key: 'tenant_registered' } })
+    const a = readAttrs(node(must(setScriptBinding(g0, 's', { key: 'calc' })).graph))
+    expect(a.notify).toBeUndefined()
+    expect(a.script_key).toBe('calc')
+  })
+
+  it('a notification can be dropped, and the other attributes stay', () => {
+    const g0 = svc({ notify: { template_key: 'tenant_registered' }, label: 'x' })
+    const a = readAttrs(node(must(removeNotifyStep(g0, 's')).graph))
+    expect(a.notify).toBeUndefined()
+    expect(a.label).toBe('x')
   })
 })

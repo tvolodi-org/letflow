@@ -221,6 +221,25 @@ defmodule Letflow.TenantProvisioner.RequestTest do
       assert auth[:write_sha256] == @hash and auth[:read_sha256] == @other
     end
 
+    test "T-2728 the process-create settings: default off and 30 s; parsed; bad values name the variable" do
+      via = "LETFLOW_PROVISIONER_CREATE_VIA_PROCESS"
+      wait = "LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS"
+
+      assert {:ok, %{provisioner: []}} = Config.parse(%{}, :test)
+      refute Config.create_via_process?()
+      assert Config.create_wait_seconds() == 30
+
+      assert {:ok, %{provisioner: kw}} = Config.parse(%{via => "true", wait => "55"}, :test)
+      assert kw[:create_via_process] == true and kw[:create_wait_seconds] == 55
+
+      assert {:ok, %{provisioner: [create_via_process: false]}} =
+               Config.parse(%{via => "false"}, :test)
+
+      assert {:error, ^via} = Config.parse(%{via => "yes"}, :test)
+      assert {:error, ^wait} = Config.parse(%{wait => "56"}, :test)
+      assert {:error, ^wait} = Config.parse(%{wait => "x"}, :test)
+    end
+
     test "unset or blank writes nothing" do
       assert {:ok, %{auth: [], provisioner: [], public_base_url: nil}} =
                Config.parse(%{@write => "  "}, :test)

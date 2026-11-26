@@ -1134,7 +1134,23 @@ defmodule Letflow.Tasks do
     end
   end
 
+  # New cursors are "T:<mint_time_us>:<id>:<inserted_at_us>". The first
+  # slot is the cursor's own issue time; the row timestamp is only the seek
+  # key. A two-slot cursor from before this change remains readable while its
+  # original timestamp is still fresh (older ones are refused by decode_cursor/4
+  # as expired before this function is called).
   defp decode_seek(%Pagination.Cursor{inner: inner}) do
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [id, inserted_at]} -> {:ok, {inserted_at, id}}
+      {:error, :invalid_cursor} -> decode_legacy_seek(inner)
+    end
+  end
+
+  defp decode_legacy_seek(inner) do
     case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
       {:ok, [inserted_at, id]} -> {:ok, {inserted_at, id}}
       {:error, :invalid_cursor} = error -> error
@@ -1152,10 +1168,11 @@ defmodule Letflow.Tasks do
   defp split_list_page(rows, _page_size), do: {rows, nil}
 
   defp build_list_next_cursor({%Task{id: id, inserted_at: inserted_at}, _form_version}) do
+    mint_time_us = System.system_time(:microsecond)
     inserted_at_us = DateTime.to_unix(inserted_at, :microsecond)
 
     @list_cursor_prefix
-    |> Pagination.build_raw_cursor(inserted_at_us, id)
+    |> Pagination.build_raw_cursor_timestamp_key(mint_time_us, id, inserted_at_us)
     |> Pagination.encode_cursor()
   end
 end

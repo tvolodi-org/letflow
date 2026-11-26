@@ -9,8 +9,10 @@ import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import { useAccess } from '@/auth/access/useAccess'
+import { useInstalledModules } from '@/hooks/useInstalledModules'
 import type { EntityRecord } from '@/types/api'
 import { ASSETS_POST } from './assetsPermissions'
+import { MAINTENANCE_MODULE_ID, MAINTENANCE_REQUEST_CREATE } from './maintenanceCardAction'
 import { textOf } from './assetsModel'
 import { CARD_ACTIONS, cardActionState, newDocumentHref } from './cardActions'
 import { useCardFacts } from './AssetsShell'
@@ -25,7 +27,11 @@ export interface AssetCardActionsMenuProps {
 
 export function AssetCardActionsMenu({ card, size, initialOpen = false }: AssetCardActionsMenuProps) {
   const { can } = useAccess()
-  if (!can(ASSETS_POST)) return null
+  const { data: installed } = useInstalledModules()
+  // REQ-898: the action of the maintenance module is shown to a holder of MaintenanceRequestCreate even without
+  // AssetsPost (the module may be installed in a tenant whose users do not post documents).
+  const canReport = can(MAINTENANCE_REQUEST_CREATE) && (installed ?? []).some((m) => m.module_id === MAINTENANCE_MODULE_ID)
+  if (!can(ASSETS_POST) && !canReport) return null
   return <Menu card={card} size={size} initialOpen={initialOpen} />
 }
 
@@ -155,7 +161,24 @@ function Menu({ card, size, initialOpen }: { card: EntityRecord; size?: 'sm'; in
         >
           {CARD_ACTIONS.map((a) => {
             const state = cardActionState(a.id, facts)
+            // REQ-898: an action of another module is not rendered at all when its rule refuses it.
+            if (!state.allowed && state.hidden) return null
             const reason = state.allowed ? undefined : t(state.reasonId)
+            // An action of another module leaves this module: it is a real link to its own screen.
+            if (a.href != null) {
+              return (
+                <a
+                  key={a.id}
+                  href={a.href(id)}
+                  role="menuitem"
+                  className="lf-lang__item"
+                  data-testid={`card-action-${a.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span>{t(a.labelId)}</span>
+                </a>
+              )
+            }
             return (
               <a
                 key={a.id}
@@ -167,12 +190,12 @@ function Menu({ card, size, initialOpen }: { card: EntityRecord; size?: 'sm'; in
                 data-testid={`card-action-${a.id}`}
                 onClick={(e) => {
                   e.preventDefault()
-                  if (reason === undefined) pick(a.kind)
+                  if (reason === undefined && a.kind != null) pick(a.kind)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === ' ') {
                     e.preventDefault()
-                    if (reason === undefined) pick(a.kind)
+                    if (reason === undefined && a.kind != null) pick(a.kind)
                   }
                 }}
               >

@@ -91,22 +91,27 @@ defmodule Letflow.Routers.Req469TenantTypeTest do
   end
 
   describe "creation" do
-    test "tenant_type production is accepted and echoed" do
+    # T-2704 (pilot gap G17b): the route starts the registration process and the process creates
+    # the tenant as `test` (its `tenant.create` step has no tenant_type input yet). A "production"
+    # request is therefore REFUSED instead of silently stored as "test"; the type of a tenant is
+    # set afterwards with PATCH (see "change authorization" below).
+    test "tenant_type production is refused: the registration process has no such input" do
       body = create_body(%{"tenant_type" => "production"})
       resp = :post |> conn_for("/", operator_ctx(), body) |> dispatch()
 
-      assert resp.status == 201
-      assert Jason.decode!(resp.resp_body)["tenant_type"] == "production"
-      assert Repo.get_by!(Tenant, slug: body["slug"]).tenant_type == "production"
+      assert resp.status == 422
+      assert Repo.get_by(Tenant, slug: body["slug"]) == nil
     end
 
-    test "tenant_type absent defaults to test" do
+    test "tenant_type absent: the process is started (202) and the tenant is created by its steps" do
+      PlatformTenantFixture.pin!(platform_fixture().tenant_id)
+      Letflow.Support.RegisterTenantProcessFixture.seed!(platform_fixture().schema_name)
       body = create_body(%{})
       resp = :post |> conn_for("/", operator_ctx(), body) |> dispatch()
 
-      assert resp.status == 201
-      assert Jason.decode!(resp.resp_body)["tenant_type"] == "test"
-      assert Repo.get_by!(Tenant, slug: body["slug"]).tenant_type == "test"
+      assert resp.status == 202
+      assert is_binary(Jason.decode!(resp.resp_body)["instance_id"])
+      assert Repo.get_by(Tenant, slug: body["slug"]) == nil
     end
 
     test "an invalid tenant_type is 422 and writes nothing" do
@@ -256,6 +261,7 @@ defmodule Letflow.Routers.Req469TenantTypeTest do
           id uuid PRIMARY KEY,
           tenant_id uuid NOT NULL,
           actor_id uuid,
+          actor_kind text,
           action text NOT NULL,
           resource_type text NOT NULL,
           resource_id text NOT NULL,

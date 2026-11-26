@@ -1,0 +1,1390 @@
+defmodule Letflow.TestSupport.SecurityProbe.G02 do
+  @moduledoc """
+  Pure AST and local call-graph support for the G-02 writer/start-path probe.
+
+  The real tree and the synthetic non-vacuity fixtures use these same functions. The scanner
+  normalises pipes, resolves ordinary and renamed aliases, includes captures and literal/dynamic
+  `apply/3`, and sees writes through transaction/Multi callback repositories and otherwise-unknown
+  repository variables. Documentation and type attributes are excluded, so prose and `Repo.t()` do
+  not become inventory entries.
+
+  A protocol implementation at FILE scope is a module of its own, so its body is scanned like any
+  other module's. A module attribute that holds a capture or a module is a pointer the module keeps:
+  the capture is inventoried where it is defined, and a call through the attribute resolves to what
+  the attribute holds, so neither a write nor a start can hide behind the attribute.
+
+  A module attribute that holds a FUNCTION is a pointer as well: the function body is inventoried
+  under the attribute name, and a call through the attribute follows the function it holds, so a
+  write behind an anonymous function cannot hide. A `defdelegate` is a call of the module it
+  delegates to: the delegated call is inventoried under the delegating function, and the local
+  call graph follows it. The root start is inventoried by the NAME of the function, so a start
+  through another arity of `Letflow.Engine.create` is seen as well.
+
+  Deliberate limits: macros defined elsewhere and a non-literal dynamic module/function cannot be
+  resolved without executing untrusted code. A literal function applied with `apply/3` keeps its name;
+  a computed function is inventoried as `:dynamic`. A computed start option is retained as `:computed`,
+  never assumed to be false or true. A read through an otherwise-unknown variable is not assumed to
+  be a Repo read; an unknown variable's Repo mutation verb is retained conservatively.
+
+  The option inventory covers every syntactic write of `:module_start`: the `Keyword` verbs, the
+  `Map` verbs, `List.keystore/4` and a literal keyword pair, through renamed aliases as well, and
+  through `apply/3`, `Kernel.apply/3` and `:erlang.apply/3` when the module resolves to `Keyword`,
+  `Map` or `List`. A `module_start` merged from a computed keyword list is not resolvable without
+  executing code and is stated as a limit in the class table.
+
+  The start-path rule judges each Engine start entry by the gate of the kind of start it performs:
+  an entry that can start a root instance must reach `Letflow.Engine.gate_module_only_start/2`, an
+  entry that reaches the SUB_PROCESS child activation must reach
+  `Letflow.Engine.SubProcess.refuse_module_only_child/4`. The two gates are judged separately, so
+  neither can stand in for the other.
+
+  The definition-writer classification covers the `Letflow.Definitions` namespace only. A module
+  that writes tenant-scoped rows outside it is inventoried as a repository call and carries no
+  class, so the reviewer judges its rows by hand in the inventory diff.
+  """
+
+  @repo_mutations ~w(insert insert! insert_all update update! update_all upsert delete delete! delete_all)a
+  @multi_mutations ~w(insert insert! insert_all update update! update_all delete delete! delete_all)a
+  @ignored_attributes [
+    :moduledoc,
+    :doc,
+    :typedoc,
+    :spec,
+    :type,
+    :typep,
+    :opaque,
+    :callback,
+    :macrocallback
+  ]
+
+  @doc "Scans every Elixir source under lib/ and priv/ without executing it."
+  def scan(root \\ File.cwd!()) do
+    paths =
+      for dir <- ["lib", "priv"],
+          path <- Path.wildcard(Path.join([root, dir, "**", "*.{ex,exs}"])),
+          do: path |> Path.relative_to(root) |> String.replace("\\", "/")
+
+    paths
+    |> Enum.sort()
+    |> Enum.map(&scan_source(&1, File.read!(Path.join(root, &1))))
+    |> merge_scans()
+  end
+
+  @doc "Parses one source file. Synthetic fixtures use the same entry point as the real tree."
+  def scan_source(path, source) do
+    ast = source |> Code.string_to_quoted!(columns: true) |> executable_ast()
+    {file_aliases, file_imports} = file_scope(ast)
+
+    modules =
+      (module_asts(ast) ++ file_impl_asts(ast))
+      |> Enum.map(fn {module, body} ->
+        body = unpipe(body)
+        aliases = Map.merge(file_aliases, aliases_of(body))
+        imports = Map.merge(file_imports, imports_of(body))
+        delegates = delegates_of(body, aliases)
+        functions = body |> functions_of() |> Map.merge(attribute_functions_of(body))
+
+        functions =
+          Map.merge(
+            functions,
+            Map.new(delegates, fn {{name, arity}, _delegate} -> {{name, arity}, []} end)
+          )
+
+        public = body |> public_functions() |> MapSet.union(MapSet.new(Map.keys(delegates)))
+        local_names = local_names(functions)
+
+        {module,
+         %{
+           path: path,
+           aliases: aliases,
+           imports: imports,
+           local_names: local_names,
+           functions: functions,
+           public: public,
+           delegates: delegates,
+           attribute_captures: attribute_captures_of(body, aliases),
+           attribute_modules: attribute_modules_of(body, aliases),
+           options: option_writes(body, path, aliases, imports, local_names)
+         }}
+      end)
+
+    calls = Enum.flat_map(modules, fn {module, data} -> call_records(module, data) end)
+    options = Enum.flat_map(modules, fn {_module, data} -> data.options end)
+    %{modules: Map.new(modules), calls: calls, options: options, token: make_ref()}
+  end
+
+  @doc "Combines independently scanned source files, including synthetic mutations."
+  def merge_scans(scans) do
+    Enum.reduce(scans, %{modules: %{}, calls: [], options: [], token: make_ref()}, fn scan, acc ->
+      %{
+        modules: Map.merge(acc.modules, scan.modules),
+        calls: acc.calls ++ scan.calls,
+        options: acc.options ++ scan.options,
+        token: make_ref()
+      }
+    end)
+  end
+
+  @doc "All Repo calls and all Ecto.Multi calls, including reads, transactions and callbacks."
+  def repo_inventory(scan) do
+    Enum.filter(scan.calls, &(&1.class in [:repo, :multi]))
+  end
+
+  @doc "Public functions in the definition namespace whose transitive local call graph writes."
+  def definition_entries(scan) do
+    for {module, data} <- scan.modules,
+        definition_module?(module),
+        {{name, arity}, _bodies} <- data.functions,
+        MapSet.member?(data.public, {name, arity}),
+        closure = closure(scan, module, name, arity),
+        writes_definition_row?(closure),
+        do: {module, name, arity}
+  end
+
+  @doc """
+  Callers outside the definition namespace: `{path, module, function}` for every call, by a module
+  that is not in the `Letflow.Definitions` namespace, of a function the scan derived as a
+  definition writer. It is derived from the tree on every run, so it holds no snapshot of the tree.
+  """
+  def definition_callers(scan) do
+    writers =
+      scan |> definition_entries() |> MapSet.new(fn {module, name, _arity} -> {module, name} end)
+
+    for {module, data} <- scan.modules,
+        not definition_module?(module),
+        {{name, arity}, _bodies} <- data.functions,
+        {calls, _atoms} = node_calls(scan, {module, name, arity}),
+        {:remote, target, fun, _arity, _form} <- calls,
+        MapSet.member?(writers, {target, fun}),
+        uniq: true,
+        do: {data.path, target, fun}
+  end
+
+  @doc "Unlisted and vanished callers of a definition writer, both a failure."
+  def definition_caller_drift(scan, expected) do
+    actual = scan |> definition_callers() |> Enum.sort()
+    expected = Enum.sort(expected)
+
+    Enum.map(actual -- expected, &{:unlisted_caller, &1}) ++
+      Enum.map(expected -- actual, &{:no_longer_a_caller, &1})
+  end
+
+  @doc "A closed-set mismatch is a failing probe: both new and missing entry points are reported."
+  def definition_drift(scan, expected) do
+    actual = definition_entries(scan)
+
+    Enum.map(actual -- expected, &{:unclassified, &1}) ++
+      Enum.map(expected -- actual, &{:no_longer_a_writer, &1})
+  end
+
+  @doc "Recognises direct Repo writes, callback-repo writes and Ecto.Multi write operations."
+  def writes_definition_row?(closure) do
+    Enum.any?(closure.calls, fn
+      {:remote, target, fun, _arity, _form} ->
+        (repo_target?(target) and (fun in @repo_mutations or fun == :dynamic)) or
+          (multi_target?(target) and (fun in @multi_mutations or fun == :dynamic))
+
+      {:repo_variable, _receiver, fun, _arity, _form} ->
+        fun in @repo_mutations
+
+      _other ->
+        false
+    end)
+  end
+
+  defp definition_module?(module) do
+    module == "Letflow.Definitions" or String.starts_with?(module, "Letflow.Definitions.")
+  end
+
+  @doc "Direct, captured, literal/dynamic apply root and SUB_PROCESS activation call sites."
+  def start_calls(scan) do
+    Enum.filter(scan.calls, fn call ->
+      (call.target == "Letflow.Engine" and
+         (call.fun == :create or call.fun == :dynamic)) or
+        (call.target == "Letflow.Engine.SubProcess" and
+           ((call.fun == :append_start_multi and call.arity == 7) or
+              (call.fun == :prepare_child_activation and call.arity == 4) or
+              call.fun == :dynamic))
+    end)
+  end
+
+  @doc "Start-path identity deliberately excludes line numbers but retains duplicate call sites."
+  def start_keys(scan) do
+    scan
+    |> start_calls()
+    |> Enum.map(&{&1.path, &1.target, &1.fun, &1.form})
+    |> Enum.sort()
+  end
+
+  @doc "Both an unexpected start path and a disappeared reviewed path are drift."
+  def start_drift(scan, expected) do
+    actual = start_keys(scan)
+
+    Enum.map(actual -- expected, &{:unclassified_start, &1}) ++
+      Enum.map(expected -- actual, &{:missing_start, &1})
+  end
+
+  @doc """
+  True when an entry point's transitive call graph reaches target.fun of any arity.
+
+  A local call carries the module it was written in, so a call to a private function of another
+  module (the SUB_PROCESS child gate) is recognised as well as a remote one.
+  """
+  def reaches_call?(scan, {module, name, arity}, target, fun) do
+    closure = closure(scan, module, name, arity)
+
+    Enum.any?(closure.calls, fn
+      {:remote, ^target, ^fun, _arity, _form} -> true
+      {:local, ^target, ^fun, _arity, _form} -> true
+      _other -> false
+    end)
+  end
+
+  @doc """
+  Public Engine roots that start a root instance or reach a SUB_PROCESS child activation.
+
+  A root instance is started by `Letflow.Engine.create/2`, so an Engine entry that reaches it
+  can start a root instance too. A SUB_PROCESS child is activated by
+  `Letflow.Engine.SubProcess.prepare_child_activation/4` and by
+  `Letflow.Engine.SubProcess.append_start_multi/7`.
+  """
+  def start_roots(scan) do
+    direct =
+      if get_in(scan.modules, ["Letflow.Engine", :functions, {:create, 2}]),
+        do: [{"Letflow.Engine", :create, 2}],
+        else: []
+
+    children =
+      case Map.fetch(scan.modules, "Letflow.Engine") do
+        {:ok, data} ->
+          for {{name, arity}, _bodies} <- data.functions,
+              MapSet.member?(data.public, {name, arity}),
+              entry = {"Letflow.Engine", name, arity},
+              reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :append_start_multi) or
+                reaches_call?(
+                  scan,
+                  entry,
+                  "Letflow.Engine.SubProcess",
+                  :prepare_child_activation
+                ) or
+                reaches_call?(scan, entry, "Letflow.Engine", :create),
+              do: entry
+
+        :error ->
+          []
+      end
+
+    Enum.uniq(direct ++ children)
+  end
+
+  @doc """
+  Engine start entries that do not pass the module-start gate of their kind.
+
+  A root instance is started by `Letflow.Engine.create/2`, whose definition lookup passes
+  `Letflow.Engine.gate_module_only_start/2`; an entry that can start a root instance must reach
+  that gate. A SUB_PROCESS child is activated by
+  `Letflow.Engine.SubProcess.prepare_child_activation/4` and
+  `Letflow.Engine.SubProcess.append_start_multi/7`; an entry that reaches that activation must
+  reach `Letflow.Engine.SubProcess.refuse_module_only_child/4`.
+
+  Each entry is judged by the gate of the kind of start it performs, so neither gate stands in
+  for the other: removing the root module-start gate (T-2444) and removing the child gate
+  (T-2588) are each reported on their own.
+  """
+  def unguarded_start_roots(scan) do
+    Enum.flat_map(start_roots(scan), fn entry ->
+      root_drift =
+        if root_instance_start?(scan, entry),
+          do: guard_drift(scan, [entry], "Letflow.Engine", :gate_module_only_start, :present),
+          else: []
+
+      child_drift =
+        if child_start?(scan, entry),
+          do:
+            guard_drift(
+              scan,
+              [entry],
+              "Letflow.Engine.SubProcess",
+              :refuse_module_only_child,
+              :present
+            ),
+          else: []
+
+      root_drift ++ child_drift
+    end)
+  end
+
+  # The root instance start itself, or an entry whose closure reaches it.
+  defp root_instance_start?(_scan, {"Letflow.Engine", :create, 2}), do: true
+
+  defp root_instance_start?(scan, entry),
+    do: reaches_call?(scan, entry, "Letflow.Engine", :create)
+
+  # An entry that reaches the SUB_PROCESS child activation.
+  defp child_start?(scan, entry) do
+    reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :append_start_multi) or
+      reaches_call?(scan, entry, "Letflow.Engine.SubProcess", :prepare_child_activation)
+  end
+
+  @doc "Fail closed on guard absence/partial coverage; :absent also pins deliberate introduction."
+  def guard_drift(scan, entries, target, fun, expected_mode)
+      when expected_mode in [:absent, :present] do
+    covered = Enum.filter(entries, &reaches_call?(scan, &1, target, fun))
+
+    case expected_mode do
+      :absent -> Enum.map(covered, &{:unexpected_guard_introduction, target, fun, &1})
+      :present -> Enum.map(entries -- covered, &{:missing_guard, target, fun, &1})
+    end
+  end
+
+  @doc "Every syntactic write of :module_start, with literal and computed values distinguished."
+  def module_start_writes(scan) do
+    Enum.filter(scan.options, &(&1.key == :module_start))
+  end
+
+  @doc "Only reviewed module start files may opt in, and only with the literal boolean true."
+  def module_start_violations(scan, allowed_paths) do
+    for write <- module_start_writes(scan),
+        write.path not in allowed_paths or write.value != :literal_true,
+        do: {:unapproved_module_start, write.path, write.form, write.value, write.line}
+  end
+
+  defp module_asts(ast) do
+    {_ast, modules} =
+      Macro.prewalk(ast, [], fn
+        {:defmodule, _, [{:__aliases__, _, parts}, [do: body]]} = node, acc ->
+          {node, [{Enum.join(parts, "."), body} | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.reverse(modules)
+  end
+
+  # A protocol implementation at file scope is a module of its own: its body holds functions that
+  # no enclosing module has, so it is scanned as one. An implementation nested inside a defmodule
+  # is already covered by that module's own functions, so it is not collected again.
+  defp file_impl_asts(ast) do
+    ast
+    |> collect_file_impls(0, [])
+    |> Enum.reverse()
+    |> Enum.map(&impl_module/1)
+  end
+
+  # The depth counts the modules a node is inside.
+  defp collect_file_impls(node, depth, acc) when is_list(node) do
+    Enum.reduce(node, acc, &collect_file_impls(&1, depth, &2))
+  end
+
+  defp collect_file_impls({:defmodule, _, _} = node, depth, acc) do
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({:defimpl, _, _} = node, depth, acc) do
+    acc = if depth == 0, do: [node | acc], else: acc
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({:defprotocol, _, _} = node, depth, acc) do
+    acc = if depth == 0, do: [node | acc], else: acc
+    collect_children(node, depth + 1, acc)
+  end
+
+  defp collect_file_impls({_form, _meta, args} = node, depth, acc) when is_list(args) do
+    collect_children(node, depth, acc)
+  end
+
+  defp collect_file_impls({_form, _meta, _arg} = node, depth, acc) do
+    collect_children(node, depth, acc)
+  end
+
+  defp collect_file_impls({key, value}, depth, acc) when is_atom(key) do
+    collect_file_impls(value, depth, acc)
+  end
+
+  defp collect_file_impls(_other, _depth, acc), do: acc
+
+  defp collect_children({_form, _meta, args}, depth, acc) when is_list(args) do
+    Enum.reduce(args, acc, &collect_file_impls(&1, depth, &2))
+  end
+
+  defp collect_children({_form, _meta, arg}, depth, acc) do
+    collect_file_impls(arg, depth, acc)
+  end
+
+  # `defimpl Protocol, for: Type` defines the module `Protocol.Type`; `defimpl Protocol` alone
+  # defines `Protocol.Impl`.
+  defp impl_module({:defimpl, _, [protocol, opts, body]}) do
+    base = Enum.join(protocol_parts(protocol), ".")
+
+    name =
+      case Keyword.get(opts, :for) do
+        {:__aliases__, _, for_parts} -> base <> "." <> Enum.join(for_parts, ".")
+        nil -> base <> ".Impl"
+        _other -> base
+      end
+
+    {name, Keyword.get(body, :do)}
+  end
+
+  defp impl_module({:defimpl, _, [protocol, body]}) do
+    {Enum.join(protocol_parts(protocol), ".") <> ".Impl", Keyword.get(body, :do)}
+  end
+
+  defp impl_module({:defprotocol, _, [protocol, body]}) do
+    {Enum.join(protocol_parts(protocol), "."), Keyword.get(body, :do)}
+  end
+
+  defp protocol_parts({:__aliases__, _, parts}), do: parts
+  defp protocol_parts(_other), do: []
+
+  defp executable_ast(ast) do
+    Macro.prewalk(ast, fn
+      {:@, meta, [{attr, _, _}]} when attr in @ignored_attributes -> {:@, meta, [nil]}
+      other -> other
+    end)
+  end
+
+  defp unpipe(ast) do
+    Macro.postwalk(ast, fn
+      {:|>, _, [lhs, {{:., _, _} = dot, meta, args}]} when is_list(args) ->
+        {dot, meta, [lhs | args]}
+
+      {:|>, _, [lhs, {fun, meta, args}]} when is_atom(fun) and is_list(args) ->
+        {fun, meta, [lhs | args]}
+
+      node ->
+        node
+    end)
+  end
+
+  # An alias or an import written at file scope applies to every module defined after it in the
+  # file, so the environment is built once per file and merged into each module's own environment.
+  # The module's own alias or import of the same name wins, as in Elixir.
+  defp file_scope(ast) do
+    {_ast, {_depth, aliases, imports}} =
+      Macro.traverse(
+        ast,
+        {0, %{}, %{}},
+        fn
+          {:defmodule, _, _} = node, {depth, aliases, imports} ->
+            {node, {depth + 1, aliases, imports}}
+
+          {:alias, _, _} = node, {0, aliases, imports} ->
+            {node, {0, alias_entry(node, aliases), imports}}
+
+          {:import, _, _} = node, {0, aliases, imports} ->
+            {node, {0, aliases, import_entry(node, imports)}}
+
+          node, {depth, aliases, imports} ->
+            {node, {depth, aliases, imports}}
+        end,
+        fn
+          {:defmodule, _, _} = node, {depth, aliases, imports} ->
+            {node, {depth - 1, aliases, imports}}
+
+          node, {depth, aliases, imports} ->
+            {node, {depth, aliases, imports}}
+        end
+      )
+
+    {aliases, imports}
+  end
+
+  defp aliases_of(ast) do
+    {_ast, aliases} =
+      Macro.prewalk(ast, %{}, fn
+        {:alias, _, _} = node, acc -> {node, alias_entry(node, acc)}
+        node, acc -> {node, acc}
+      end)
+
+    aliases
+  end
+
+  defp alias_entry({:alias, _, [{:__aliases__, _, parts}, opts]}, acc) when is_list(opts) do
+    case Keyword.get(opts, :as) do
+      nil -> Map.put(acc, List.last(parts), parts)
+      {:__aliases__, _, [name]} -> Map.put(acc, name, parts)
+      name when is_atom(name) -> Map.put(acc, name, parts)
+      _other -> acc
+    end
+  end
+
+  defp alias_entry({:alias, _, [{:__aliases__, _, parts}]}, acc) do
+    Map.put(acc, List.last(parts), parts)
+  end
+
+  defp alias_entry({:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, children}]}, acc) do
+    Enum.reduce(children, acc, fn
+      {:__aliases__, _, rest}, aliases -> Map.put(aliases, List.last(rest), base ++ rest)
+      _other, aliases -> aliases
+    end)
+  end
+
+  defp alias_entry(_node, acc), do: acc
+
+  # An import brings the functions of one module into scope. The module's own imports win over the
+  # file's imports for the same module, as in Elixir.
+  defp imports_of(ast) do
+    {_ast, imports} =
+      Macro.prewalk(ast, %{}, fn
+        {:import, _, _} = node, acc -> {node, import_entry(node, acc)}
+        node, acc -> {node, acc}
+      end)
+
+    imports
+  end
+
+  defp import_entry({:import, _, [{:__aliases__, _, parts}]}, acc) do
+    Map.put(acc, alias_target(parts), %{only: :all, except: []})
+  end
+
+  defp import_entry({:import, _, [{:__aliases__, _, parts}, opts]}, acc) when is_list(opts) do
+    only = Keyword.get(opts, :only)
+
+    spec = %{
+      only: if(is_nil(only), do: :all, else: function_arities(only)),
+      except: function_arities(Keyword.get(opts, :except, []))
+    }
+
+    Map.put(acc, alias_target(parts), spec)
+  end
+
+  defp import_entry(_node, acc), do: acc
+
+  defp function_arities(list) do
+    for {name, arity} <- list, is_atom(name), is_integer(arity), do: {name, arity}
+  end
+
+  # The module an unqualified call comes from, when the module imported that function.
+  defp imported_target(imports, name, arity) do
+    imports
+    |> Enum.sort_by(fn {target, _spec} -> target end)
+    |> Enum.find_value(fn {target, spec} ->
+      if imported_function?(spec, name, arity), do: target
+    end)
+  end
+
+  defp imported_function?(%{only: :all, except: except}, name, arity),
+    do: {name, arity} not in except
+
+  defp imported_function?(%{only: only}, name, arity), do: {name, arity} in only
+
+  # A function the module defines itself is not the imported one, even when the import would
+  # provide the same name.
+  defp local_names(functions), do: MapSet.new(Map.keys(functions))
+
+  # A module attribute that holds a capture of a function is a pointer the module keeps. The
+  # capture is inventoried where it is defined, so the write cannot hide behind the attribute.
+  defp attribute_captures_of(body, aliases) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        case capture_target(values, aliases) do
+          nil -> acc
+          captured -> Map.put(acc, name, captured)
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # A module attribute that holds a module is a pointer to that module, so a call through it is a
+  # call of that module.
+  defp attribute_modules_of(body, aliases) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        case module_target(values, aliases) do
+          nil -> acc
+          target -> Map.put(acc, name, target)
+        end
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # The body of a module is the list of its own expressions; a body with one expression is that
+  # expression itself.
+  defp module_body_expressions({:__block__, _, expressions}) when is_list(expressions),
+    do: expressions
+
+  defp module_body_expressions(body) when is_list(body), do: body
+  defp module_body_expressions(_body), do: []
+
+  # The value of a module attribute is a list of expressions.
+  defp capture_target(values, aliases) when is_list(values) do
+    Enum.find_value(values, fn value -> capture_target_value(value, aliases) end)
+  end
+
+  # `&Module.fun/arity` and `&Module.fun(arg, ...)` are both captures of a remote function.
+  defp capture_target_value(
+         {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, _}, arity]}]},
+         aliases
+       )
+       when is_atom(fun) and is_integer(arity) do
+    capture_target_parts(parts, fun, arity, aliases)
+  end
+
+  defp capture_target_value(
+         {:&, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, args}]},
+         aliases
+       )
+       when is_atom(fun) and is_list(args) do
+    capture_target_parts(parts, fun, length(args), aliases)
+  end
+
+  defp capture_target_value(_value, _aliases), do: nil
+
+  defp capture_target_parts(parts, fun, arity, aliases) do
+    if Enum.all?(parts, &is_atom/1) do
+      {parts |> resolve_alias_parts(aliases) |> Enum.join("."), fun, arity}
+    else
+      nil
+    end
+  end
+
+  defp module_target(values, aliases) when is_list(values) do
+    Enum.find_value(values, fn
+      {:__aliases__, _, parts} ->
+        if Enum.all?(parts, &is_atom/1) do
+          parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp functions_of(ast) do
+    {_ast, functions} =
+      Macro.prewalk(ast, %{}, fn
+        {kind, _, [head, body]} = node, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
+          case head_of(head) do
+            nil ->
+              {node, acc}
+
+            {name, arities} ->
+              functions =
+                Enum.reduce(arities, acc, fn arity, functions ->
+                  Map.update(functions, {name, arity}, [body], &(&1 ++ [body]))
+                end)
+
+              {node, functions}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    functions
+  end
+
+  # A module attribute that holds a FUNCTION is a pointer the module keeps. The function body is
+  # inventoried under the attribute name, so a write inside it cannot hide behind the attribute.
+  defp attribute_functions_of(body) do
+    body
+    |> module_body_expressions()
+    |> Enum.reduce(%{}, fn
+      {:@, _, [{name, _, values}]}, acc when is_atom(name) and is_list(values) ->
+        attribute_function_clauses(values)
+        |> Enum.reduce(acc, fn {arity, clause_bodies}, acc ->
+          Map.update(acc, {:"@#{name}", arity}, clause_bodies, &(&1 ++ clause_bodies))
+        end)
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  # The clauses of an anonymous function held by a module attribute, with the arity of each clause.
+  defp attribute_function_clauses(values) do
+    Enum.find_value(values, fn
+      {:fn, _, clauses} when is_list(clauses) ->
+        clauses
+        |> Enum.flat_map(fn
+          {:->, _, [args, body]} when is_list(args) -> [{clause_arity(args), body}]
+          _other -> []
+        end)
+        |> Enum.group_by(fn {arity, _body} -> arity end)
+        |> Enum.map(fn {arity, entries} -> {arity, Enum.map(entries, &elem(&1, 1))} end)
+
+      _other ->
+        []
+    end) || []
+  end
+
+  defp clause_arity(args) do
+    Enum.count(args, fn
+      {:\\, _, _} -> false
+      _other -> true
+    end)
+  end
+
+  # A `defdelegate` is a call of the module it delegates to. The delegated call is inventoried
+  # under the delegating function, so a delegated write cannot hide behind the delegation.
+  defp delegates_of(body, aliases) do
+    {_ast, delegates} =
+      Macro.prewalk(body, %{}, fn
+        {:defdelegate, _, [head, opts]} = node, acc when is_list(opts) ->
+          case delegate_target(head, opts, aliases) do
+            nil -> {node, acc}
+            {name, arity, target, fun} -> {node, Map.put(acc, {name, arity}, {target, fun})}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    delegates
+  end
+
+  defp delegate_target(head, opts, aliases) do
+    with {name, [arity]} <- head_of(head),
+         {:__aliases__, _, parts} <- Keyword.get(opts, :to),
+         true <- Enum.all?(parts, &is_atom/1) do
+      target = parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+      fun = Keyword.get(opts, :as, name)
+      {name, arity, target, fun}
+    else
+      _other -> nil
+    end
+  end
+
+  defp public_functions(ast) do
+    {_ast, public} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:def, _, [head, _body]} = node, acc ->
+          case head_of(head) do
+            nil ->
+              {node, acc}
+
+            {name, arities} ->
+              {node, Enum.reduce(arities, acc, &MapSet.put(&2, {name, &1}))}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    public
+  end
+
+  defp head_of({:when, _, [head | _]}), do: head_of(head)
+
+  defp head_of({name, _, args}) when is_atom(name) and is_list(args) do
+    required =
+      Enum.count(args, fn
+        {:\\, _, _} -> false
+        _other -> true
+      end)
+
+    {name, Enum.to_list(required..length(args))}
+  end
+
+  defp head_of({name, _, context}) when is_atom(name) and is_atom(context), do: {name, [0]}
+
+  defp head_of(_other), do: nil
+
+  defp remote_call(parts, aliases, fun, arity, form) do
+    if Enum.all?(parts, &is_atom/1) do
+      resolved = resolve_alias_parts(parts, aliases)
+      [{:remote, Enum.join(resolved, "."), fun, arity, form}]
+    else
+      []
+    end
+  end
+
+  defp resolve_alias_parts(parts, aliases) do
+    resolved =
+      case Map.fetch(aliases, hd(parts)) do
+        {:ok, base} -> base ++ tl(parts)
+        :error -> parts
+      end
+
+    normalise_alias_parts(resolved)
+  end
+
+  # `alias Elixir.Ecto.Multi` names the same module as `alias Ecto.Multi`.
+  defp normalise_alias_parts([:"Elixir" | rest]) when rest != [], do: rest
+  defp normalise_alias_parts(parts), do: parts
+
+  defp alias_target(parts), do: parts |> normalise_alias_parts() |> Enum.join(".")
+
+  defp calls_of(
+         body,
+         aliases,
+         imports,
+         local_names,
+         attribute_captures,
+         attribute_modules,
+         functions
+       ) do
+    {_ast, calls} =
+      Macro.prewalk(body, [], fn
+        # A call through a module attribute: `@f.(x)` calls what the attribute holds, and
+        # `@repo.insert(x)` calls the module the attribute holds.
+        {{:., _, [{:@, _, [{name, _, _}]}]}, _, args} = node, acc
+        when is_atom(name) and is_list(args) ->
+          {node,
+           attribute_call(
+             attribute_captures,
+             attribute_modules,
+             functions,
+             name,
+             nil,
+             length(args)
+           ) ++ acc}
+
+        {{:., _, [{:@, _, [{name, _, _}]}, fun]}, _, args} = node, acc
+        when is_atom(name) and is_atom(fun) and is_list(args) ->
+          {node,
+           attribute_call(
+             attribute_captures,
+             attribute_modules,
+             functions,
+             name,
+             fun,
+             length(args)
+           ) ++ acc}
+
+        {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _,
+         [{:__aliases__, _, parts}, fun, args]} = node,
+        acc
+        when is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, fun, length(args), :apply) ++ acc}
+
+        {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _,
+         [{:__aliases__, _, parts}, fun, args]} = node,
+        acc
+        when not is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, :dynamic, length(args), :dynamic_apply) ++ acc}
+
+        {:apply, _, [{:__aliases__, _, parts}, fun, args]} = node, acc
+        when is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, fun, length(args), :apply) ++ acc}
+
+        {:apply, _, [{:__aliases__, _, parts}, fun, args]} = node, acc
+        when not is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, :dynamic, length(args), :dynamic_apply) ++ acc}
+
+        # A capture names the function it captures; the dot node inside it is not a call of its
+        # own, so the traversal does not descend into it.
+        {:&, _, [{:/, _, [{{:., _, [{:__aliases__, _, parts}, fun]}, _, _}, arity]}]} = node, acc
+        when is_atom(fun) and is_integer(arity) ->
+          {capture_node(node), remote_call(parts, aliases, fun, arity, :capture) ++ acc}
+
+        {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc
+        when is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, fun, length(args), :call) ++ acc}
+
+        {{:., _, [:erlang, :apply]}, _, [{:__aliases__, _, parts}, fun, args]} = node, acc
+        when is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, fun, length(args), :apply) ++ acc}
+
+        {{:., _, [:erlang, :apply]}, _, [{:__aliases__, _, parts}, fun, args]} = node, acc
+        when not is_atom(fun) and is_list(args) ->
+          {node, remote_call(parts, aliases, :dynamic, length(args), :dynamic_apply) ++ acc}
+
+        {:&, _, [{:/, _, [{fun, _, context}, arity]}]} = node, acc
+        when is_atom(fun) and is_atom(context) and is_integer(arity) ->
+          {node, [{:local, fun, arity, :capture} | acc]}
+
+        {fun, _, args} = node, acc when is_atom(fun) and is_list(args) ->
+          {node, unqualified_call(fun, length(args), imports, local_names) ++ acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    calls
+  end
+
+  # A call through a module attribute resolves to what the attribute holds: a captured function
+  # for `@f.(x)`, the module itself for `@repo.insert(x)`, and a function the attribute holds for
+  # `@f.(x)` where the attribute holds an anonymous function.
+  defp attribute_call(captures, modules, functions, name, fun, arity) do
+    cond do
+      is_nil(fun) ->
+        case Map.fetch(captures, name) do
+          {:ok, {target, captured_fun, _capture_arity}} ->
+            [{:remote, target, captured_fun, arity, :attribute_call}]
+
+          :error ->
+            if Map.has_key?(functions, {:"@#{name}", arity}) do
+              [{:local, :"@#{name}", arity, :attribute_call}]
+            else
+              []
+            end
+        end
+
+      true ->
+        case Map.fetch(modules, name) do
+          {:ok, target} -> [{:remote, target, fun, arity, :attribute_call}]
+          :error -> []
+        end
+    end
+  end
+
+  # A call without a module prefix is either the module's own function or one the module imported.
+  defp unqualified_call(fun, arity, imports, local_names) do
+    local = {:local, fun, arity, :call}
+
+    if MapSet.member?(local_names, {fun, arity}) do
+      [local]
+    else
+      case imported_target(imports, fun, arity) do
+        nil -> [local]
+        target -> [local, {:remote, target, fun, arity, :call}]
+      end
+    end
+  end
+
+  # A node the traversal does not descend into: the capture has been read already, and the dot
+  # node inside it names the captured function rather than calling it.
+  defp capture_node({_form, meta, _args}), do: {{:g02_capture, :node}, meta, []}
+
+  defp call_records(module, data) do
+    aliases = data.aliases
+    imports = data.imports
+    local_names = data.local_names
+    attribute_captures = Map.get(data, :attribute_captures, %{})
+    attribute_modules = Map.get(data, :attribute_modules, %{})
+
+    attribute_records =
+      for {name, {target, fun, arity}} <- attribute_captures,
+          record =
+            call_record(
+              {:remote, target, fun, arity, :capture},
+              data.path,
+              {:"@#{name}", arity},
+              module
+            ),
+          record != nil,
+          do: record
+
+    delegate_records =
+      for {{name, arity}, {target, fun}} <- Map.get(data, :delegates, %{}),
+          record =
+            call_record(
+              {:remote, target, fun, arity, :delegate},
+              data.path,
+              {name, arity},
+              module
+            ),
+          record != nil,
+          do: record
+
+    records =
+      for {caller, bodies} <- data.functions,
+          body <- bodies,
+          call <-
+            calls_of(
+              body,
+              aliases,
+              imports,
+              local_names,
+              attribute_captures,
+              attribute_modules,
+              data.functions
+            ) ++
+              variable_repo_calls(body, aliases),
+          record = call_record(call, data.path, caller, module),
+          record != nil,
+          do: record
+
+    attribute_records ++ delegate_records ++ records
+  end
+
+  defp call_record({:remote, target, fun, arity, form}, path, caller, module) do
+    class =
+      cond do
+        repo_target?(target) -> :repo
+        multi_target?(target) -> :multi
+        target in ["Letflow.Engine", "Letflow.Engine.SubProcess"] -> :start
+        true -> nil
+      end
+
+    if class do
+      %{
+        class: class,
+        path: path,
+        module: module,
+        caller: caller,
+        target: target,
+        fun: fun,
+        arity: arity,
+        form: form
+      }
+    end
+  end
+
+  defp call_record({:repo_variable, receiver, fun, arity, form}, path, caller, module) do
+    %{
+      class: :repo,
+      path: path,
+      module: module,
+      caller: caller,
+      target: "$" <> Atom.to_string(receiver),
+      fun: fun,
+      arity: arity,
+      form: form
+    }
+  end
+
+  defp call_record(_other, _path, _caller, _module), do: nil
+
+  defp variable_repo_calls(body, aliases) do
+    callback_repos = callback_repo_variables(body, aliases)
+
+    {_ast, calls} =
+      Macro.prewalk(body, [], fn
+        {{:., _, [{receiver, _, context}, fun]}, _, args} = node, acc
+        when is_atom(receiver) and is_atom(context) and is_atom(fun) and is_list(args) ->
+          if repo_variable_call?(receiver, fun, callback_repos),
+            do: {node, [{:repo_variable, receiver, fun, length(args), :call} | acc]},
+            else: {node, acc}
+
+        {:&, _, [{:/, _, [{{:., _, [{receiver, _, context}, fun]}, _, _}, arity]}]} = node, acc
+        when is_atom(receiver) and is_atom(context) and is_atom(fun) and is_integer(arity) ->
+          if repo_variable_call?(receiver, fun, callback_repos),
+            do: {node, [{:repo_variable, receiver, fun, arity, :capture} | acc]},
+            else: {node, acc}
+
+        {:apply, _, [{receiver, _, context}, fun, args]} = node, acc
+        when is_atom(receiver) and is_atom(context) and is_atom(fun) and is_list(args) ->
+          if repo_variable_call?(receiver, fun, callback_repos),
+            do: {node, [{:repo_variable, receiver, fun, length(args), :apply} | acc]},
+            else: {node, acc}
+
+        {:apply, _, [{receiver, _, context}, fun, args]} = node, acc
+        when is_atom(receiver) and is_atom(context) and not is_atom(fun) and is_list(args) ->
+          if known_repo_variable?(receiver, callback_repos),
+            do:
+              {node, [{:repo_variable, receiver, :dynamic, length(args), :dynamic_apply} | acc]},
+            else: {node, acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    calls
+  end
+
+  defp repo_variable_call?(receiver, fun, callback_repos) do
+    known_repo_variable?(receiver, callback_repos) or fun in @repo_mutations
+  end
+
+  defp known_repo_variable?(receiver, callback_repos) do
+    repo_variable?(receiver) or MapSet.member?(callback_repos, receiver)
+  end
+
+  defp callback_repo_variables(body, aliases) do
+    {_ast, variables} =
+      Macro.prewalk(body, MapSet.new(), fn
+        {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc
+        when is_atom(fun) and is_list(args) ->
+          if Enum.all?(parts, &is_atom/1) do
+            target = parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+
+            if (fun == :transaction and repo_target?(target)) or
+                 (fun == :run and multi_target?(target)) do
+              {node, Enum.reduce(callback_parameters(args), acc, &MapSet.put(&2, &1))}
+            else
+              {node, acc}
+            end
+          else
+            {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    variables
+  end
+
+  defp callback_parameters(args) do
+    for {:fn, _, clauses} <- args,
+        {:->, _, [[{name, _, context} | _other_parameters], _body]} <- clauses,
+        is_atom(name) and is_atom(context),
+        do: name
+  end
+
+  defp repo_variable?(name) do
+    name = name |> Atom.to_string() |> String.trim_leading("_")
+    name == "repo" or String.ends_with?(name, "_repo") or name == "repo_mod"
+  end
+
+  defp repo_target?(target), do: target |> String.split(".") |> List.last() == "Repo"
+  defp multi_target?(target), do: target in ["Multi", "Ecto.Multi"]
+
+  defp atoms_of(body) do
+    {_ast, atoms} =
+      Macro.prewalk(body, MapSet.new(), fn
+        atom, acc when is_atom(atom) -> {atom, MapSet.put(acc, atom)}
+        node, acc -> {node, acc}
+      end)
+
+    atoms
+  end
+
+  defp closure(scan, module, name, arity) do
+    scan
+    |> reachable_nodes({module, name, arity})
+    |> Enum.reduce(%{calls: MapSet.new(), atoms: MapSet.new()}, fn node, acc ->
+      {calls, atoms} = node_calls(scan, node)
+
+      %{
+        calls: MapSet.union(acc.calls, calls),
+        atoms: MapSet.union(acc.atoms, atoms)
+      }
+    end)
+  end
+
+  # The reachable set is a fixpoint over the local call graph: every function the entry point can
+  # reach, cycle or not. A node's own calls are memoised per scan, so a large module (the Engine)
+  # is walked once instead of once per entry point.
+  defp reachable_nodes(scan, root) do
+    do_reachable(scan, root, MapSet.new([root]), [root])
+  end
+
+  defp do_reachable(_scan, _root, seen, []) do
+    seen
+  end
+
+  defp do_reachable(scan, root, seen, [current | rest]) do
+    {calls, _atoms} = node_calls(scan, current)
+
+    {fresh, seen} =
+      Enum.reduce(calls, {[], seen}, fn call, {acc, seen} ->
+        case successor(call, current) do
+          nil ->
+            {acc, seen}
+
+          next ->
+            if MapSet.member?(seen, next) do
+              {acc, seen}
+            else
+              {[next | acc], MapSet.put(seen, next)}
+            end
+        end
+      end)
+
+    do_reachable(scan, root, seen, Enum.reverse(fresh) ++ rest)
+  end
+
+  defp successor({:local, module, name, arity, _form}, _current), do: {module, name, arity}
+  defp successor({:remote, target, name, arity, _form}, _current), do: {target, name, arity}
+  defp successor({:repo_variable, _receiver, _fun, _arity, _form}, _current), do: nil
+
+  defp node_calls(scan, node) do
+    cache_key = {:g02_node_calls, scan.token}
+    cache = Process.get(cache_key, %{})
+
+    case Map.fetch(cache, node) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        value = compute_node_calls(scan.modules, node)
+        Process.put(cache_key, Map.put(cache, node, value))
+        value
+    end
+  end
+
+  defp compute_node_calls(modules, {module, name, arity}) do
+    case Map.fetch(modules, module) do
+      {:ok, data} ->
+        bodies = Map.get(data.functions, {name, arity}, [])
+
+        calls =
+          Enum.flat_map(bodies, fn body ->
+            calls_of(
+              body,
+              data.aliases,
+              data.imports,
+              data.local_names,
+              Map.get(data, :attribute_captures, %{}),
+              Map.get(data, :attribute_modules, %{}),
+              Map.get(data, :functions, %{})
+            ) ++
+              variable_repo_calls(body, data.aliases)
+          end)
+
+        calls = calls ++ delegate_calls(data, {name, arity})
+        calls = Enum.map(calls, &qualify_local_call(&1, module))
+        atoms = Enum.flat_map(bodies, &atoms_of/1)
+        {MapSet.new(calls), MapSet.new(atoms)}
+
+      :error ->
+        {MapSet.new(), MapSet.new()}
+    end
+  end
+
+  # A delegated function is a call of the module it delegates to, so the local call graph of the
+  # delegating module follows the delegation.
+  defp delegate_calls(data, {name, arity}) do
+    case Map.get(Map.get(data, :delegates, %{}), {name, arity}) do
+      nil -> []
+      {target, fun} -> [{:remote, target, fun, arity, :delegate}]
+    end
+  end
+
+  # A local call is only meaningful together with the module it was written in.
+  defp qualify_local_call({:local, name, arity, form}, module),
+    do: {:local, module, name, arity, form}
+
+  defp qualify_local_call(call, _module), do: call
+
+  defp option_writes(ast, path, aliases, imports, local_names) do
+    {_ast, writes} =
+      Macro.prewalk(ast, [], fn
+        # An option written through `apply/3` is a write like any other one. The module must be
+        # written as an alias or as the module atom, and the function must be a literal atom.
+        {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, meta, [module_node, fun, arg_list]} =
+            node,
+        acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
+        {{:., _, [:erlang, :apply]}, meta, [module_node, fun, arg_list]} = node, acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
+        {:apply, meta, [module_node, fun, arg_list]} = node, acc ->
+          {node, apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc)}
+
+        {{:., _, [{:__aliases__, _, parts}, operation]}, meta, args} = node, acc
+        when is_atom(operation) and is_list(args) ->
+          if Enum.all?(parts, &is_atom/1) do
+            target = parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+
+            case option_call_record(target, operation, args, path, meta) do
+              nil -> {node, acc}
+              record -> {node, [record | acc]}
+            end
+          else
+            {node, acc}
+          end
+
+        {operation, meta, args} = node, acc when is_atom(operation) and is_list(args) ->
+          # A call without a module prefix: an imported function writes the option just as a
+          # qualified call does.
+          if MapSet.member?(local_names, {operation, length(args)}) do
+            {node, acc}
+          else
+            case imported_target(imports, operation, length(args)) do
+              nil ->
+                {node, acc}
+
+              target ->
+                case option_call_record(target, operation, args, path, meta) do
+                  nil -> {node, acc}
+                  record -> {node, [record | acc]}
+                end
+            end
+          end
+
+        {:module_start, value} = node, acc ->
+          {node, [option_record(path, :keyword, value, []) | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.reverse(writes)
+  end
+
+  # An `apply/3` write is recorded with the same rules as a direct call, under an `apply_` prefix
+  # so that the reviewer sees where the write came from.
+  defp apply_option_acc(module_node, fun, arg_list, aliases, path, meta, acc) do
+    case apply_option_write(module_node, fun, arg_list, aliases, path, meta) do
+      nil -> acc
+      record -> [record | acc]
+    end
+  end
+
+  defp apply_option_write(module_node, fun, arg_list, aliases, path, meta) do
+    if is_atom(fun) and is_list(arg_list) do
+      case apply_option_target(module_node, aliases) do
+        nil -> nil
+        target -> option_call_record(target, fun, arg_list, path, meta, "apply_")
+      end
+    end
+  end
+
+  # The module of an `apply/3` call: an alias (renamed, grouped or `Elixir.`-prefixed) resolved
+  # like any other alias, or the module atom itself.
+  defp apply_option_target({:__aliases__, _, parts}, aliases) do
+    if Enum.all?(parts, &is_atom/1) do
+      parts |> resolve_alias_parts(aliases) |> Enum.join(".")
+    end
+  end
+
+  defp apply_option_target(module, _aliases) when is_atom(module) do
+    module |> Atom.to_string() |> apply_module_name()
+  end
+
+  defp apply_option_target(_module, _aliases), do: nil
+
+  defp apply_module_name("Elixir." <> name), do: name
+  defp apply_module_name(name), do: name
+
+  defp option_call_record(target, operation, args, path, meta) do
+    option_call_record(target, operation, args, path, meta, "")
+  end
+
+  defp option_call_record(target, operation, args, path, meta, prefix) do
+    case option_write(target, operation, args) do
+      nil -> nil
+      {form, value} -> option_record(path, :"#{prefix}#{form}", value, meta)
+    end
+  end
+
+  defp option_write("Keyword", operation, [_opts, :module_start, value])
+       when operation in [:put, :put_new, :replace, :replace!] do
+    {operation, value}
+  end
+
+  defp option_write("Keyword", :delete, [_opts, :module_start]), do: {:keyword_delete, :removed}
+
+  defp option_write("Map", operation, [_opts, :module_start, value])
+       when operation in [:put, :put_new, :replace, :replace!] do
+    {map_option_form(operation), value}
+  end
+
+  defp option_write("Map", :delete, [_opts, :module_start]), do: {:map_delete, :removed}
+
+  defp option_write("List", :keystore, [_opts, :module_start, _position, value]),
+    do: {:list_keystore, value}
+
+  defp option_write(_target, _operation, _args), do: nil
+
+  defp map_option_form(:put), do: :map_put
+  defp map_option_form(:put_new), do: :map_put_new
+  defp map_option_form(:replace), do: :map_replace
+  defp map_option_form(:replace!), do: :map_replace!
+
+  defp option_record(path, form, value, meta) do
+    value_class =
+      case value do
+        true -> :literal_true
+        false -> :literal_false
+        nil -> :literal_nil
+        :removed -> :removed
+        _other -> :computed
+      end
+
+    %{
+      path: path,
+      key: :module_start,
+      form: form,
+      value: value_class,
+      line: Keyword.get(meta, :line, 0)
+    }
+  end
+end

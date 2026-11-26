@@ -1,4 +1,32 @@
-# The dead-code inventory (D-172)
+# The tools of the business-process map
+
+Two tools live here, both Python 3 with the standard library only. The map itself, its schema and
+its checks are described in `docs/bp/README.md`.
+
+## The map in plain words (`bp_doc.py`, D-173)
+
+`bp_doc.py` renders `docs/bp/<area>.json` into `docs/bp/<area>.md`: the processes of the area in a
+table, then every process in plain words (who may do it, the numbered steps with the screen and the
+call of each step, the refusals, the tests, the runner scenario, the status, the gaps), the orphans
+and the gaps of the area. The table carries the **Executed by** column (`direct` or
+`definition:<process_key>`, D-175) and the head of the document counts the two forms. The render is
+deterministic (sorted, no timestamp, no model), so the committed document must equal it -- `--check` is
+the gate, and the CI runs it.
+
+| file | what it is |
+|---|---|
+| `bp_doc.py` | the tool (Python 3, standard library only) |
+| `tests/test_bp_doc.py` | the tests (a fixture checkout, a fixture map, a fixture runner report; no network, no database) |
+
+```
+python3 scripts/bp/bp_doc.py stock           # write docs/bp/stock.md
+python3 scripts/bp/bp_doc.py all             # write every area
+python3 scripts/bp/bp_doc.py --check         # the CI gate: the committed .md must equal the render
+python3 scripts/bp/bp_doc.py stock --proof /path/to/verdicts   # the Machine-proven column, never committed
+python3 -B -m unittest -v scripts/bp/tests/test_bp_doc.py
+```
+
+## The dead-code inventory (D-172)
 
 `dead_code.py` lists the public functions of `lib/letflow/` that nothing calls. It is the
 function-level extension of the business-process map (`docs/bp/README.md`): `bp_inventory.py`

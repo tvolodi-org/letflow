@@ -332,7 +332,7 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
 
   # --- REQ-546 (GH #2535, IMPL-525-B): GET /definitions/:id and /definitions/active/:name -------
 
-  @single_keys ~w(activation_state archived_at created_at created_by description graph id name needs_reactivation_at needs_reactivation_reason owner_module owner_module_version stage status updated_at version)
+  @single_keys ~w(activation_state archived_at created_at created_by description graph id name needs_reactivation_at needs_reactivation_reason owner_module owner_module_version stage status test_cases updated_at version)
 
   defp single_routes(def_),
     do: ["/api/v1/definitions/#{def_.id}", "/api/v1/definitions/active/#{def_.name}"]
@@ -352,7 +352,13 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
         assert scoped.status == 200, scoped.resp_body
         assert wide.status == 200, wide.resp_body
         assert shape(json(scoped)) == shape(json(wide)), path
-        assert Map.keys(json(scoped)) |> Enum.sort() == @single_keys, path
+        # T-2811: only GET /:id also lists the declared variables.
+        expected_keys =
+          if String.contains?(path, "/active/"),
+            do: @single_keys,
+            else: Enum.sort(["variable_schemas" | @single_keys])
+
+        assert Map.keys(json(scoped)) |> Enum.sort() == expected_keys, path
       end
 
       assert forbidden?(get(fx, "r546-worker", "/api/v1/definitions/#{definition.id}/export"))

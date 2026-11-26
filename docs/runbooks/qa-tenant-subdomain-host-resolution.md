@@ -1,8 +1,10 @@
 # QA tenant subdomains: how Letflow picks the tenant, and what `<slug>.qa.ai-letflow.com` needs (old `<slug>.letflow.qa.bizdala.com` stays valid)
 
-Current-state note (D-158, T-2148): company CORS, login-directory mail and exact redirects now
-follow the shared guarded suffix policy; see `tenant-provisioner-credential.md` and
-`onboarding-new-tenant-realm.md`. The dated study below retains its historical gap analysis.
+Current-state note (D-158, T-2148): login-directory mail and exact redirects now follow the shared
+guarded suffix policy; company CORS is decided PER HOST (T-2621: a host grants only its own origin and
+the app's own fixed origins, and the guarded suffix list grants no CORS allowance); see
+`tenant-provisioner-credential.md` and `onboarding-new-tenant-realm.md`. The dated study below retains
+its historical gap analysis.
 
 ## Register or change the host of an existing tenant (T-2184)
 
@@ -130,7 +132,7 @@ realm slug is supplied some other way (`?realm=<slug>`, or the email-first login
 | Tenant from `Host` | Not implemented (see 2, 3). `https://<slug>.letflow.qa.bizdala.com/` loads the SPA, calls `/api/tenant-config?host=...`, receives the default realm. | **Missing** |
 | Authenticated API | Tenant from token issuer; host irrelevant. | OK once the user has a token from the tenant's realm |
 | Cookies | None used. The SPA keeps the token in memory and sends `Authorization: Bearer`; `sessionStorage` is per origin, so each subdomain has its own. `Letflow.Plugs.Cors` documents "no credentials, ever". Nothing to configure. | OK |
-| CORS | `Letflow.Plugs.Cors` allows only origins in `:cors_allowed_origins`, set in prod by `CORS_ALLOWED_ORIGINS` (`config/runtime.exs`), exact-match list, fail-closed `[]`, no wildcard. The SPA and API are same-origin when served from the same subdomain, so browsers do not need CORS for that. But if the SPA is served from `<slug>.letflow.qa.bizdala.com` and calls `qa.bizdala.com` (or the reverse), the origin must be in the list. Wildcard subdomains cannot be expressed; each tenant origin would have to be added and the QA env restarted. | Same-origin: OK. Cross-origin: **missing** |
+| CORS | `Letflow.Plugs.Cors` takes the allow decision PER HOST (T-2621): an origin is allowed when it is one of the app's own origins in `:cors_allowed_origins` (set in prod by `CORS_ALLOWED_ORIGINS`, `config/runtime.exs`; exact-match list, fail-closed `[]`, no wildcard) or when it IS the host the request is addressed to. So the SPA and API on the same subdomain need no list entry at all, and one company's origin is never allowed on another company's host or on the platform host. But if the SPA is served from `<slug>.letflow.qa.bizdala.com` and calls `qa.bizdala.com` (or the reverse), that origin is cross-origin and must be in the list — and a LISTED origin is allowed on EVERY host, so listing a company origin there is a deliberate cross-host exposure (it would then be allowed on the platform host and on every other company's host). List the app's own origins only; a company origin needs no entry, the per-host rule already allows it on its own host. Wildcard subdomains cannot be expressed; each such tenant origin would have to be added and the QA env restarted. | Same-origin: OK. Cross-origin: **missing** |
 | Keycloak redirect URIs | `priv/keycloak/realms/bpm-default.json` has `redirectUris: ["*"]`, `webOrigins: ["*"]`, but a tenant realm is created by infra's provisioner (D-016/D-018) from the template that does not exist yet. `docs/runbooks/onboarding-new-tenant-realm.md` step R1 says redirect URIs are set by hand per hostname. Needed: `https://<slug>.letflow.qa.bizdala.com/auth/callback*` (the SPA appends `?realm=<slug>`), post-logout URI, web origin `https://<slug>.letflow.qa.bizdala.com`. | **Missing** until the realm template (item 3 of the goal) carries them |
 | "Allowed domain suffix" setting | **Does not exist.** `grep -rniE "domain_suffix|allowed_domain|hostname_suffix"` over `lib/ config/ web/src docs/runbooks` finds nothing relevant. Onboarding validates `hostname` only as a non-empty string up to 255 code points (`@codepoint_max`) and unique. The suffix guard in the portfolio contract has no Letflow counterpart yet. | **Missing** (new setting) |
 | Outbound links (login-directory mail) | `LETFLOW_PUBLIC_BASE_URL` is a single base URL (`config/runtime.exs`), so a mail would link to `qa.bizdala.com`, not the tenant's subdomain. Only relevant if mail goes out for provisioned tenants. | Note |
@@ -146,7 +148,10 @@ realm slug is supplied some other way (`?realm=<slug>`, or the email-first login
 3. An allowed-suffix check for tenant hostnames (setting, default off or empty on non-QA), so the provisioner
    cannot bind a host outside `.letflow.qa.bizdala.com`.
 4. Keycloak side (infra/realm template): redirect URIs, post-logout URI, web origin for the subdomain.
-5. CORS origin entries only if the SPA is ever served from a different origin than the API.
+5. CORS origin entries only if the SPA is ever served from a different origin than the API — and then
+   the app's own origins only: a LISTED origin is allowed on EVERY host, so listing a company origin
+   is a deliberate cross-host exposure (it would be allowed on the platform host and on every other
+   company's host). A company origin needs no entry at all: the per-host rule allows it on its own host.
 
 INV-5 note for item 1: the lookup must keep answering the default config for an unknown host (no oracle on
 which hostnames are bound), as `?realm=` does for an unknown slug.
@@ -160,6 +165,10 @@ which hostnames are bound), as `?realm=` does for an unknown slug.
    `Routers.Onboarding` create; reason: QA-only provisioner (D-019), bound hostnames must stay inside the wildcard.
 3. `docs`/template: the tenant realm template (goal item 3) carries the redirect URIs and web origin pattern above;
    update `onboarding-new-tenant-realm.md` step R1.
-4. `ops` (infra, not Letflow code): add tenant origins to `CORS_ALLOWED_ORIGINS` only if cross-origin use appears.
+4. `ops` (infra, not Letflow code): add origins to `CORS_ALLOWED_ORIGINS` only if cross-origin use
+   appears — the app's own origins only. A LISTED origin is allowed on EVERY host, so adding a
+   company origin is a deliberate cross-host exposure (it would then be allowed on the platform host
+   and on every other company's host). A company origin needs no entry: the per-host rule allows it
+   on its own host.
 5. Optional UAT: after 1 and 2 land, `uat_design` for a scenario that opens `https://<slug>.letflow.qa.bizdala.com/`
    and expects that tenant's login without `?realm=`.
