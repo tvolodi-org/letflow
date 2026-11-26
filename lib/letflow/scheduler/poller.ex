@@ -261,6 +261,16 @@ defmodule Letflow.Scheduler.Poller do
 
   @impl true
   def handle_info(:tick, state) do
+    if Letflow.BootReady.done?() do
+      do_tick(state)
+    else
+      # T-2950: sweeps take user-gate units; wait for the boot work before the first one.
+      Process.send_after(self(), :tick, 500)
+      {:noreply, state}
+    end
+  end
+
+  defp do_tick(state) do
     if @poller_test_hooks_enabled? and Application.get_env(:letflow, :force_poller_crash, false) do
       raise "forced crash for REQ-219 AC4 crash-loop isolation test"
     end

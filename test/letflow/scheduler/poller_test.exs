@@ -1308,4 +1308,29 @@ defmodule Letflow.Scheduler.PollerTest do
       assert log =~ bad_schema_name
     end
   end
+
+  describe "T-2950: no user-gate unit is consumed while the node is booting" do
+    test "a tick during boot takes no admission unit and re-arms; after boot it sweeps" do
+      AdmissionTestHelpers.restart_admission!(pool_size: 3, reserved_headroom: 2)
+      %{schema_name: schema_name} = provisioned_tenant("t2950-boot")
+      timer_id = due_timer_for!(schema_name, "t2950-boot")
+
+      state = %{
+        last_retention_run_at: nil,
+        last_tick_started_at: nil,
+        last_partition_maintenance_run_at: nil
+      }
+
+      on_exit(fn -> Letflow.BootReady.mark_done() end)
+      Letflow.BootReady.begin()
+
+      assert {:noreply, ^state} = Poller.handle_info(:tick, state)
+      assert timer_status!(schema_name, timer_id) == "pending"
+      assert_receive :tick, 2_000
+
+      Letflow.BootReady.mark_done()
+      assert {:noreply, _} = Poller.handle_info(:tick, state)
+      assert timer_status!(schema_name, timer_id) == "fired"
+    end
+  end
 end
