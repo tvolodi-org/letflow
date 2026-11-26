@@ -42,7 +42,7 @@
     ],
     "scenario": null,
     "status": "partial",
-    "partial_reason": "Not scripted because it cannot be undone on a shared QA company: installing mes_core succeeds (201) and creates a module record, and the uninstall route is switched off in this product (config/config.exs:176 modules_uninstall_enabled=false, no environment overrides it; installs.ex:159), so the runner's cleanup cannot restore the start state. Also the install route POST /api/v1/tenant/modules is at the root of a two-part route prefix that check_processes.py cannot match. It becomes scriptable when the uninstall flag is on in the QA release, or when a disposable tenant is available. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs."
+    "partial_reason": "Not scripted because it cannot be undone on a shared QA company: installing mes_core succeeds (201) and creates a module record, and the uninstall route is switched off in this product (config/config.exs:188 modules_uninstall_enabled=false, no environment overrides it; installs.ex:159), so the runner's cleanup cannot restore the start state. Also the install route POST /api/v1/tenant/modules is at the root of a two-part route prefix that check_processes.py cannot match. It becomes scriptable when the uninstall flag is on in the QA release, or when a disposable tenant is available. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs."
   },
   {
     "id": "BP-MES-02",
@@ -125,11 +125,11 @@
           "lib/letflow/routers/tenant_modules.ex:83",
           "lib/letflow/routers/tenant_modules.ex:87",
           "lib/letflow/routers/tenant_modules.ex:91",
-          "priv/permission_matrix/effective.golden:617",
-          "priv/permission_matrix/effective.golden:835",
+          "priv/permission_matrix/effective.golden:622",
+          "priv/permission_matrix/effective.golden:842",
           "test/uat/processes/SEC-MES-03-module-management-per-role.json:1"
         ],
-        "result": "the storekeeper (no ModulesManage, golden line 617) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 835) is not scripted: see the note on status"
+        "result": "the storekeeper (no ModulesManage, golden line 622) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 842) is not scripted: see the note on status"
       }
     ],
     "inputs": [],

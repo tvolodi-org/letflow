@@ -91,7 +91,7 @@ Negative process (D-170). The module-management routes (install, settings, unins
 **Steps.**
 
 1. **STOREKEEPER**: call `PUT /api/v1/tenant/modules/:module_id/settings; POST /api/v1/tenant/modules/:module_id/{uninstall,reactivate,upgrade/plan,upgrade,rollback,ensure-seeds}`
-   Result: the storekeeper (no ModulesManage, golden line 617) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 835) is not scripted: see the note on status
+   Result: the storekeeper (no ModulesManage, golden line 622) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 842) is not scripted: see the note on status
 
 **Refusals.**
 
