@@ -109,20 +109,20 @@ export function SubProcessEditor({ tenantId, parentOwnerModule, definitionName, 
                       <code>{v.variable_key}</code>
                     </div>
                     <div>
-                    <Checkbox
-                      label={e('colIn')}
-                      checked={mapped.inputs.has(v.variable_key)}
-                      onChange={(on) => toggle(v.variable_key, 'inputs', on)}
-                      data-testid={`sub-in-${v.variable_key}`}
-                    />
+                      <Checkbox
+                        label={e('passIn', { name: v.variable_key })}
+                        checked={mapped.inputs.has(v.variable_key)}
+                        onChange={(on) => toggle(v.variable_key, 'inputs', on)}
+                        data-testid={`sub-in-${v.variable_key}`}
+                      />
                     </div>
                     <div>
-                    <Checkbox
-                      label={e('colOut')}
-                      checked={mapped.outputs.has(v.variable_key)}
-                      onChange={(on) => toggle(v.variable_key, 'outputs', on)}
-                      data-testid={`sub-out-${v.variable_key}`}
-                    />
+                      <Checkbox
+                        label={e('takeBack', { name: v.variable_key })}
+                        checked={mapped.outputs.has(v.variable_key)}
+                        onChange={(on) => toggle(v.variable_key, 'outputs', on)}
+                        data-testid={`sub-out-${v.variable_key}`}
+                      />
                     </div>
                   </li>
                 ))}

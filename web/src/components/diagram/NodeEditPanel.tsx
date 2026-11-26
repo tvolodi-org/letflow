@@ -323,7 +323,8 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
           onChange={(name, iface) => onApply(setSubProcessChild(graph, node.id, name, iface), undefined, `sub:${node.id}`)}
         />
       )}
-      {['HUMAN_TASK', 'SERVICE_TASK', 'SUB_PROCESS'].includes(node.node_type) && <p className="lf-hint">{e('structuredInEditor')}</p>}
+      {['HUMAN_TASK', 'SERVICE_TASK'].includes(node.node_type) && <p className="lf-hint">{e('structuredInEditor')}</p>}
+      {node.node_type === 'SUB_PROCESS' && <p className="lf-hint">{e('structuredInEditorSub')}</p>}
 
       <section aria-label={e('connections')} data-testid="edit-connections">
         <h4>{e('connections')}</h4>

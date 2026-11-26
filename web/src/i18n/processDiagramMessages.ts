@@ -385,6 +385,7 @@ const UI: Record<string, Triple> = {
     'Значение не является допустимым именем переменной.',
     'Мән қолжетімді айнымалы атауы емес.',
   ],
+  'processDiagram.edit.structuredInEditorSub': ['Forms, module writes and endpoint are edited in the Editor; they are kept as they are.', 'Формы, записи модуля и адрес правятся в редакторе; здесь они сохраняются без изменений.', 'Пішіндер, модуль жазбалары және мекенжай өңдегіште өңделеді; мұнда олар өзгеріссіз сақталады.'],
   'processDiagram.edit.structuredInEditor': ['Forms, module writes, interface and endpoint are edited in the Editor; they are kept as they are.', 'Формы, записи модуля, интерфейс и адрес правятся в редакторе; здесь они сохраняются без изменений.', 'Пішіндер, модуль жазбалары, интерфейс және мекенжай өңдегіште өңделеді; мұнда олар өзгеріссіз сақталады.'],
   'processDiagram.edit.connections': ['Connections', 'Связи', 'Байланыстар'],
   'processDiagram.edit.noConnections': ['No connections yet.', 'Связей пока нет.', 'Байланыстар әзірге жоқ.'],
