@@ -1,0 +1,92 @@
+{
+  "id": "BP-PLATFORM-15-runtime-demo-ping",
+  "bp_entry": "BP-PLATFORM-15",
+  "title": "Prove a module's runtime is alive: the runtime demo ping, read-only, with the refusals",
+  "description": "The ping is a read and changes nothing. A company administrator calls GET /api/v1/modules/runtime_demo/ping: 200 {runtime_demo: true, release} when the module is installed in that company, 404 when it is not; the file says which half ran (step s2 is skipped with 'requires demo_release' on 404). A storekeeper is refused (403, or 404 when the module is not installed) and a caller without a sign-in gets 401. NOT automated, and a GAP rather than an invented behaviour: the install of the module (POST /api/v1/tenant/modules), the three releases (0.1.0, 0.2.0, 0.3.0 are a boot setting LETFLOW_RUNTIME_DEMO_RELEASE of the host, changed by recreating the container) and the 503 answers module_version_ahead and module_upgrade_required of the version-skew gate need an installed module in a company whose administrator the runner can sign in as, and a host change by the operator (docs/runbooks/runtime-demo-module.md, 'The sequence'); they are covered by test/letflow/modules/runtime_demo/router_test.exs. Nothing is installed or changed by this file, so there is no cleanup and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "says": "A company administrator calls the demo module's ping. 200 when the module is installed in the company; 404 when it is not (the module exists only in a QA build made with the demo flag, and nothing installs it for a company). The release is remembered only when the module answers.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/runtime_demo/ping"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "demo_release": {
+          "pick": "$.release",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "says": "INSTALLED: the ping answers runtime_demo true and the release it remembered.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/runtime_demo/ping"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.runtime_demo": true,
+          "$.release": "${demo_release}"
+        }
+      },
+      "requires": [
+        "demo_release"
+      ]
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "says": "A storekeeper does not hold the permission (it is granted to the company administrator only): refused with 403, or 404 when the module is not installed.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/runtime_demo/ping"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "anonymous",
+      "says": "Without a sign-in the ping is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/runtime_demo/ping"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
