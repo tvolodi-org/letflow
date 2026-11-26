@@ -413,6 +413,7 @@ class BlockedSteps(H2IsPlayed):
         steps = {x["id"]: x for x in json.loads(FILE.read_text())["steps"]}
         c4, c5 = steps["C4"], steps["C5"]
         self.assertIn("status=draft", c4["do"]["path"])
+        self.assertIn("name=platform.register_tenant", c4["do"]["path"])
         self.assertEqual({"absent": True}, c4["expect"]["json"]["$.items[0]"])
         self.assertIn("status=active", c5["do"]["path"])
         self.assertEqual("ACTIVE", c5["expect"]["json"]["$.items[0].status"])
