@@ -140,9 +140,16 @@ write_target | tenant.notify_admin:name | write_target=refused write_target_exce
 write_target | tenant.notify_admin:slug | write_target=refused write_target_exception=allowed
 write_target | tenant.notify_admin:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.provision:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.purge:confirm | write_target=refused write_target_exception=allowed
+write_target | tenant.purge:request_id | write_target=refused write_target_exception=allowed
+write_target | tenant.purge:slug | write_target=refused write_target_exception=allowed
+write_target | tenant.reactivate:request_id | write_target=refused write_target_exception=allowed
+write_target | tenant.reactivate:slug | write_target=refused write_target_exception=allowed
 write_target | tenant.record_lifecycle:requested_tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.record_lifecycle:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.record_onboarding:hostname | write_target=refused write_target_exception=allowed
 write_target | tenant.record_onboarding:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.suspend:request_id | write_target=refused write_target_exception=allowed
+write_target | tenant.suspend:slug | write_target=refused write_target_exception=allowed
 write_target | tenant.validate:name | write_target=refused write_target_exception=allowed
 write_target | tenant.validate:slug | write_target=refused write_target_exception=allowed
