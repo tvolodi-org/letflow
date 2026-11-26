@@ -669,7 +669,7 @@ The administrator exports the company's configuration (settings, module settings
 
 ## BP-TENANT-ADMIN-19 -- Install, set up, upgrade and remove modules and solutions
 
-The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds.
+The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough drafted at test/uat/processes/planned/BP-TENANT-ADMIN-19-install-and-upgrade-modules.draft.txt; it cannot enter the runner set until check_processes.py matches the route POST /api/v1/tenant/modules (its mount rule reads the router file name tenant_modules as /tenant-modules and skips the root route '/').
 
 **Actors and their permissions.**
 
@@ -677,19 +677,21 @@ The administrator installs a module or a solution (a set of modules, with a rati
 
 **Steps.**
 
-1. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules`
+1. **any user**: screen `admin/module-lifecycle`, call `GET /api/v1/me/modules`
+   Result: the installed modules (module id and version) are listed for any signed-in user, the administrator and the storekeeper alike
+2. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules`
    Result: a module is installed
-2. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/solutions`
+3. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/solutions`
    Result: a solution is installed with one required rationale
-3. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `PUT /api/v1/tenant/modules/:module_id/settings`
+4. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `PUT /api/v1/tenant/modules/:module_id/settings`
    Result: module settings are saved
-4. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/upgrade/plan`, `POST /api/v1/tenant/modules/:module_id/upgrade`
+5. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/upgrade/plan`, `POST /api/v1/tenant/modules/:module_id/upgrade`
    Result: an upgrade plan is read, then the upgrade applied
-5. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/rollback`
+6. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/rollback`
    Result: an upgrade is rolled back
-6. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/uninstall`, `POST /api/v1/tenant/modules/:module_id/reactivate`
+7. **TENANT_ADMIN**: screen `admin/module-lifecycle`, call `POST /api/v1/tenant/modules/:module_id/uninstall`, `POST /api/v1/tenant/modules/:module_id/reactivate`
    Result: a module is uninstalled and later reactivated
-7. **TENANT_ADMIN**: call `POST /api/v1/tenant/modules/:module_id/ensure-seeds`
+8. **TENANT_ADMIN**: call `POST /api/v1/tenant/modules/:module_id/ensure-seeds`
    Result: the seeds of an installed module are ensured
 
 **Refusals.**
@@ -697,6 +699,11 @@ The administrator installs a module or a solution (a set of modules, with a rati
 - blank rationale: 422 rationale is required, nothing installed (tenant_solutions.ex)
 - a tenant_id in the body is ignored
 - a role without ModulesManage gets 403
+- installing a module that is already installed: 409 'module already installed', nothing changes (lib/letflow/routers/tenant_modules.ex:353)
+- an unknown module name: 404 not found (lib/letflow/routers/tenant_modules.ex:350)
+- a module whose dependency is not installed: 422 'missing dependency: <id>' (lib/letflow/routers/tenant_modules.ex:356); not played by the scenario, no safe undo on a shared tenant
+- the rationale is checked first, before the already-installed check: a blank rationale on an installed module is 422 (lib/letflow/modules/installs.ex:398)
+- an upgrade whose plan_hash is not the current plan's, or when the module is up to date: 409 code plan_mismatch, nothing applied (lib/letflow/module_upgrade/apply.ex:253)
 
 **Runner scenario.**
 

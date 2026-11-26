@@ -1275,7 +1275,7 @@
     "id": "BP-TENANT-ADMIN-19",
     "area": "tenant-admin",
     "title": "Install, set up, upgrade and remove modules and solutions",
-    "description": "The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds.",
+    "description": "The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough drafted at test/uat/processes/planned/BP-TENANT-ADMIN-19-install-and-upgrade-modules.draft.txt; it cannot enter the runner set until check_processes.py matches the route POST /api/v1/tenant/modules (its mount rule reads the router file name tenant_modules as /tenant-modules and skips the root route '/').",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1286,6 +1286,18 @@
       "signed in as TENANT_ADMIN"
     ],
     "tasks": [
+      {
+        "actor": "any user",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/me/modules",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:121"
+        ],
+        "result": "the installed modules (module id and version) are listed for any signed-in user, the administrator and the storekeeper alike"
+      },
       {
         "actor": "TENANT_ADMIN",
         "forms": [
@@ -1394,7 +1406,12 @@
     "refusals": [
       "blank rationale: 422 rationale is required, nothing installed (tenant_solutions.ex)",
       "a tenant_id in the body is ignored",
-      "a role without ModulesManage gets 403"
+      "a role without ModulesManage gets 403",
+      "installing a module that is already installed: 409 'module already installed', nothing changes (lib/letflow/routers/tenant_modules.ex:353)",
+      "an unknown module name: 404 not found (lib/letflow/routers/tenant_modules.ex:350)",
+      "a module whose dependency is not installed: 422 'missing dependency: <id>' (lib/letflow/routers/tenant_modules.ex:356); not played by the scenario, no safe undo on a shared tenant",
+      "the rationale is checked first, before the already-installed check: a blank rationale on an installed module is 422 (lib/letflow/modules/installs.ex:398)",
+      "an upgrade whose plan_hash is not the current plan's, or when the module is up to date: 409 code plan_mismatch, nothing applied (lib/letflow/module_upgrade/apply.ex:253)"
     ],
     "scenario": null,
     "status": "implemented"
