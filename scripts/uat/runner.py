@@ -74,7 +74,7 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel")
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -587,6 +587,28 @@ def trap_problem(url: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
+UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
+UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
+CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
+
+
+class Multipart:
+    """A multipart/form-data body, built from bytes. Only `data` goes on the wire; the log gets `summary`."""
+
+    def __init__(self, fields: dict, field: str, filename: str, content: bytes, content_type: str):
+        self.boundary = "----uat" + secrets.token_hex(12)
+        parts = []
+        for name, value in fields.items():
+            parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+        parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+                     f"Content-Type: {content_type}\r\n\r\n".encode())
+        self.data = b"".join(parts) + content + f"\r\n--{self.boundary}--\r\n".encode()
+        self.content_type = f"multipart/form-data; boundary={self.boundary}"
+        self.summary = {"upload": {"field": field, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
     """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
 
@@ -595,7 +617,10 @@ def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S
     data = None
     hdrs = {"Accept": "application/json", "User-Agent": "uat-runner/0"}
     hdrs.update(headers)
-    if body is not None:
+    if isinstance(body, Multipart):
+        data = body.data
+        hdrs["Content-Type"] = body.content_type
+    elif body is not None:
         data = json.dumps(body).encode()
         hdrs.setdefault("Content-Type", "application/json")
     try:
@@ -663,9 +688,10 @@ class Runner:
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
                  overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
-                 password_factory=None):
+                 password_factory=None, upload_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -1217,6 +1243,10 @@ class Runner:
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
             return self._repeat(role, do["repeat"], times, http_as, record)
+        if "upload" in do:
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            record.update(method=info["method"], path=info["path"], request=info["request"])
+            return [info["result"]]
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
@@ -1425,7 +1455,10 @@ class Runner:
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "body" in spec:
+        if "file" in spec and "field" in spec:  # an upload step: the call is a multipart body
+            body = self._multipart(spec)
+            redacted = body.summary
+        elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
@@ -1433,6 +1466,39 @@ class Runner:
         result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
                               bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _upload_file(self, rel: str) -> Path:
+        """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("upload_fixture_path_invalid: the file is a relative name under test/uat/fixtures")
+        if rel.startswith(UPLOAD_GENERATED_PREFIX):
+            import client1_workbook  # stdlib only; next to this file
+            out = self.run_dir / "generated-fixtures"
+            if not (out / "client1").is_dir():
+                client1_workbook.build(out / "client1")
+            path = out / rel[len("generated/"):]
+        else:
+            path = Path(self.upload_dir) / rel
+        if not path.is_file():
+            raise RunnerError(f"upload_fixture_missing: no fixture file {rel}")
+        return path
+
+    def _multipart(self, spec) -> Multipart:
+        field = substitute(spec["field"], self.ctx)
+        if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
+            raise RunnerError("upload: field is a plain form field name")
+        ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
+        if not isinstance(ctype, str) or not CONTENT_TYPE_RE.match(ctype):
+            raise RunnerError("upload: content_type is not a media type")
+        rel = substitute(spec["file"], self.ctx)
+        path = self._upload_file(rel)
+        if path.stat().st_size > UPLOAD_MAX_BYTES:
+            raise RunnerError(f"upload_fixture_too_big: {rel} is over {UPLOAD_MAX_BYTES} bytes")
+        fields = substitute(spec.get("fields") or {}, self.ctx)
+        if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
+                                                   "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
+            raise RunnerError("upload: fields is a map of plain names to one-line values")
+        return Multipart(fields, field, path.name, path.read_bytes(), ctype)
 
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
@@ -2581,6 +2647,13 @@ def validate_step(step, where) -> None:
     kind = kinds[0]
     if kind == "api":
         validate_call(do, where)
+    elif kind == "upload":
+        spec = do["upload"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("path", "field", "file")):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file")
+        if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
+            raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
