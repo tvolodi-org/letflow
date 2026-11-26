@@ -13,6 +13,7 @@ services:
     networks:
       - default
       - provisioner_callers
+    mem_limit: 1g
     restart: unless-stopped
   db:
     image: postgres:16-alpine
@@ -29,6 +30,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    mem_limit: 2560m
     restart: unless-stopped
 networks:
   # Owned by infra (tenant-provisioner-qa); the app reaches the provisioner on it (T-2780).
