@@ -44,6 +44,7 @@ import { platformCallPickerScreens } from './fixtures/platformCallPicker'
 import { notifyStepPickerScreens } from './fixtures/notifyStepPicker'
 import { registerTenantDesignerScreens } from './fixtures/registerTenantDesigner'
 import { registerTenantPageScreens } from './fixtures/registerTenantPage'
+import { editTenantPageScreens } from './fixtures/editTenantPage'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
@@ -455,5 +456,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...canvasPropertyPanelScreens,
     ...registerTenantPageScreens,
     ...signupScreens,
+    ...editTenantPageScreens,
   ].map(s => [s.name, s]),
 )
