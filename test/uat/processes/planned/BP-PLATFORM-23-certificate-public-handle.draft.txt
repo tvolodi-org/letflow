@@ -1,0 +1,105 @@
+{
+  "id": "BP-PLATFORM-23-certificate-public-handle",
+  "bp_entry": "BP-PLATFORM-23",
+  "title": "Check a certificate by its public handle (no login): the unknown-handle half, read-only",
+  "description": "DRAFT, NOT RUN (kept out of test/uat/processes/*.json on purpose, see the entry: the static check cannot match /api/public/:kind/:handle). No sign-in is needed: anyone holding a handle opens the public address. The file proves the part that needs no issued certificate: an unknown handle, an unknown kind, a very long handle and an empty handle all answer the SAME standard 404 (the body 'the requested resource was not found'); a signed-in administrator gets the same answer. GAP (not invented): the success half (200 with the public projection of the certificate, the no-store / no-referrer / noindex headers, the rate limit per address) needs a certificate that was issued and whose one-time handle was given out by the exam application (BP-EXAM, 'get the certificate'); no runner process issues a certificate yet and the handle is shown only once, so a runner step cannot read it back; it is covered by test/letflow/routers/public_read_test.exs. The runner does not check response headers, so the three headers are not asserted here. The 429 of the per-address limiter is not driven (the runner may not saturate a public limiter). The page /verify/<handle> of the web app (VerifyCertificatePage) is screen-only and is not run here. Nothing is created, so there is no cleanup and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "anonymous",
+      "says": "Anyone opens a certificate by a handle that was never issued (no sign-in): 404 with the standard body and nothing about a certificate.",
+      "do": {
+        "api": "GET",
+        "path": "/api/public/certificate/uat-no-such-handle-${run_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "anonymous",
+      "says": "A kind that does not exist gets the very same answer: a prober cannot tell a wrong kind from a wrong handle.",
+      "do": {
+        "api": "GET",
+        "path": "/api/public/no-such-kind/uat-no-such-handle-${run_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "anonymous",
+      "says": "A very long handle (200 characters) gets the same answer, no error.",
+      "do": {
+        "api": "GET",
+        "path": "/api/public/certificate/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "anonymous",
+      "says": "A handle with no value (the address ends at the kind): the same 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/public/certificate/"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "says": "Being signed in changes nothing: a company administrator opening an unknown handle gets the same 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/public/certificate/uat-no-such-handle-${run_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
