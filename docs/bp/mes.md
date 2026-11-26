@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `mes` has 4 process(es): 1 implemented, 2 partial, 1 planned. Executed by: 4 direct, 0 definition.
+The area `mes` has 4 process(es): 2 implemented, 1 partial, 1 planned. Executed by: 4 direct, 0 definition.
 
 ## The processes of the area
 
@@ -13,7 +13,7 @@ The area `mes` has 4 process(es): 1 implemented, 2 partial, 1 planned. Executed 
 |---|---|---|---|---|---|---|---|---|
 | BP-MES-01 | Install the manufacturing module shell (mes_core) in a company | A tenant administrator installs the mes_core module in their own company, with a written reason. | TENANT_ADMIN | partial | direct | no | no | see report |
 | BP-MES-02 | Security: the install of mes_core is refused without its dependencies and does not leak to another company | Negative process (D-170). Installing mes_core in a company that lacks a dependency is refused and installs nothing; installing it in one... | TENANT_ADMIN | implemented | direct | no | yes | see report |
-| BP-MES-03 | Security: who may install or remove the module (permission matrix of the module-management routes) | Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need M... | STOREKEEPER, TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MES-03 | Security: who may install or remove the module (permission matrix of the module-management routes) | Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need M... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MES-04 | Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- not buildable yet | Negative processes required by D-170 for the MES data paths: crafted completion or start refused (write targets), a token of company A ag... | TENANT_ADMIN | planned | direct | no | yes | see report |
 
 ## BP-MES-01 -- Install the manufacturing module shell (mes_core) in a company
@@ -81,7 +81,7 @@ Negative process (D-170). Installing mes_core in a company that lacks a dependen
 
 ## BP-MES-03 -- Security: who may install or remove the module (permission matrix of the module-management routes)
 
-Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need ModulesManage. mes_core adds no permission and no role grant, so the matrix for it is the core matrix: only TENANT_ADMIN (in its company) and PLATFORM_ADMIN hold ModulesManage; every other role, a missing credential and a wrong credential are refused.
+Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need ModulesManage. mes_core adds no permission and no role grant, so the matrix for it is the core matrix: only TENANT_ADMIN (in its company) and PLATFORM_ADMIN hold ModulesManage; every other role, a missing credential and a wrong credential are refused. Scope of the script: the seven routes under a module id are refused for the storekeeper at API level. The install request on the module list itself (POST /api/v1/tenant/modules, tenant_modules.ex:63) carries the same permission and is covered by BP-MES-01's refusals and the permission matrix, but the static check cannot match a route at the root of the two-part prefix, so it is not a script step. A missing or wrong credential (401) is not scripted: the runner has no per-step credential.
 
 **Actors and their permissions.**
 
@@ -90,22 +90,26 @@ Negative process (D-170). The module-management routes (install, settings, unins
 
 **Steps.**
 
-1. **STOREKEEPER**: call `POST /api/v1/tenant/modules/:module_id/uninstall`
-   Result: 403 for a role without ModulesManage; nothing changes (planned as a runner step: the matrix is read from the golden file, the HTTP refusal is not yet scripted)
+1. **STOREKEEPER**: call `PUT /api/v1/tenant/modules/:module_id/settings; POST /api/v1/tenant/modules/:module_id/{uninstall,reactivate,upgrade/plan,upgrade,rollback,ensure-seeds}`
+   Result: the storekeeper (no ModulesManage, golden line 617) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 835) is not scripted: see the note on status
 
 **Refusals.**
 
 - a role without ModulesManage: 403
 - no or wrong credential: 401
 
+**Tests.**
+
+- `test/uat/processes/SEC-MES-03-module-management-per-role.json`
+
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/SEC-MES-03-module-management-per-role.json` (runner id `SEC-MES-03`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 
 ## BP-MES-04 -- Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- not buildable yet
@@ -139,5 +143,5 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 4 process(es) have no runner scenario: BP-MES-01, BP-MES-02, BP-MES-03, BP-MES-04
-- 3 process(es) are not implemented: BP-MES-01, BP-MES-03, BP-MES-04
+- 3 process(es) have no runner scenario: BP-MES-01, BP-MES-02, BP-MES-04
+- 2 process(es) are not implemented: BP-MES-01, BP-MES-04
