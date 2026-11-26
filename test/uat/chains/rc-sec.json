@@ -57,6 +57,14 @@
       "dry_run": true
     },
     {
+      "process": "SEC-ID-07",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-08",
+      "dry_run": true
+    },
+    {
       "process": "SEC-OLD-01",
       "dry_run": true
     },
