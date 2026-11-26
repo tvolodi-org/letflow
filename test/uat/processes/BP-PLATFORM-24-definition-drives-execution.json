@@ -1973,6 +1973,20 @@
           204
         ]
       }
+    },
+    {
+      "id": "c8",
+      "actor": "admin",
+      "says": "Sweep the throwaway definitions of EARLIER failed runs (T-2898): every definition whose name starts with uat-tmp-defproof- and does not contain this run's id is deleted through the product's own call (draft 204, active and deprecated 200, archived 409 / gone 404 accepted); one line per definition. A cleanup only knows its own ids, so without this a failed run leaves a draft that turns BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "prefix": "uat-tmp-defproof-",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
     }
   ],
   "defaults": {

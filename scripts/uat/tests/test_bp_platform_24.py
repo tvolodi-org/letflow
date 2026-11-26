@@ -52,11 +52,14 @@ class Scenario(unittest.TestCase):
 
     def test_throwaway_names_and_cleanup_of_every_definition(self):
         self.assertIn("uat-tmp-defproof-${run_id}-1", self.text)
-        deleted = {c["requires"][0] for c in self.process["cleanup"] if c["do"]["api"] == "DELETE"}
+        deleted = {c["requires"][0] for c in self.process["cleanup"] if c["do"].get("api") == "DELETE"}
         for key in ("defA", "defB", "defC", "defD", "defE", "defF"):
             self.assertIn(key, deleted)
+        sweeps = [c for c in self.process["cleanup"] if "sweep" in c["do"]]
+        self.assertEqual([c["do"]["sweep"] for c in sweeps],
+                         [{"prefix": "uat-tmp-defproof-", "exclude_contains": "${run_id}"}])  # T-2898
         for c in self.process["cleanup"]:
-            self.assertTrue(c.get("requires"))
+            self.assertTrue(c.get("requires") or c in sweeps)
 
     def test_a_and_b_share_one_name_and_differ_in_order(self):
         a, b = self.steps["A1"]["do"]["body"], self.steps["B1"]["do"]["body"]
