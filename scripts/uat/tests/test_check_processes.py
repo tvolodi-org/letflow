@@ -132,7 +132,7 @@ class Process(CheckCase):
     def test_inputs_defaults_and_builtins_are_defined(self):
         def change(doc):
             doc["defaults"] = {"quantity": "5"}
-            doc["steps"][1]["do"]["body"] = {"q": "${quantity}", "t": "${tenant}", "r": "${run_id}", "n": "${now_utc}", "i": "${item}"}
+            doc["steps"][1]["do"]["body"] = {"q": "${quantity}", "t": "${tenant}", "r": "${run_id}", "n": "${now_utc}", "e": "${tomorrow_utc}", "i": "${item}"}
 
         self.assertEqual(self.check(self.mutated(change)), [])
 
