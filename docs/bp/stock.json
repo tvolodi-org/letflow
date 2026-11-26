@@ -1035,7 +1035,7 @@
         "result": "an order not yet posted can be cancelled and releases its freeze"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-10-formal-count-order.json"
   },
   {
     "id": "BP-STOCK-10",
@@ -1148,7 +1148,7 @@
         "result": "the count order reads posted"
       }
     ],
-    "scenario": null
+    "scenario": "test/uat/processes/BP-10-formal-count-order.json"
   },
   {
     "id": "BP-STOCK-11",

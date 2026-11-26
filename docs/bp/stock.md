@@ -19,8 +19,8 @@ The area `stock` has 44 process(es): 44 implemented. Executed by: 44 direct, 0 d
 | BP-STOCK-06 | Return goods | Stock goes back from the returning org unit, place and responsible person to the org unit that files the document (own document type RET)... | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-STOCK-07 | Opening balances | Initial stock enters the ledger with an opening document (positive lines, or all-negative lines when the tenant allows negative balances). | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-STOCK-08 | Quick count of one item at one place | The counter types the counted quantity (zero allowed) of one item at one place; the system stores book quantity and difference, issues th... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | no | see report |
-| BP-STOCK-09 | Count order: issue, count on the sheet, close | A manager creates a count order (header, places, commission members), issues it, a commission member opens it at a cut-off (book quantiti... | STOREKEEPER | implemented | direct | no | no | see report |
-| BP-STOCK-10 | Count: sign the sheet, differences, sign, post | After the sheet is closed the chair records the sheet signers, issues the differences sheet, records its signers (the count becomes signe... | STOREKEEPER, TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-STOCK-09 | Count order: issue, count on the sheet, close | A manager creates a count order (header, places, commission members), issues it, a commission member opens it at a cut-off (book quantiti... | STOREKEEPER | implemented | direct | yes | no | see report |
+| BP-STOCK-10 | Count: sign the sheet, differences, sign, post | After the sheet is closed the chair records the sheet signers, issues the differences sheet, records its signers (the count becomes signe... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | no | see report |
 | BP-STOCK-11 | Count paperwork and print forms | The issued count documents leave the system as xlsx or PDF: order, sheet, differences, the field worksheet with empty boxes, and the offi... | STOREKEEPER | implemented | direct | no | no | see report |
 | BP-STOCK-12 | Reverse a posted document or cancel an issued one | A posted document (or a posted count) is reversed with a reason: a reversal task is started and a tenant administrator completes it; the... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | no | see report |
 | BP-STOCK-13 | Excel balances workbook: export, check, apply, cancel | The administrator downloads the whole current stock in the Qoimeks workbook layout, edits quantities, checks the file (per-row remarks an... | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | no | see report |
@@ -383,12 +383,12 @@ A manager creates a count order (header, places, commission members), issues it,
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-10-formal-count-order.json` (runner id `BP-10`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
 ## BP-STOCK-10 -- Count: sign the sheet, differences, sign, post
@@ -421,11 +421,12 @@ After the sheet is closed the chair records the sheet signers, issues the differ
 **Runner scenario.**
 
 - none yet
+- the map names `test/uat/processes/BP-10-formal-count-order.json`
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
 ## BP-STOCK-11 -- Count paperwork and print forms
@@ -1643,4 +1644,4 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 15 process(es) have no runner scenario: BP-STOCK-03, BP-STOCK-05, BP-STOCK-06, BP-STOCK-07, BP-STOCK-09, BP-STOCK-10, BP-STOCK-11, BP-STOCK-14, BP-STOCK-15, BP-STOCK-17, BP-STOCK-18, BP-STOCK-22, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25
+- 13 process(es) have no runner scenario: BP-STOCK-03, BP-STOCK-05, BP-STOCK-06, BP-STOCK-07, BP-STOCK-11, BP-STOCK-14, BP-STOCK-15, BP-STOCK-17, BP-STOCK-18, BP-STOCK-22, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25
