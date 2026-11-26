@@ -128,6 +128,8 @@ def calls_of(step) -> list:
         out.append(("GET", str(do["assert_only"].get("path", ""))))
     if isinstance(do.get("repeat"), dict):
         out.append((str(do["repeat"].get("api", "")), str(do["repeat"].get("path", ""))))
+    if isinstance(do.get("page_through"), dict):
+        out.append(("GET", str(do["page_through"].get("path", ""))))
     if isinstance(do.get("sweep"), dict):
         out.append(("GET", "/api/v1/definitions"))
         out.append(("DELETE", "/api/v1/definitions/${id}"))

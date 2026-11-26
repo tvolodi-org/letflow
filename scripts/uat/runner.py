@@ -74,7 +74,8 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep")
+PAGE_THROUGH_MAX_PAGES = 15
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep", "page_through")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -444,6 +445,46 @@ def refused_results(spec: dict, status: int, body, text) -> list:
         said = (body.get("detail") or body.get("title")) if isinstance(body, dict) else None
         results.append({"what": "error code", "expected": code, "actual": code if hit else (said or "<absent>"), "ok": hit})
     return results
+
+
+SET_ASSERTS = {"age_at_least", "unique_ids"}
+
+
+def _parse_time(value):
+    try:
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def set_assertions(expect: dict, body) -> list:
+    """T-2941: the asserts on the set a page_through collected. age_at_least: {seconds, field?} or a number of
+    seconds: some item's field (default created_at) is at least that old; none is old enough -> the row is
+    `inconclusive` (a not-run with an owner, never a pass). unique_ids: true (or an id field name): no id twice."""
+    items = body.get("items") if isinstance(body, dict) else None
+    items = items if isinstance(items, list) else []
+    rows = []
+    if "age_at_least" in expect:
+        want = expect["age_at_least"]
+        seconds = want.get("seconds") if isinstance(want, dict) else want
+        field = want.get("field", "created_at") if isinstance(want, dict) else "created_at"
+        now = datetime.now(timezone.utc)
+        ages = [(now - t).total_seconds() for t in (_parse_time(i.get(field)) for i in items if isinstance(i, dict))
+                if t is not None]
+        ok = any(a >= float(seconds) for a in ages)
+        row = {"what": f"items[*].{field} age_at_least", "expected": seconds,
+               "actual": f"oldest {int(max(ages))}s" if ages else "no dated item", "ok": ok}
+        if not ok:
+            row["inconclusive"] = True
+        rows.append(row)
+    if "unique_ids" in expect:
+        key = expect["unique_ids"] if isinstance(expect["unique_ids"], str) else "id"
+        ids = [i.get(key) for i in items if isinstance(i, dict)]
+        dups = sorted({str(x) for x in ids if ids.count(x) > 1})
+        rows.append({"what": f"items[*].{key} unique", "expected": "no id twice",
+                     "actual": "duplicates: " + ", ".join(dups[:5]) if dups else f"{len(ids)} ids", "ok": not dups})
+    return rows
 
 
 def run_assertions(expect: dict, status: int, body, text=None, mask=False) -> list:
@@ -1095,6 +1136,9 @@ class Runner:
             record["status"] = status
             record["asserted"] = results
             failed = [r for r in results if not r["ok"]]
+            if failed and all(r.get("inconclusive") for r in failed):
+                return self._blocked_line(record, started, step, "inconclusive: no old rows (owner: BA)")
+            failed = [r for r in failed if not r.get("inconclusive")] or failed
             if failed:
                 first = failed[0]
                 what = first["what"]
@@ -1286,6 +1330,8 @@ class Runner:
             return self._repeat(role, do["repeat"], times, http_as, record)
         if "sweep" in do:
             return [self._sweep(role, do["sweep"], http_as, record)]
+        if "page_through" in do:
+            return [self._page_through(role, do["page_through"], http_as, record)]
         if "upload" in do:
             info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
             record.update(method=info["method"], path=info["path"], request=info["request"])
@@ -1599,6 +1645,41 @@ class Runner:
         result = {"swept": swept, "already_gone": gone, "lines": lines}
         return (200, result, json.dumps(result))
 
+    def _page_through(self, role, spec, http_as, record):
+        """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
+        to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
+        age_at_least / unique_ids of the step's expect read that collected set."""
+        spec = substitute(spec, self.ctx)
+        size = int(spec.get("page_size", 50))
+        cap = min(int(spec.get("max_pages", PAGE_THROUGH_MAX_PAGES)), PAGE_THROUGH_MAX_PAGES)
+        items_key, cursor_key = spec.get("items", "items"), spec.get("cursor", "next_cursor")
+        base = str(spec["path"])
+        joiner = "&" if "?" in base else "?"
+        items, cursor, seen, pages = [], None, set(), 0
+        while pages < cap:
+            path = f"{base}{joiner}page_size={size}"
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, text = self.request(role, "GET", path, http_as=http_as)
+            pages += 1
+            if status != 200:
+                raise RunnerError(f"page_through: page {pages} answered {status}, expected 200")
+            page = body.get(items_key) if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                raise RunnerError(f"page_through: page {pages} has no list {items_key}")
+            if "count" in body and body["count"] != len(page):
+                raise RunnerError(f"page_through: page {pages} count {body['count']} but {len(page)} items")
+            items.extend(page)
+            cursor = body.get(cursor_key)
+            if not cursor:
+                break
+            if cursor in seen:
+                raise RunnerError(f"page_through: page {pages} repeats the cursor of an earlier page")
+            seen.add(cursor)
+        result = {"items": items, "pages": pages, "truncated": bool(cursor)}
+        record.update(method="GET", path=base, pages=pages)
+        return (200, result, json.dumps(result))
+
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
         if times < 2:
@@ -1670,6 +1751,9 @@ class Runner:
                 expects = [expect] * len(calls)
         rows = []
         for i, (e, (status, body, text)) in enumerate(zip(expects, calls)):
+            if isinstance(e, dict) and (SET_ASSERTS & set(e)):
+                rows.extend(set_assertions(e, body))
+                e = {k: v for k, v in e.items() if k not in SET_ASSERTS}
             for r in run_assertions(e, status, body, text, mask):
                 rows.append(dict(r, what=f"call {i + 1}: {r['what']}") if len(calls) > 1 else r)
         return rows
@@ -2841,6 +2925,14 @@ def validate_step(step, where) -> None:
         if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
                                       and all(isinstance(c, int) for c in spec["accept"])):
             raise ConfigError(f"{where}: sweep accept is a list of status codes")
+    elif kind == "page_through":
+        spec = do["page_through"]
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \
+                or set(spec) - {"path", "page_size", "cursor", "items", "max_pages"}:
+            raise ConfigError(f"{where}: page_through is {{path, page_size?, cursor?, items?, max_pages?}}")
+        mp = spec.get("max_pages", 1)
+        if isinstance(mp, int) and not 1 <= mp <= PAGE_THROUGH_MAX_PAGES:
+            raise ConfigError(f"{where}: page_through max_pages is 1..{PAGE_THROUGH_MAX_PAGES}")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:
