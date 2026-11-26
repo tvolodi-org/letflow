@@ -45,6 +45,10 @@ A tenant administrator installs the mes_core module in their own company, with a
 - UAT: planned -- no runner scenario yet.
 - security: no
 
+**Gaps.**
+
+- WHY PARTIAL (no runner scenario, T-2969): a walkthrough must restore the start state, and it cannot. Installing mes_core succeeds (201) and creates a module record; the uninstall route is switched off (config/config/config.exs:188 modules_uninstall_enabled=false, installs.ex), so cleanup is impossible on a shared QA company. The install route POST /api/v1/tenant/modules is also at the root of a two-part prefix that check_processes.py cannot match. Owner: operator (turn the uninstall flag on in the QA release) or PM (provide a disposable tenant); then a scenario can be written. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs. The refusal side (storekeeper, seven sibling routes) is walked in SEC-MES-03.
+
 ## BP-MES-02 -- Security: the install of mes_core is refused without its dependencies and does not leak to another company
 
 Negative process (D-170). Installing mes_core in a company that lacks a dependency is refused and installs nothing; installing it in one company leaves every other company without it.
@@ -136,6 +140,10 @@ Negative processes required by D-170 for the MES data paths: crafted completion 
 - implementation: `planned` (requirement: none yet: MES plan tasks M2..M11 in docs/design/mes/13-phase1-plan.md have no REQ entry in docs/requirements.yaml)
 - UAT: planned -- no runner scenario yet.
 - security: yes
+
+**Gaps.**
+
+- WHY PLANNED (no runner scenario, T-2969): mes_core has no routes, screens, handlers, permissions, roles, uploads, webhooks or approval steps on main, so there is nothing to refuse and a scenario would only assert a 404. Owner: whoever delivers MES plan tasks M2..M11 (docs/design/mes/13-phase1-plan.md); each of them adds its negative walkthrough with the thing it tests. The one MES path that exists today, module management per role, is walked in SEC-MES-03. No REQ entry exists for M2..M11 yet (PM to queue the requirement).
 
 ## Orphans (docs/bp/orphans-mes.md)
 
