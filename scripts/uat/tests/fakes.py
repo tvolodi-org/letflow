@@ -160,6 +160,8 @@ def make_handler(state):
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
+            if getattr(state, "post_409", None) and method == "POST" and path.startswith(base + "/documents"):
+                return self.reply(409, {"error": "conflict", "reason": state.post_409})
             if path == "/api/v1/tenants":
                 if who not in state.platform_roles:
                     return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
