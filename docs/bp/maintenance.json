@@ -18,7 +18,9 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/new -> MaintenanceRequestFormPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.create"
         ],
@@ -26,7 +28,8 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:50",
           "lib/letflow/modules/maintenance/requests.ex:75",
-          "lib/letflow/modules/maintenance/access.ex:25"
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
         ],
         "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
       }
@@ -163,27 +166,33 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.list"
         ],
         "route": "GET /api/v1/modules/maintenance/requests",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:69",
-          "lib/letflow/modules/maintenance/requests.ex:195"
+          "lib/letflow/modules/maintenance/requests.ex:195",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
         ],
         "result": "200 with rows and next_cursor"
       },
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/:id -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.get"
         ],
         "route": "GET /api/v1/modules/maintenance/requests/:id",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:84",
-          "lib/letflow/modules/maintenance/requests.ex:219"
+          "lib/letflow/modules/maintenance/requests.ex:219",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
         ],
         "result": "200 with the request view (status, order reference, photo_count)"
       },
