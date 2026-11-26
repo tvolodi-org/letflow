@@ -5,6 +5,7 @@ Every item of `python3 scripts/uat/bp_inventory.py maintenance` (19 items: 15 ro
 
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
+| route `admin/maintenance` (container) | `web/src/modules/maintenance/maintenanceRoutes.tsx:16` | parent route of the three request screens; it has no page of its own, it only groups `requests`, `requests/new`, `requests/:id` | REQ-898, commit 6e6c35f7c (#5099) | route nesting in the router, not a user task | keep as a platform function |
 
 ## Orphan review (BA, D-169, T-2560, 2026-11-21): decision for every entry
 

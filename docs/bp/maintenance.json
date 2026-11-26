@@ -18,7 +18,9 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/new -> MaintenanceRequestFormPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.create"
         ],
@@ -26,7 +28,8 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:50",
           "lib/letflow/modules/maintenance/requests.ex:75",
-          "lib/letflow/modules/maintenance/access.ex:25"
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
         ],
         "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
       }
@@ -163,27 +166,33 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.list"
         ],
         "route": "GET /api/v1/modules/maintenance/requests",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:69",
-          "lib/letflow/modules/maintenance/requests.ex:195"
+          "lib/letflow/modules/maintenance/requests.ex:195",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
         ],
         "result": "200 with rows and next_cursor"
       },
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/:id -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.get"
         ],
         "route": "GET /api/v1/modules/maintenance/requests/:id",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:84",
-          "lib/letflow/modules/maintenance/requests.ex:219"
+          "lib/letflow/modules/maintenance/requests.ex:219",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
         ],
         "result": "200 with the request view (status, order reference, photo_count)"
       },
@@ -524,7 +533,7 @@
     "id": "BP-MAINTENANCE-09",
     "area": "maintenance",
     "title": "Web screens for work requests",
-    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only.",
+    "description": "Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). The screens exist in web/src/modules/maintenance and are guarded by MaintenanceRead and MaintenanceRequestCreate; photos on the form and the Reject action are not mapped here and stay planned.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -534,7 +543,45 @@
     "preconditions": [
       "BP-MAINTENANCE-01..03 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestFormPage"
+        ],
+        "route": "web: admin/maintenance/requests/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:16",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
+        ],
+        "result": "the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
+        ],
+        "result": "the request list screen opens for a holder of MaintenanceRead"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests/:id",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
+        ],
+        "result": "the same page opens with one request selected, for a holder of MaintenanceRead"
+      }
+    ],
     "inputs": [
       "request fields"
     ],
@@ -543,8 +590,9 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-898"
+    "status": "partial",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens."
   },
   {
     "id": "BP-MAINTENANCE-10",

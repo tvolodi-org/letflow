@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `maintenance` has 21 process(es): 17 implemented, 1 partial, 3 planned. Executed by: 21 direct, 0 definition.
+The area `maintenance` has 21 process(es): 17 implemented, 2 partial, 2 planned. Executed by: 21 direct, 0 definition.
 
 ## The processes of the area
 
@@ -19,7 +19,7 @@ The area `maintenance` has 21 process(es): 17 implemented, 1 partial, 3 planned.
 | BP-MAINTENANCE-06 | Report the work done (technician completes the work task) | The addressed technician opens the work task from the inbox, types what was done (1 to 2000 characters) and completes it through the core... | TASK_WORKER (the technician, addressed by the work order) | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-07 | Close a work order | After the work is reported, a tenant administrator completes the close task from My Tasks. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-08 | Read and list work orders | A tenant administrator lists the orders (filter by status or asset card, newest first, paging) and opens one; the view shows the status r... | TENANT_ADMIN | implemented | direct | no | no | see report |
-| BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. | TENANT_ADMIN | planned | direct | no | no | see report |
+| BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). | TENANT_ADMIN | partial | direct | no | no | see report |
 | BP-MAINTENANCE-10 | Web screens for work orders and My work orders | The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the tas... | TENANT_ADMIN, TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
 | BP-MAINTENANCE-11 | My work orders on the phone app and PWA | The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen... | TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
 | BP-MAINTENANCE-12 | Problem-report export for the PM handoff (platform) | The operator session polls the read-only export with a hash-configured bearer credential; each new problem report (older than the settle... | PM export credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
@@ -43,7 +43,7 @@ A tenant administrator reports a fault on one asset card with a text and an urge
 
 **Steps.**
 
-1. **TENANT_ADMIN**: call `POST /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.create`
+1. **TENANT_ADMIN**: screen `requests/new -> MaintenanceRequestFormPage`, call `POST /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.create`
    Result: 201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied
 
 **Refusals.**
@@ -117,9 +117,9 @@ A tenant administrator lists the requests (newest first, filter by status, pagin
 
 **Steps.**
 
-1. **TENANT_ADMIN**: call `GET /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.list`
+1. **TENANT_ADMIN**: screen `requests -> MaintenanceRequestsPage`, call `GET /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.list`
    Result: 200 with rows and next_cursor
-2. **TENANT_ADMIN**: call `GET /api/v1/modules/maintenance/requests/:id`, function `Letflow.Modules.Maintenance.Requests.get`
+2. **TENANT_ADMIN**: screen `requests/:id -> MaintenanceRequestsPage`, call `GET /api/v1/modules/maintenance/requests/:id`, function `Letflow.Modules.Maintenance.Requests.get`
    Result: 200 with the request view (status, order reference, photo_count)
 3. **TENANT_ADMIN**: call `POST /api/v1/modules/maintenance/requests/:id/reject`, function `Letflow.Modules.Maintenance.Requests.reject`
    Result: 200 with status rejected and the reason; audited
@@ -315,11 +315,20 @@ A tenant administrator lists the orders (filter by status or asset card, newest 
 
 ## BP-MAINTENANCE-09 -- Web screens for work requests
 
-Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only.
+Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). The screens exist in web/src/modules/maintenance and are guarded by MaintenanceRead and MaintenanceRequestCreate; photos on the form and the Reject action are not mapped here and stay planned.
 
 **Actors and their permissions.**
 
 - `TENANT_ADMIN` -- MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)
+
+**Steps.**
+
+1. **TENANT_ADMIN**: call `web: admin/maintenance/requests/new`, function `MaintenanceRequestFormPage`
+   Result: the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page
+2. **TENANT_ADMIN**: call `web: admin/maintenance/requests`, function `MaintenanceRequestsPage`
+   Result: the request list screen opens for a holder of MaintenanceRead
+3. **TENANT_ADMIN**: call `web: admin/maintenance/requests/:id`, function `MaintenanceRequestsPage`
+   Result: the same page opens with one request selected, for a holder of MaintenanceRead
 
 **Runner scenario.**
 
@@ -327,9 +336,10 @@ Report a problem from the asset card, the new-request form with photos, the requ
 
 **Status.**
 
-- implementation: `planned` (requirement: REQ-898)
+- implementation: `partial`
 - UAT: planned -- no runner scenario yet.
 - security: no
+- automation: planned
 
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 
@@ -733,7 +743,9 @@ The operator asked for voice, webhook and old-address inputs. The maintenance mo
 
 ## Orphans (docs/bp/orphans-maintenance.md)
 
-The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-maintenance.md`).
+| function | file:line | what it does | history | why it exists | proposed action |
+|---|---|---|---|---|---|
+| route `admin/maintenance` (container) | `web/src/modules/maintenance/maintenanceRoutes.tsx:16` | parent route of the three request screens; it has no page of its own, it only groups `requests`, `requests/new`, `requests/:id` | REQ-898, commit 6e6c35f7c (#5099) | route nesting in the router, not a user task | keep as a platform function |
 
 ## Gaps of the area
 
