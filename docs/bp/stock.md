@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `stock` has 44 process(es): 43 implemented, 1 partial. Executed by: 44 direct, 0 definition.
+The area `stock` has 44 process(es): 44 implemented. Executed by: 44 direct, 0 definition.
 
 ## The processes of the area
 
@@ -48,7 +48,7 @@ The area `stock` has 44 process(es): 43 implemented, 1 partial. Executed by: 44 
 | BP-STOCK-35 | Old address: count with the four-eyes switch OFF posts at once (security) | Test cases: the storekeeper may not change the switch (403); the administrator switches the quick count approve rule OFF with a reason; a... | SHARED_ACCESS, TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
 | BP-STOCK-36 | Old address: code lookup, microphone call and reads refuse bad input and never write (security) | Test cases: code lookup without a code, with an empty code or blanks is 400 {error: code is required, reason: invalid_request}; an unassi... | TENANT_ADMIN, SHARED_ACCESS | implemented | direct | yes | yes | see report |
 | BP-STOCK-37 | Four-eyes cannot be bypassed by starting a stock posting process directly (security) | A tenant administrator starts a stock write process (receipt, issue, write-off, transfer, hand-over, return, reversal, opening, quick cou... | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
-| BP-STOCK-38 | Four-eyes cannot be bypassed through a sub-process child (security) | A process the tenant made itself, whose sub-process names a stock posting process, is activated and started with a forged posting: the ch... | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-STOCK-38 | Four-eyes cannot be bypassed through a sub-process child (security) | A process the tenant made itself, whose sub-process names a stock posting process, is activated and started with a forged posting: the ch... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-STOCK-39 | Quick count with four-eyes OFF approves only the counter's own count (security) | With the quick count rule OFF the system approves the storekeeper's own count at once (posted) and grants nothing else: the approval acce... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-STOCK-40 | Negative balance rule REFUSED: an issue of more than the balance does not post (security) | On a tenant whose stock ledger setting refuses negative balances, the completion of the Post task of an issue of more than the balance is... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-STOCK-41 | Negative balance rule ALLOWED: the same issue posts below zero | On a tenant whose stock ledger setting allows negative balances, the same issue of more than the balance posts and the balance reads belo... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
@@ -1409,7 +1409,7 @@ A process the tenant made itself, whose sub-process names a stock posting proces
 **Steps.**
 
 1. **TENANT_ADMIN**: call `POST /api/v1/definitions`, `POST /api/v1/definitions/:id/activate`, `POST /api/v1/instances`, `POST /api/v1/definitions/:id/deprecate`, `POST /api/v1/definitions/:id/archive`, function `stock_receipt/post`
-   Result: the child start is refused and nothing is posted; the start answer is 404 as for an unknown process (on QA 2c9dfe611 the route answers 500: defect reported by T-2503)
+   Result: the child start is refused and nothing is posted; the start answer is 404 as for an unknown process (render_create maps the module-only child refusal to 404, T-2633)
 
 **Refusals.**
 
@@ -1421,19 +1421,14 @@ A process the tenant made itself, whose sub-process names a stock posting proces
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/SEC-STOCK-02-sub-process-start-refused.json` (runner id `SEC-STOCK-02`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
-- automation: planned
-
-**Gaps.**
-
-- The start is refused and nothing is written, but the answer is 500 internal_error instead of the 404 of an unknown definition (DEFECT, p1 fix task). The walkthrough SEC-STOCK-02 expects 404; it is parked outside test/uat/processes/ so it is not in the dry-run set, and fails until the defect is fixed.
-- planned scenario: docs/bp/planned/SEC-STOCK-02-sub-process-start-refused.json
+- automation: scripted
 
 ## BP-STOCK-39 -- Quick count with four-eyes OFF approves only the counter's own count (security)
 
@@ -1646,5 +1641,4 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 16 process(es) have no runner scenario: BP-STOCK-03, BP-STOCK-05, BP-STOCK-06, BP-STOCK-07, BP-STOCK-09, BP-STOCK-10, BP-STOCK-11, BP-STOCK-14, BP-STOCK-15, BP-STOCK-17, BP-STOCK-18, BP-STOCK-22, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25, BP-STOCK-38
-- 1 process(es) are not implemented: BP-STOCK-38
+- 15 process(es) have no runner scenario: BP-STOCK-03, BP-STOCK-05, BP-STOCK-06, BP-STOCK-07, BP-STOCK-09, BP-STOCK-10, BP-STOCK-11, BP-STOCK-14, BP-STOCK-15, BP-STOCK-17, BP-STOCK-18, BP-STOCK-22, BP-STOCK-23, BP-STOCK-24, BP-STOCK-25
