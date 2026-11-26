@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `maintenance` has 21 process(es): 17 implemented, 1 partial, 3 planned. Executed by: 21 direct, 0 definition.
+The area `maintenance` has 21 process(es): 17 implemented, 2 partial, 2 planned. Executed by: 21 direct, 0 definition.
 
 ## The processes of the area
 
@@ -19,7 +19,7 @@ The area `maintenance` has 21 process(es): 17 implemented, 1 partial, 3 planned.
 | BP-MAINTENANCE-06 | Report the work done (technician completes the work task) | The addressed technician opens the work task from the inbox, types what was done (1 to 2000 characters) and completes it through the core... | TASK_WORKER (the technician, addressed by the work order) | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-07 | Close a work order | After the work is reported, a tenant administrator completes the close task from My Tasks. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-08 | Read and list work orders | A tenant administrator lists the orders (filter by status or asset card, newest first, paging) and opens one; the view shows the status r... | TENANT_ADMIN | implemented | direct | no | no | see report |
-| BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. | TENANT_ADMIN | planned | direct | no | no | see report |
+| BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). | TENANT_ADMIN | partial | direct | no | no | see report |
 | BP-MAINTENANCE-10 | Web screens for work orders and My work orders | The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the tas... | TENANT_ADMIN, TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
 | BP-MAINTENANCE-11 | My work orders on the phone app and PWA | The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen... | TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
 | BP-MAINTENANCE-12 | Problem-report export for the PM handoff (platform) | The operator session polls the read-only export with a hash-configured bearer credential; each new problem report (older than the settle... | PM export credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
@@ -315,11 +315,20 @@ A tenant administrator lists the orders (filter by status or asset card, newest 
 
 ## BP-MAINTENANCE-09 -- Web screens for work requests
 
-Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. The request screens exist on main (web/src/modules/maintenance/maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id; REQ-898). Why it stays planned (re-checked 2026-11-26 on origin/main): REQ-898 is still pending in the register, the release flag :maintenance_enabled is off on QA (config/config.exs:179) so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.
+Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id) and are guarded by MaintenanceRead and MaintenanceRequestCreate. Why it stays planned (re-checked 2026-11-26 on origin/main): photos on the form, the asset-card entry and the Reject action are not mapped here, the release flag :maintenance_enabled is off on QA so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.
 
 **Actors and their permissions.**
 
 - `TENANT_ADMIN` -- MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)
+
+**Steps.**
+
+1. **TENANT_ADMIN**: call `web: admin/maintenance/requests/new`, function `MaintenanceRequestFormPage`
+   Result: the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page
+2. **TENANT_ADMIN**: call `web: admin/maintenance/requests`, function `MaintenanceRequestsPage`
+   Result: the request list screen opens for a holder of MaintenanceRead
+3. **TENANT_ADMIN**: call `web: admin/maintenance/requests/:id`, function `MaintenanceRequestsPage`
+   Result: the same page opens with one request selected, for a holder of MaintenanceRead
 
 **Runner scenario.**
 
@@ -327,9 +336,10 @@ Report a problem from the asset card, the new-request form with photos, the requ
 
 **Status.**
 
-- implementation: `planned` (requirement: REQ-898)
+- implementation: `partial`
 - UAT: planned -- no runner scenario yet.
 - security: no
+- automation: planned
 
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 

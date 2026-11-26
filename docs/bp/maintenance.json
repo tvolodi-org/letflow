@@ -533,7 +533,7 @@
     "id": "BP-MAINTENANCE-09",
     "area": "maintenance",
     "title": "Web screens for work requests",
-    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. The request screens exist on main (web/src/modules/maintenance/maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id; REQ-898). Why it stays planned (re-checked 2026-11-26 on origin/main): REQ-898 is still pending in the register, the release flag :maintenance_enabled is off on QA (config/config.exs:179) so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.",
+    "description": "Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id) and are guarded by MaintenanceRead and MaintenanceRequestCreate. Why it stays planned (re-checked 2026-11-26 on origin/main): photos on the form, the asset-card entry and the Reject action are not mapped here, the release flag :maintenance_enabled is off on QA so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -543,7 +543,45 @@
     "preconditions": [
       "BP-MAINTENANCE-01..03 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestFormPage"
+        ],
+        "route": "web: admin/maintenance/requests/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:16",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
+        ],
+        "result": "the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
+        ],
+        "result": "the request list screen opens for a holder of MaintenanceRead"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests/:id",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
+        ],
+        "result": "the same page opens with one request selected, for a holder of MaintenanceRead"
+      }
+    ],
     "inputs": [
       "request fields"
     ],
@@ -552,8 +590,9 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-898"
+    "status": "partial",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens."
   },
   {
     "id": "BP-MAINTENANCE-10",

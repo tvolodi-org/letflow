@@ -631,6 +631,7 @@ A shop-floor phone uses the per-tenant address /qoimeks/<slug> with a shared-acc
 **Runner scenario.**
 
 - `test/uat/processes/BP-08-old-app-phone-operations.json` (runner id `BP-08`)
+- `test/uat/processes/BP-10-old-address-retry-by-client-id.json` (runner id `BP-10`)
 
 **Status.**
 

@@ -1,0 +1,434 @@
+{
+  "id": "BP-10",
+  "bp_entry": "BP-STOCK-16",
+  "title": "Old address: retry by client id (receipt, issue, concurrent duplicates, changed data)",
+  "description": "Go-plan W3 (qoimeks-retry, four scenarios), decision 0091 section 9 'Retry by client id', REQ-860, parity G7/G13. The administrator creates the shared access (the process stops if one exists). With its value at the old address the phone reads the catalog and the balance of the first item at the first place, then: posts a receipt of 3 units (201); posts an issue of 1 unit (201); repeats the same issue (same client id and data): 200 with the stored movement, the balance is b0+2, not b0+1; sends the same id with quantity 2: 409 'this operation was already posted with different data' and the balance does not move; sends two identical receipts of 1 unit at the same moment: one 201 and one 200, the balance rises by exactly 1 (b0+3); a receipt without a client id is refused 400 'id is required' and writes nothing. The cleanup reverses the concurrent receipt, the issue and the receipt (the old address completes its own posting tasks), checks the balance is back at b0 and revokes the shared access. Already covered by other files and not repeated: receipt repeat and changed quantity (BP-08, SEC-OLD-05), reversal replay (BP-08, SEC-OLD-05), revoked, rotated and wrong-slug values refused 401 (SEC-OLD-01, SEC-OLD-02), the value refused on the standard API (SEC-OLD-04). NOT RUN here: a request with NO value or a made-up value at the old address (the runner sends the old address only with a saved shared value, and the anonymous actor goes to the run's own address); owner of that row: operator, human-only list. Precondition: no other walk posts at this item and place during the run.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2/api"
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.exists": false,
+          "$.enabled": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/catalog"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.skus[0].id": {
+            "exists": true
+          },
+          "$.locations[0].id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$.skus[0].id",
+        "loc_a": "$.locations[0].id"
+      }
+    },
+    {
+      "id": "s3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "b0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid1}",
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "3",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "receipt",
+          "$.qty": {
+            "equals": "3"
+          }
+        }
+      },
+      "save": {
+        "mov_receipt": "$.id"
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid2}",
+          "kind": "issue",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "1",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "issue",
+          "$.qty": {
+            "equals": "1"
+          }
+        }
+      },
+      "save": {
+        "mov_issue": "$.id"
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "repeat": {
+          "api": "POST",
+          "path": "/movements",
+          "body": {
+            "id": "${uuid2}",
+            "kind": "issue",
+            "sku_id": "${sku_id}",
+            "location_id": "${loc_a}",
+            "qty": "1",
+            "operator": "UAT ${run_id}"
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${mov_issue}",
+          "$.kind": "issue"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 2}"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "id": "${uuid2}",
+          "kind": "issue",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "2",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 409,
+        "json": {
+          "$.error": "this operation was already posted with different data"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 2}"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "parallel": [
+          {
+            "api": "POST",
+            "path": "/movements",
+            "body": {
+              "id": "${uuid3}",
+              "kind": "receipt",
+              "sku_id": "${sku_id}",
+              "location_id": "${loc_a}",
+              "qty": "1",
+              "operator": "UAT ${run_id}"
+            }
+          },
+          {
+            "api": "POST",
+            "path": "/movements",
+            "body": {
+              "id": "${uuid3}",
+              "kind": "receipt",
+              "sku_id": "${sku_id}",
+              "location_id": "${loc_a}",
+              "qty": "1",
+              "operator": "UAT ${run_id}"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "unordered": [
+          {
+            "status": 201
+          },
+          {
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 3}"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/movements?sku_id=${sku_id}&location_id=${loc_a}&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].kind": "receipt",
+          "$[0].qty": 1
+        }
+      },
+      "save": {
+        "mov_concurrent": "$[0].id"
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${loc_a}",
+          "qty": "1",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "id is required"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 3}"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_concurrent}/reverse",
+        "body": {
+          "id": "${uuid5}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      },
+      "requires": [
+        "mov_concurrent"
+      ]
+    },
+    {
+      "id": "c2",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_issue}/reverse",
+        "body": {
+          "id": "${uuid6}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      },
+      "requires": [
+        "mov_issue"
+      ]
+    },
+    {
+      "id": "c3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/movements/${mov_receipt}/reverse",
+        "body": {
+          "id": "${uuid7}",
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      },
+      "requires": [
+        "mov_receipt"
+      ]
+    },
+    {
+      "id": "c4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/balances?sku_id=${sku_id}&location_id=${loc_a}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      },
+      "requires": [
+        "mov_receipt"
+      ]
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}
