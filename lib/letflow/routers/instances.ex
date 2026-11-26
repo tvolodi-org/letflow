@@ -745,6 +745,13 @@ defmodule Letflow.Routers.Instances do
 
   defp render_create(conn, {:error, :definition_not_found}), do: Response.not_found(conn)
 
+  # T-2897 (INV-8): a platform_call step whose call key (its catalogue idempotency inputs, e.g.
+  # the slug) was already used with DIFFERENT arguments is the caller's reuse of a key, the same
+  # refusal a second start with a reused idempotency key gets -- not the detail-free 500 it got
+  # when this tuple fell through to the catch-all below.
+  defp render_create(conn, {:error, {:platform_call_unresolved, _node, :idempotency_key_reuse}}),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
+
   # T-2515 + G-13 (T-2633, security probe): a parent whose SUB_PROCESS node names a child
   # definition that cannot be started gets the SAME refusal a DIRECT start of that definition
   # gets -- the 404 of an unknown definition (the module-only child of T-2515, a name that
