@@ -761,3 +761,13 @@ the tenant's QA host. One line per item (done / already gone / refused (status))
 It ends by re-reading the residue baseline and printing its sha256. Run it ONCE before the next RC regression.
 
 **Stale shared-stock-access (T-2980).** On a QA tenant of the sweep list (`SHARED_ACCESS_SWEEP_TENANTS`, qoimeks-qa2) the runner retires a shared-stock-access object created before the run started (GET exists + created_at older than the run, then DELETE as admin; 404 = already gone) before the first step of any run whose scenarios use that route. The line `retired shared-stock-access (created_at ..., created_by ...)` is logged. The reviewed sweep list can ask for the same with `"shared_stock_access": true`.
+
+## definition-report (T-2982)
+
+Read-only report of the stock process definitions of one QA tenant (every version row with status, owner stamp,
+activation state, creator and times, and one verdict per name: ok / foreign / no-active / dead-newest, the paths of
+`Posting.ensure_active/3`). Use it to read why a stock route answers 409 `definition_not_active`:
+
+    python3 -B scripts/uat/runner.py definition-report --tenant qoimeks-qa2 --admin qoimeks-qa2-admin
+
+Output also goes to `<run-dir>/definition_report.json`. The definitions API has no status-change history.
