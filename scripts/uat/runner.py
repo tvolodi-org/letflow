@@ -1081,7 +1081,8 @@ class Runner:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
             create = None if step.get("refusal_probe") else self._tenant_create(step)
-            if create is not None:
+            refusal = create is not None and self._is_refusal_step(step)
+            if create is not None and not refusal:
                 reason = self._create_skip_reason(step, create)
                 if reason:
                     record.update(verdict="skipped", error=reason)
@@ -1109,6 +1110,9 @@ class Runner:
                             break
                 if reason:
                     label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
+                if refusal and 200 <= status < 300:
+                    # a refusal test that got a 2xx: a tenant WAS created, name it
+                    label += f" (a tenant was created: slug {create.get('slug') or '<none>'}; it is residue)"
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1187,6 +1191,20 @@ class Runner:
         except RunnerError:
             return None  # a name nobody gave: the step itself fails with that error
         return None
+
+    @staticmethod
+    def _is_refusal_step(step) -> bool:
+        """A step that expects only a 4xx and saves nothing cannot create a tenant: --allow-create is not needed."""
+        if step.get("save"):
+            return False
+        if "expect_refused" in step:
+            return True
+        expect = step.get("expect")
+        if not isinstance(expect, dict) or "status" not in expect:
+            return False
+        wanted = expect["status"]
+        wanted = wanted if isinstance(wanted, list) else [wanted]
+        return bool(wanted) and all(isinstance(w, int) and not isinstance(w, bool) and 400 <= w < 500 for w in wanted)
 
     def _create_skip_reason(self, step, body: dict) -> str:
         """Why a tenant must not be created now (empty: it may run)."""

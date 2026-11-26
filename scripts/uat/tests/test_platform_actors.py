@@ -268,6 +268,23 @@ class AllowCreate(TwoServers):
         self.assertIn("already created today", row["error"])
         self.assertEqual(self.platform_state.calls("POST", "/tenants"), [])
 
+    def test_a_refusal_step_runs_without_the_flag(self):
+        process = proc("PLAT", [call("s1", "POST", "/api/v1/tenants", {}, {"status": 403}, actor="platform-admin")])
+        self.platform_state.platform_roles = set()
+        code, _ = self.run_process(process, inputs={}, actors=self.actors(base_url=self.platform_base))
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual(row["verdict"], "pass", row)
+        self.assertEqual(len(self.platform_state.calls("POST", "/tenants")), 1)
+
+    def test_a_refusal_step_that_creates_fails_with_the_slug(self):
+        slug = f"uat-tmp-{TODAY}-7"
+        process = proc("PLAT", [call("s1", "POST", "/api/v1/tenants", {"slug": slug}, {"status": 403}, actor="platform-admin")])
+        code, _ = self.run_process(process, inputs={}, actors=self.actors(base_url=self.platform_base))
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn(slug, row["error"])
+        self.assertNotEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -376,8 +376,11 @@ class H2IsPlayed(FakeServerCase):
         self.assertEqual(0, code)
 
     def test_the_same_step_without_the_mark_is_stopped_by_the_gate(self):
+        # T-2620: a step that expects a 4xx needs no flag; the same call expecting a 2xx is still guarded
         step = self.h2()
         del step["refusal_probe"]
+        step.pop("expect_refused", None)
+        step["expect"] = {"status": 201}
         code, row = self.play(step)
         self.assertEqual([], self.handler.seen)
         self.assertEqual("skipped", row["verdict"])
