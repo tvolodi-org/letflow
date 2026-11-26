@@ -1,0 +1,280 @@
+{
+  "id": "BP-QOIMEKS-REHEARSAL-03",
+  "bp_entry": "BP-STOCK-13",
+  "title": "Client 1 rehearsal 3: the synthetic same-shape set (134 places, 666 items, 600 balances) on a tenant created by the registration process (route 3)",
+  "description": "Walks docs/runbooks/qoimeks-rehearsal.md in its order on a throwaway tenant made by POST /api/v1/onboarding as the platform administrator (the same platform.register_tenant process as POST /admin/v1/tenants; the runner holds no provisioner credential). No idp_realm_id is sent (decision 0072), so the tenant is not loginable and every step that needs the tenant's own administrator is marked blocked_by (counted BLOCKED, not failed) until onboarding-created tenants get a realm (T-2727 provisioner wiring; PM decision). PLAYED: the registration, its completion and the tenant read, and the cleanup (deactivate). BLOCKED, in the runbook order: org master data, allow_negative, check-only runs, load, headers, issue and approve, balances read-back, the quantity compare and the masters compare. The counts compare (qoimeks_compare.sh) needs a database snapshot and stays an operator check; counts are compared only through the API (page_through totals). Synthetic data only (D-050), QA only, nothing on production. Expected values of the played steps follow BP-PLATFORM-01; no record entry exists until a real QA run does. The blocked steps name the actor 'storekeeper' only because the actor roster has no entry for a tenant admin that cannot sign in; they are never sent.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com",
+    "run_within_s": "120"
+  },
+  "residue_check": false,
+  "outputs": {},
+  "steps": [
+    {
+      "id": "r1",
+      "actor": "admin",
+      "says": "Route 3: the platform administrator registers the throwaway Client 1 rehearsal tenant through the registration process (POST /api/v1/onboarding starts platform.register_tenant, the same process as POST /admin/v1/tenants): 202 with an instance id. No idp_realm_id is sent (decision 0072).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid1}",
+          "display_name": "UAT Client 1 rehearsal 3 ${run_id}",
+          "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
+          "admin_email": "reh3-${uuid1}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "active"
+        }
+      },
+      "save": {
+        "instance_id1": "$.instance_id",
+        "slug1": "$.slug"
+      }
+    },
+    {
+      "id": "r2",
+      "actor": "admin",
+      "says": "The registration instance runs to its end (instance reads are uppercase).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_id1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      }
+    },
+    {
+      "id": "r3",
+      "actor": "admin",
+      "says": "The tenant exists and is active (tenant reads are lowercase).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      }
+    },
+    {
+      "id": "m1",
+      "says": "Org master data of the new tenant: legal entity, site, org unit, employee (docs/runbooks/qoimeks-rehearsal.md, 'Minimum master data by API'). NOT PLAYED until the tenant is loginable.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/units",
+        "body": {
+          "idempotency_key": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "org_unit": "$.id",
+        "responsible": "$.id"
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "m2",
+      "says": "Rehearsal step 5: ledger-settings allow_negative on, with its reason.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/ledger-settings/stock",
+        "body": {
+          "allow_negative": true,
+          "reason": "Qoimeks rehearsal: load negative opening balances"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "k1",
+      "says": "Rehearsal step 3, check-only run first: the locations file with dry_run=true (raw xlsx body); nothing is written.",
+      "do": {
+        "upload": {
+          "api": "POST",
+          "path": "/api/v1/entities/records/location_node/import?upsert_by=external_ref&dry_run=true",
+          "file": "generated/client1/01-locations-01.xlsx",
+          "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "raw": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "k2",
+      "says": "Rehearsal step 3: the items file, check-only (dry_run=true).",
+      "do": {
+        "upload": {
+          "api": "POST",
+          "path": "/api/v1/entities/records/catalog_item/import?upsert_by=external_ref&dry_run=true",
+          "file": "generated/client1/03-items-01.xlsx",
+          "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "raw": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "l1",
+      "says": "Rehearsal step 3, the load: locations with atomic=true; the response is kept for the header tool.",
+      "do": {
+        "upload": {
+          "api": "POST",
+          "path": "/api/v1/entities/records/location_node/import?upsert_by=external_ref&atomic=true",
+          "file": "generated/client1/01-locations-01.xlsx",
+          "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "raw": true,
+          "save_response": true
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "h1",
+      "says": "Rehearsal step 4: the converter builds the opening-header bodies from the saved responses.",
+      "do": {
+        "client1_tool": {
+          "tool": "headers",
+          "org_unit_id": "${org_unit}",
+          "responsible_id": "${responsible}"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision",
+      "save": {
+        "doc_id": "$.id"
+      }
+    },
+    {
+      "id": "i1",
+      "says": "Rehearsal step 6: each opening document is issued and its approve task completed (7 documents, positive first, negative last).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/issue",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision",
+      "save": {
+        "doc_id": "$.id"
+      }
+    },
+    {
+      "id": "b1",
+      "says": "Rehearsal step 8: every page of GET /balances is kept for the quantity compare.",
+      "do": {
+        "page_through": {
+          "path": "/api/v1/modules/stock/balances",
+          "items": "rows",
+          "save_as": "balances"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "b2",
+      "says": "Rehearsal step 8: the quantity compare (T-2024): no DIFF, equal hashes.",
+      "do": {
+        "client1_tool": {
+          "tool": "balances_compare"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    },
+    {
+      "id": "b3",
+      "says": "Rehearsal step 9: the masters compare against the records export of the three tables.",
+      "do": {
+        "client1_tool": {
+          "tool": "masters_compare"
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "actor": "storekeeper",
+      "blocked_by": "the new tenant has no realm (POST /api/v1/onboarding without idp_realm_id is 'not yet loginable', decision 0072: Letflow never creates realms), so no tenant admin can sign in; lifted by the task that gives onboarding-created tenants a realm (T-2727 provisioner wiring), PM decision"
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "Deactivate the throwaway tenant (QA cannot purge it).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ]
+}

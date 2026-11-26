@@ -529,6 +529,7 @@ The administrator downloads the whole current stock in the Qoimeks workbook layo
 - `test/uat/processes/BP-06-stock-load-from-excel.json` (runner id `BP-06`)
 - `test/uat/processes/BP-11-excel-load-and-quick-count.json` (runner id `BP-11`)
 - `test/uat/processes/BP-QOIMEKS-P7-dry-run.json` (runner id `BP-QOIMEKS-P7-dry-run`)
+- `test/uat/processes/BP-QOIMEKS-REHEARSAL-03.json` (runner id `BP-QOIMEKS-REHEARSAL-03`)
 
 **Status.**
 
