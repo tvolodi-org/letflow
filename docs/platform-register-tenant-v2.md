@@ -1,8 +1,16 @@
 # `platform.register_tenant` v2 and the system-authority start (design, pilot gap G17c)
 
-Status: DESIGN (T-2734, written 2026-11-24). It describes how to build the change; nothing in it is built yet. The build
-is T-2727. The consumer is the contract amendment of `POST /admin/v1/tenants` (202 + poll), approved by the PM on
-2026-11-24 17:25 with three changes. Its build is T-2728, and section 9 is the part of this design that T-2728 implements.
+Status: BUILT by T-2727 (written 2026-11-24 as T-2734): the v2 definition, its steps, the admission table, the
+system-authority start and decision 0094's Update are implemented, with the tests of section 10 for V2, V4, V5, V8, V9,
+V11, V14 and V16. Still pending (T-2728 / G17d): the front gate and the Sweep (the `Admission` schema is the only part
+built), routes 3 and 4 on the definition with the 202 + poll contract (section 9), and the rows V3, V6, V7, V10, V12,
+V13 and V15. V8/V9 rework (2026-11-25, `docs/design/provision-realm-and-invite-paths.md`): the engine has no runtime
+for a `notify` attribute node (v1 keeps that gap), so v2's `notify` node is a platform step of `tenant.notify_admin`
+that sends the same `tenant_registered` declaration through the notification dispatcher, and a start with
+`notify_admin: true` COMPLETES with the mail delivered; the stored `instance.create` audit row carries no e-mail, realm
+or hostname, and the hostname is masked on the reads like the other two. The consumer is the contract amendment of
+`POST /admin/v1/tenants` (202 + poll), approved by the PM on 2026-11-24 17:25 with three changes; section 9 is the part
+of this design that T-2728 implements.
 Decision record: `docs/migration/decisions/0094-platform-call-authority.md`, amendment "The system-authority start".
 
 **This change adds NO new way to create a tenant.** The tenant row is still written in exactly one place, the body of
@@ -92,7 +100,7 @@ start -> validate -> create -> provision -> record_lifecycle -> record_onboardin
 ```
 
 - Every SERVICE_TASK is a `platform_call` node built by `call_node/3` of `Letflow.PlatformProcesses.Definition`. Its
-  `reads`/`writes` come from the catalogue entry (G13), as in v1. The `notify` node is v1's node, unchanged.
+  `reads`/`writes` come from the catalogue entry (G13), as in v1. The `notify` node calls `tenant.notify_admin` (V8 rework; v1's `notify` attribute node has no engine runtime).
 - The order follows `TenantProvisioner.create/1` (tenant + lifecycle first, then provision, onboarding, grant, realm,
   modules). One difference: `bind_realm` comes before `grant_first_admins`, as in v1. The two steps are independent of
   each other, so the order is free, and v1's order keeps the step ids of the G19 Playwright test.
@@ -131,7 +139,7 @@ match it).
 | 7 | `grant_first_admins` / `tenant.grant_first_admins` CHANGED (`admin_email` becomes optional) | `tenant_id` (step), optional `admin_email` (start) | no `admin_email`: no-op. Otherwise today's body (pending grant in the tenant schema through `PendingAdminGrants.create_provisioned/2`). It ALSO sets `tenant_lifecycles.owner_grant_stored = true` when a lifecycle row exists, so the old path's replay (`ensure_grant/4`) does not store it again after a setting flip | today's codes | the grant waits already: stores nothing (`:duplicate` counts as done) |
 | 8 | `install_default_modules` / `tenant.install_default_modules` (body changed, entry unchanged) | `tenant_id` (step) | no lifecycle row, or `default_modules_state` `not_applicable` / `done`: no-op (operator tenants install nothing, as v1). `pending` / `failed`: the moved `ensure_default_modules/2` of `TenantProvisioner`, which records `done`, or `failed` + `"<module_id>:<code>"` | NEVER fails the instance on an install failure (today's rule, decision 0072 D8: a failed install never fails the create); it fails only with `platform_call_arg_invalid` | `already_installed` counts as done; a `failed` state is retried on the next run of the step (G7 retry, or a route-3 replay, section 9.2) |
 | 9 | `notify_gate` (EXCLUSIVE_GATEWAY) | `notify_admin` | routes 1/2 -> `notify` only when `admin_email` was supplied (`notify_admin == true`), otherwise `end`; routes 3/4 -> `end` (the provisioner sends no mail today, and signup sends its own welcome mail after the create, `Signup.Provisioning.send_welcome/2`) | an undefined `notify_admin` is an evaluation error (instance ERROR); both builders always set it | evaluated again, same edge |
-| 10 | `notify` (v1 node, `tenant_registered` to `admin_email`) | `admin_email`, `name`, `slug` | as v1; the G14 allow-list applies at dispatch | as v1 (`notify_recipient_missing`, the outbound refusals) | one delivery row per attempt (G4) |
+| 10 | `notify` / `tenant.notify_admin` (CHANGED by the V8 rework: a platform step that sends v1's declaration, `tenant_registered` to `admin_email`) | `tenant_id` (step), `admin_email`, `name`, `slug` (start) | the notification dispatcher sends the template; the G14 allow-list applies at dispatch | `platform_call_notify_refused` (allow-list, before the send), `platform_call_notify_failed` (send failed or rate limited), `platform_call_invalid_email` | the delivery log is asked first: a sent notice is not sent again (`docs/design/provision-realm-and-invite-paths.md` N3) |
 
 New refusal codes join the closed failure-kind vocabulary in `docs/platform-steps.md` ("The closed vocabulary of the
 failure kind"): `platform_call_lifecycle_failed`, `platform_call_onboarding_failed`, `platform_call_hostname_taken`,

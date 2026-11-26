@@ -1553,3 +1553,7 @@
 32 test/letflow/webhooks_mapping_test.exs 25708.48
 32 test/scripts/companion_dry_run_test.exs 109867.58
 19 test/letflow/entities/handler_writes_read_test.exs 7433.53
+12 test/letflow/security_probe/g04_canary_detector_test.exs 1000.00
+12 test/letflow/security_probe/g04_http_surfaces_test.exs 11000.00
+12 test/letflow/security_probe/g04_outbound_surfaces_test.exs 6000.00
+12 test/letflow/security_probe/g04_dlq_surface_test.exs 30000.00

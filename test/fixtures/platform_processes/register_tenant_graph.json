@@ -18,20 +18,47 @@
     {
       "id": "e4",
       "source": "provision",
-      "target": "bind_realm"
+      "target": "record_lifecycle"
     },
     {
       "id": "e5",
+      "source": "record_lifecycle",
+      "target": "record_onboarding"
+    },
+    {
+      "id": "e6",
+      "source": "record_onboarding",
+      "target": "bind_realm"
+    },
+    {
+      "id": "e7",
       "source": "bind_realm",
       "target": "grant_first_admins"
     },
     {
-      "id": "e6",
+      "id": "e8",
       "source": "grant_first_admins",
+      "target": "install_default_modules"
+    },
+    {
+      "id": "e9",
+      "source": "install_default_modules",
+      "target": "notify_gate"
+    },
+    {
+      "condition": "variables.notify_admin == true",
+      "id": "e10",
+      "source": "notify_gate",
       "target": "notify"
     },
     {
-      "id": "e7",
+      "id": "e11",
+      "is_default": true,
+      "source": "notify_gate",
+      "target": "end"
+    },
+    {
+      "id": "e12",
       "source": "notify",
       "target": "end"
     }
@@ -70,14 +97,22 @@
             "name": {
               "var": "name"
             },
+            "requested_tenant_id": {
+              "var": "requested_tenant_id"
+            },
             "slug": {
               "var": "slug"
+            },
+            "tenant_type": {
+              "var": "tenant_type"
             }
           },
           "function": "tenant.create",
           "reads": {
             "name": "string",
-            "slug": "string"
+            "requested_tenant_id": "string",
+            "slug": "string",
+            "tenant_type": "string"
           },
           "writes": {
             "tenant_id": "string"
@@ -105,6 +140,50 @@
         }
       },
       "id": "provision",
+      "node_type": "SERVICE_TASK"
+    },
+    {
+      "attributes": {
+        "platform_call": {
+          "args": {
+            "requested_tenant_id": {
+              "var": "requested_tenant_id"
+            },
+            "tenant_id": {
+              "var": "tenant_id"
+            }
+          },
+          "function": "tenant.record_lifecycle",
+          "reads": {
+            "requested_tenant_id": "string",
+            "tenant_id": "string"
+          },
+          "writes": {}
+        }
+      },
+      "id": "record_lifecycle",
+      "node_type": "SERVICE_TASK"
+    },
+    {
+      "attributes": {
+        "platform_call": {
+          "args": {
+            "hostname": {
+              "var": "hostname"
+            },
+            "tenant_id": {
+              "var": "tenant_id"
+            }
+          },
+          "function": "tenant.record_onboarding",
+          "reads": {
+            "hostname": "string",
+            "tenant_id": "string"
+          },
+          "writes": {}
+        }
+      },
+      "id": "record_onboarding",
       "node_type": "SERVICE_TASK"
     },
     {
@@ -153,22 +232,51 @@
     },
     {
       "attributes": {
-        "notify": {
-          "recipient": {
-            "var": "admin_email"
+        "platform_call": {
+          "args": {
+            "tenant_id": {
+              "var": "tenant_id"
+            }
           },
-          "template_key": "tenant_registered",
-          "values": {
-            "registered_by": {
+          "function": "tenant.install_default_modules",
+          "reads": {
+            "tenant_id": "string"
+          },
+          "writes": {}
+        }
+      },
+      "id": "install_default_modules",
+      "node_type": "SERVICE_TASK"
+    },
+    {
+      "id": "notify_gate",
+      "node_type": "EXCLUSIVE_GATEWAY"
+    },
+    {
+      "attributes": {
+        "platform_call": {
+          "args": {
+            "admin_email": {
               "var": "admin_email"
             },
-            "tenant_name": {
+            "name": {
               "var": "name"
             },
-            "tenant_slug": {
+            "slug": {
               "var": "slug"
+            },
+            "tenant_id": {
+              "var": "tenant_id"
             }
-          }
+          },
+          "function": "tenant.notify_admin",
+          "reads": {
+            "admin_email": "string",
+            "name": "string",
+            "slug": "string",
+            "tenant_id": "string"
+          },
+          "writes": {}
         }
       },
       "id": "notify",

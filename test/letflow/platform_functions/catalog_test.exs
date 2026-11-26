@@ -35,9 +35,12 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.validate",
     "tenant.create",
     "tenant.provision",
+    "tenant.record_lifecycle",
+    "tenant.record_onboarding",
     "tenant.bind_realm",
     "tenant.grant_first_admins",
-    "tenant.install_default_modules"
+    "tenant.install_default_modules",
+    "tenant.notify_admin"
   ]
 
   @entry_map_keys [

@@ -377,7 +377,7 @@ export default function RegisterTenantPage() {
           data-testid="realm-client-infra-note"
           style={{ margin: '0 0 1.5rem', fontSize: '.87rem', color: 'var(--text-secondary)' }}
         >
-          The realm and the client for this tenant are created by infra (ADR 0044 Phase 1).
+          The realm and the first administrator of this tenant are created by the process; its progress and step log are shown after you register.
         </p>
 
         <Button

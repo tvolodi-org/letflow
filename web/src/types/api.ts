@@ -74,6 +74,13 @@ export interface SubProcessInterface {
   outputs: SubProcessInterfaceEntry[]
 }
 
+/** T-2811: one declared variable of a definition (the server's `variable_schemas` row). */
+export interface DeclaredVariable {
+  variable_key: string
+  json_schema?: Record<string, unknown> | null
+  description?: string | null
+}
+
 export interface ProcessDefinition {
   id: string
   name: string
@@ -81,6 +88,8 @@ export interface ProcessDefinition {
   description?: string
   status: DefinitionStatus
   graph: DefinitionGraph
+  /** T-2811: the declared variables; present on the single-definition read only. */
+  variable_schemas?: DeclaredVariable[]
   created_by: string
   /** Set for definitions shipped by a module. */
   owner_module?: string | null
@@ -96,6 +105,8 @@ export interface CreateDefinitionRequest {
   stage?: string | null
   /** T-1563: a new draft version keeps the declared variables of this definition (server-side copy). */
   copy_variable_schemas_from?: string
+  /** T-2811: the full list of declared variables (replaces the stored ones; not sent together with the copy). */
+  variable_schemas?: DeclaredVariable[]
 }
 
 // ── Process Instances (Stage 3) ───────────────────────────────────────────────

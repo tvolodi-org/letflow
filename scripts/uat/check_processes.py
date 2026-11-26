@@ -128,6 +128,9 @@ def calls_of(step) -> list:
         out.append(("GET", str(do["assert_only"].get("path", ""))))
     if isinstance(do.get("repeat"), dict):
         out.append((str(do["repeat"].get("api", "")), str(do["repeat"].get("path", ""))))
+    if isinstance(do.get("sweep"), dict):
+        out.append(("GET", "/api/v1/definitions"))
+        out.append(("DELETE", "/api/v1/definitions/${id}"))
     for call in do.get("parallel") or []:
         if isinstance(call, dict):
             out.append((str(call.get("api", "")), str(call.get("path", ""))))
@@ -154,7 +157,14 @@ def saves(step) -> set:
     return {n for n, spec in (step.get("save") or {}).items() if not (isinstance(spec, dict) and "secret" in spec)}
 
 
+ANONYMOUS_ACTOR = "anonymous"  # the public routes: no token, no roster entry, no dry_run user
+
+
 def actors_of(step) -> set:
+    return _actors_of(step) - {ANONYMOUS_ACTOR}
+
+
+def _actors_of(step) -> set:
     found = set()
     if step.get("actor") and not step.get("http_as"):
         found.add(step["actor"])

@@ -3,6 +3,9 @@
  *  children: one input/select/textarea element. Field gives it `id`, `aria-invalid`,
  *  `aria-describedby`, `readOnly` and `disabled` (a child's own props win for id).
  *  width s/m/l sets the field width; omitted = fills the row.
+ *  `group`: the child is a group of controls (a photo picker, a date+time pair) and not one
+ *  control: the label names the group (`aria-labelledby`, the markup of DateTimeField) and the
+ *  group keeps its own chrome, so no control box is drawn around it.
  */
 import React, { useId } from 'react'
 import { AlertCircle } from 'lucide-react'
@@ -24,16 +27,20 @@ export interface FieldProps {
   /** Extra node after the control inside the box (used by Select for its chevron). */
   trailing?: React.ReactNode
   locale?: EntitiesUiLocale
+  /** The child is a group of controls, not one control: the label names the group. */
+  group?: boolean
   'data-testid'?: string
   children: React.ReactElement
 }
 
 export function Field(props: FieldProps): React.ReactElement {
   const { label, hint, error, optional, width, readOnly, disabled, leadingIcon, mono, hideLabel, trailing, children } = props
+  const group = props.group ?? false
   const msgs = useFormMessages(props.locale)
   const autoId = useId()
   const childProps = children.props as { id?: string; 'aria-describedby'?: string }
   const id = childProps.id ?? autoId
+  const labelId = `${id}-label`
   const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const describedBy = [childProps['aria-describedby'], error ? errorId : hint ? hintId : undefined]
@@ -51,26 +58,43 @@ export function Field(props: FieldProps): React.ReactElement {
     id,
     'aria-invalid': error ? true : undefined,
     'aria-describedby': describedBy || undefined,
+    ...(group ? { role: 'group', 'aria-labelledby': labelId } : {}),
     ...(readOnly ? { readOnly: true } : {}),
     ...(disabled ? { disabled: true } : {}),
   } as Record<string, unknown>)
 
   return (
     <div className={fieldClasses.join(' ')} data-testid={props['data-testid']}>
-      <label className={hideLabel ? 'lf-label sr-only' : 'lf-label'} htmlFor={id}>
-        {label}
-        {optional && (
-          <>
-            {' '}
-            <span className="lf-label__opt">{msgs.optional}</span>
-          </>
-        )}
-      </label>
-      <div className={controlClasses.join(' ')} aria-disabled={disabled ? 'true' : undefined}>
-        {leadingIcon && <span className="lf-control__lead">{leadingIcon}</span>}
-        {control}
-        {trailing}
-      </div>
+      {group ? (
+        <span className={hideLabel ? 'lf-label sr-only' : 'lf-label'} id={labelId}>
+          {label}
+          {optional && (
+            <>
+              {' '}
+              <span className="lf-label__opt">{msgs.optional}</span>
+            </>
+          )}
+        </span>
+      ) : (
+        <label className={hideLabel ? 'lf-label sr-only' : 'lf-label'} htmlFor={id}>
+          {label}
+          {optional && (
+            <>
+              {' '}
+              <span className="lf-label__opt">{msgs.optional}</span>
+            </>
+          )}
+        </label>
+      )}
+      {group ? (
+        control
+      ) : (
+        <div className={controlClasses.join(' ')} aria-disabled={disabled ? 'true' : undefined}>
+          {leadingIcon && <span className="lf-control__lead">{leadingIcon}</span>}
+          {control}
+          {trailing}
+        </div>
+      )}
       {error ? (
         <span className="lf-error" id={errorId}>
           <AlertCircle className="lf-icon" aria-hidden="true" />

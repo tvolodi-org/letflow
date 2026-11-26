@@ -452,9 +452,8 @@ if Enum.any?([signup_prov_url, signup_prov_token, signup_hostname_domain], signu
             "The value is not echoed."
   end
 
-  if not signup_enabled do
-    raise "LETFLOW_SIGNUP_PROVISIONER_URL is set but LETFLOW_SIGNUP_ENABLED is not true: refusing to boot."
-  end
+  # T-2781: valid on their own. The pilot wiring (platform.register_tenant creates the tenant's realm)
+  # sets these three with public sign-up OFF; the sign-up routes keep their own flag.
 end
 
 config :letflow, Letflow.Signup,
@@ -647,7 +646,8 @@ provisioner_env =
      LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS
      LETFLOW_PROVISIONER_RETENTION_DAYS LETFLOW_PROVISIONER_DEMO_CAP
      LETFLOW_PROVISIONER_DEMO_ALARM LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES
-     LETFLOW_PROVISIONER_DEFAULT_MODULES LETFLOW_PUBLIC_BASE_URL)
+     LETFLOW_PROVISIONER_DEFAULT_MODULES LETFLOW_PROVISIONER_CREATE_VIA_PROCESS
+     LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS LETFLOW_PUBLIC_BASE_URL)
   |> Map.new(fn name -> {name, System.get_env(name)} end)
 
 case Letflow.TenantProvisioner.Config.parse(provisioner_env, config_env()) do
