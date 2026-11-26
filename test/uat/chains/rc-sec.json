@@ -105,6 +105,10 @@
       "dry_run": true
     },
     {
+      "process": "SEC-STOCK-02",
+      "dry_run": true
+    },
+    {
       "process": "SEC-STOCK-03",
       "dry_run": true
     },
