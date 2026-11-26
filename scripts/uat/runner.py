@@ -1674,8 +1674,9 @@ class Runner:
                 name = item.get("name") if isinstance(item, dict) else None
                 if versions_of is not None:
                     version = item.get("version") if isinstance(item, dict) else None
-                    if name == versions_of and isinstance(version, str) and version.startswith("uat-") \
-                            and marker not in version and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                    # T-2930: EVERY draft of the named definition (an old draft has no uat- version)
+                    if name == versions_of and marker not in str(version) \
+                            and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
                         found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
                 elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
                     found.append((str(item["id"]), name, item.get("status")))
@@ -2857,8 +2858,8 @@ SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platfo
 
 
 def sweep_versions_problem(name, marker):
-    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions starting with uat- are
-    retired (never an active/seeded version, never a version without the uat- prefix)."""
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions (T-2930: whatever their
+    version string) are retired, never an active/seeded version and never another definition."""
     if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
         raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
     if not isinstance(marker, str) or len(marker) < 8:

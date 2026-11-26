@@ -1,0 +1,126 @@
+{
+  "id": "BP-PLATFORM-09-event-retention",
+  "bp_entry": "BP-PLATFORM-09",
+  "title": "Retire the oldest month of event history: READ-ONLY on QA (summary, unknown retirement, refusals)",
+  "description": "The platform administrator reads the retention summary (200, the time it was computed, the number of tenant schemas and of protected records), and is answered 404 for a retirement id that does not exist. A company administrator is refused the summary, the start of a retirement and the read of a retirement with the same fixed 403; a caller without a sign-in gets 401. NOT automated, on purpose: the real start (POST /api/v1/event-retention/retirements) retires the oldest eligible month of the event history of EVERY tenant and it cannot be undone by a script (the month is computed by the system, never supplied, so the runner cannot choose a harmless one); the start, the follow-up of its per-tenant outcomes and the 409 'no eligible month' are covered by test/letflow/routers/event_retention_test.exs. GAP (not invented): the screen EventRetentionPage has no web test and is not run here (screen only). Nothing is created or changed, so there is nothing to clean up and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator reads the retention summary: 200 with the time it was computed and the two counts. The oldest eligible month may be empty, so it is only remembered when there is one.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/summary"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.computed_at": {
+            "exists": true
+          },
+          "$.tenant_schema_count": {
+            "exists": true
+          },
+          "$.protected_record_count": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "eligible_year": {
+          "pick": "$.oldest_eligible_month.year",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A retirement id nobody ever started: 404 (a fresh random id).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/retirements/${uuid1}"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "says": "A company administrator is refused the summary with the fixed 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/summary"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "says": "A company administrator may not START a retirement: refused before anything runs (no body on purpose; nothing can start).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/event-retention/retirements"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "says": "A company administrator asking for a retirement id gets the same 403 as for the summary.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/retirements/${uuid1}"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "anonymous",
+      "says": "Without a sign-in the summary is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/summary"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
