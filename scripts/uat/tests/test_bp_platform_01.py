@@ -467,12 +467,14 @@ class BlockedNeverFails(H2IsPlayed):
         self.assertIn("(X)", rows["S"]["error"])
 
     def test_the_residue_watch_ignores_an_instance_of_a_blocked_step(self):
+        out = io.StringIO()
         r = runner.Runner({"id": "H", "steps": []}, base_url=self.base, tenant="t", actors={}, run_dir=self.run_dir,
-                          inputs={}, poll_interval=0.01, out=io.StringIO())
+                          inputs={}, poll_interval=0.01, out=out)
         r.blocked_saves["inst"] = "why"
         self.assertEqual([], r._watched_instances("t", {"instances": ["${inst}"]}))
-        with self.assertRaises(runner.RunnerError):
-            r._watched_instances("t", {"instances": ["${other}"]})
+        # a name never saved is skipped and said (T-2855), no longer fatal
+        self.assertEqual([], r._watched_instances("t", {"instances": ["${other}"]}))
+        self.assertIn("not saved: ${other}", out.getvalue())
 
     def test_the_scenario_keeps_no_document_check_on_the_platform_tenant(self):
         self.assertIs(False, json.loads(FILE.read_text())["residue_check"])
