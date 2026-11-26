@@ -29,6 +29,11 @@ reaches the log, the recipient and the address of the trap are masked) and a pro
 on the platform tenant (`platform_residue`: the definitions that must be back on their version and the instances
 that must not be left open).
 
+A step may sign in the first administrator of a tenant made during the run (`first_signin`: realm, recipient, mail
+subject; the temporary password is read from the trap, the forced password change is done at the identity
+provider with a password made in memory, the token is kept as a secret under `as`, default `new_admin`, and used
+by later steps with `"bearer": "new_admin"`). None of the passwords, the code or the token is ever written.
+
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
 bp_dryrun capability reads exit 2 as "this runner has no such command yet".
@@ -37,8 +42,13 @@ bp_dryrun capability reads exit 2 as "this runner has no such command yet".
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
+import hashlib
+import html
+import http.cookiejar
 import json
+import math
 import os
 import re
 import secrets
@@ -62,7 +72,13 @@ TOKEN_CMD_TIMEOUT_S = 60
 INBOX_PAGES_MAX = 10
 RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
-DO_KINDS = ("api", "wait_task", "wait_mail", "assert_only", "repeat", "parallel")
+# A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
+ANONYMOUS_ACTOR = "anonymous"
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep")
+# The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
+# password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
+IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
+REALM_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 # The mail trap (Mailpit) a wait_mail step reads: the address of the trap, how long a search may take and
 # how many messages of the search answer are looked at (G18).
 MAIL_TRAP_URL_DEFAULT = "http://127.0.0.1:8025"
@@ -92,6 +108,20 @@ URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+
+
+# The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
+TEMP_PASSWORD_RE = r"(?i)temporary password\s*(?:is)?\s*[:=]?\s*(\S+)"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """The first sign-in reads the Location of a redirect itself (it may point to the app, not to a server)."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_NoRedirect = _NoRedirectHandler()
 
 
 class RunnerError(Exception):
@@ -291,7 +321,7 @@ def wait_time_ok(value) -> bool:
     if isinstance(value, bool):
         return False
     if isinstance(value, (int, float)):
-        return True
+        return math.isfinite(value)
     if not isinstance(value, str):
         return False
     text = value.strip()
@@ -300,10 +330,9 @@ def wait_time_ok(value) -> bool:
     if _PLACEHOLDER.fullmatch(text):
         return bool(_PLACEHOLDER.fullmatch(text).group(1).strip())
     try:
-        float(text)
+        return math.isfinite(float(text))
     except ValueError:
         return False
-    return True
 
 
 # -- JSON path and assertions -------------------------------------------------------------------
@@ -558,6 +587,28 @@ def trap_problem(url: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
+UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
+UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
+CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
+
+
+class Multipart:
+    """A multipart/form-data body, built from bytes. Only `data` goes on the wire; the log gets `summary`."""
+
+    def __init__(self, fields: dict, field: str, filename: str, content: bytes, content_type: str):
+        self.boundary = "----uat" + secrets.token_hex(12)
+        parts = []
+        for name, value in fields.items():
+            parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+        parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+                     f"Content-Type: {content_type}\r\n\r\n".encode())
+        self.data = b"".join(parts) + content + f"\r\n--{self.boundary}--\r\n".encode()
+        self.content_type = f"multipart/form-data; boundary={self.boundary}"
+        self.summary = {"upload": {"field": field, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
     """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
 
@@ -566,7 +617,10 @@ def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S
     data = None
     hdrs = {"Accept": "application/json", "User-Agent": "uat-runner/0"}
     hdrs.update(headers)
-    if body is not None:
+    if isinstance(body, Multipart):
+        data = body.data
+        hdrs["Content-Type"] = body.content_type
+    elif body is not None:
         data = json.dumps(body).encode()
         hdrs.setdefault("Content-Type", "application/json")
     try:
@@ -633,9 +687,11 @@ class Runner:
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
-                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None):
+                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
+                 password_factory=None, upload_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -670,9 +726,12 @@ class Runner:
         self.out = out or sys.stdout
         self.secrets = {}  # in memory only: a value a step saved with {"secret": path}
         self.secret_values = set()
+        # The new password of a first sign-in is made here, in memory (a test may give its own maker).
+        self.password_factory = password_factory or (lambda: "Aa1!" + secrets.token_urlsafe(18))
         self.instance_docs = {}
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
+        self.blocked_saves = {}  # name -> why: the values only a blocked (never run) step would have saved
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
         self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
@@ -793,8 +852,14 @@ class Runner:
     def token_for(self, role: str) -> str:
         return self._token_of(self.actor_spec(role), role)
 
-    def request(self, role, method, path, body=None, headers=None, http_as=None):
+    def request(self, role, method, path, body=None, headers=None, http_as=None, bearer=None, bearer_base=None):
         hdrs = dict(headers or {})
+        if bearer:
+            value = self.secrets.get(bearer)
+            if not value:
+                raise RunnerError(f"bearer {bearer}: no session yet (an earlier login step must make it)")
+            hdrs["Authorization"] = "Bearer " + value
+            return http_call(method, (bearer_base or self.base_url) + path, hdrs, body)
         if http_as:
             value = self.secrets.get(http_as)
             if not value:
@@ -804,6 +869,9 @@ class Runner:
                 raise RunnerError(f"http_as {http_as}: --old-base-url is not set")
             hdrs["Authorization"] = "Bearer " + value
             return http_call(method, self.old_base_url + path, hdrs, body)
+        if role == ANONYMOUS_ACTOR:
+            # The public routes (the sign-up): no token, no Authorization header, the address of the run.
+            return http_call(method, self.base_url + path, hdrs, body)
         base = self.actor_base(role)
         hdrs["Authorization"] = "Bearer " + self.token_for(role)
         result = http_call(method, base + path, hdrs, body)
@@ -845,6 +913,7 @@ class Runner:
                 for call in calls:
                     if call.get("actor") and not call.get("http_as"):
                         roles.add(call["actor"])
+        roles.discard(ANONYMOUS_ACTOR)  # the anonymous caller has no user and no token
         return sorted(roles)
 
     # -- preflight ----------------------------------------------------------------------------
@@ -996,6 +1065,13 @@ class Runner:
         response = None
         secret_step = self._handles_secret(step)
         try:
+            if blocked_reason(step):
+                # a step that waits for a piece that is not built: reported, never run, never a pass
+                return self._blocked_line(record, started, step, blocked_reason(step))
+            waits = [n for n in step.get("requires", []) if n not in self.ctx and n in self.blocked_saves]
+            if waits:
+                # it needs a value that only a blocked step would have saved: blocked too, never skipped
+                return self._blocked_line(record, started, step, self.blocked_saves[waits[0]])
             missing = [n for n in step.get("requires", []) if n not in self.ctx]
             if missing:
                 record.update(verdict="skipped", error="requires " + ", ".join(missing))
@@ -1004,8 +1080,9 @@ class Runner:
             if present:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
-            create = self._tenant_create(step)
-            if create is not None:
+            create = None if step.get("refusal_probe") else self._tenant_create(step)
+            refusal = create is not None and self._is_refusal_step(step)
+            if create is not None and not refusal:
                 reason = self._create_skip_reason(step, create)
                 if reason:
                     record.update(verdict="skipped", error=reason)
@@ -1023,6 +1100,19 @@ class Runner:
                 what = first["what"]
                 label = f"expected {first['expected']} got {first['actual']}" if what == "status" else \
                     f"expected {what} {first['expected']} got {first['actual']}"
+                reason = None
+                if isinstance(body, dict):
+                    # the closed reason: a `limit` code (error "conflict" + limit "demo_cap_reached") wins over `error`
+                    for key in ("limit", "error"):
+                        cand = body.get(key)
+                        if isinstance(cand, str) and re.fullmatch(r"[a-z0-9_]{1,64}", cand):
+                            reason = cand
+                            break
+                if reason:
+                    label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
+                if refusal and 200 <= status < 300:
+                    # a refusal test that got a 2xx: a tenant WAS created, name it
+                    label += self._retire_created_tenant(step, create, body, record)
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1040,9 +1130,22 @@ class Runner:
             record.update(verdict="error", error=f"{type(err).__name__}: {err}")
             return self._finish(record, started, False)
 
+    def _blocked_line(self, record, started, step, why):
+        """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
+        The names it would have saved are blocked as well, so the steps that need them are not run either."""
+        record.update(verdict="blocked", error="not run: blocked by " + why)
+        for name in step.get("save") or {}:
+            self.blocked_saves.setdefault(name, why)
+        return self._finish(record, started, True)
+
+    def _blocked_names(self, text) -> list:
+        """-> the names of a `${...}` text that only a blocked step would have saved (and no step has)."""
+        names = [m.group(1).strip() for m in _PLACEHOLDER.finditer(str(text))]
+        return [n for n in names if n not in self._watch_context() and n in self.blocked_saves]
+
     @staticmethod
     def _handles_secret(step) -> bool:
-        if step.get("http_as"):
+        if step.get("http_as") or step.get("bearer") or "login" in (step.get("do") or {}):
             return True
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
@@ -1088,6 +1191,43 @@ class Runner:
         except RunnerError:
             return None  # a name nobody gave: the step itself fails with that error
         return None
+
+    def _retire_created_tenant(self, step, create, body, record) -> str:
+        """A refusal step got a 2xx: a tenant WAS created. Read its slug from the ANSWER (the request body of a
+        probe such as {} names none), record it on the step line and deactivate it right away (the same route the
+        cleanup of BP-PLATFORM-01 uses); the residue check stays the second net. Returns the text for the label."""
+        slug = None
+        if isinstance(body, dict):
+            inner = body.get("tenant") if isinstance(body.get("tenant"), dict) else {}
+            for cand in (body.get("slug"), inner.get("slug"), create.get("slug")):
+                if isinstance(cand, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", cand):
+                    slug = cand
+                    break
+        if slug is None:
+            return " (a tenant was created but the answer names no slug: it cannot be retired, find it in the registry)"
+        record["created_tenant"] = slug
+        try:
+            status, _, _ = self.request(step.get("actor"), "POST", f"{TENANT_REGISTRY_PATH}/{slug}/deactivate", {})
+            retired = 200 <= status < 300
+        except RunnerError:
+            retired = False
+        record["created_tenant_retired"] = retired
+        return f" (a tenant was created: slug {slug}; " + ("retired by the runner (deactivated)" if retired else
+                                                           "the deactivate FAILED: it is residue") + ")"
+
+    @staticmethod
+    def _is_refusal_step(step) -> bool:
+        """A step that expects only a 4xx and saves nothing cannot create a tenant: --allow-create is not needed."""
+        if step.get("save"):
+            return False
+        if "expect_refused" in step:
+            return True
+        expect = step.get("expect")
+        if not isinstance(expect, dict) or "status" not in expect:
+            return False
+        wanted = expect["status"]
+        wanted = wanted if isinstance(wanted, list) else [wanted]
+        return bool(wanted) and all(isinstance(w, int) and not isinstance(w, bool) and 400 <= w < 500 for w in wanted)
 
     def _create_skip_reason(self, step, body: dict) -> str:
         """Why a tenant must not be created now (empty: it may run)."""
@@ -1135,32 +1275,330 @@ class Runner:
             return [self._wait_task(step, do, record)]
         if "wait_mail" in do:
             return [self._wait_mail(step, do, record)]
+        if "login" in do:
+            return [self._login(step, do, record)]
+        if "first_signin" in do:
+            return [self._first_signin(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
             return self._repeat(role, do["repeat"], times, http_as, record)
+        if "sweep" in do:
+            return [self._sweep(role, do["sweep"], http_as, record)]
+        if "upload" in do:
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            record.update(method=info["method"], path=info["path"], request=info["request"])
+            return [info["result"]]
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        info = self._call(role, spec, http_as)
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        extra = {"bearer": step.get("bearer"), "bearer_base": base}
+        info = self._call(role, spec, http_as, **extra)
+        if "poll" in step:
+            info = self._poll_call(step, do, role, spec, http_as, info, record, extra)
         record.update(method=info["method"], path=info["path"])
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
 
-    def _call(self, role, spec, http_as=None):
+    def _login(self, step, do, record):
+        """Sign in as a user of a realm that exists only since this run started. -> (200, {"signed_in": true}, "{}")
+        or (401, ...) when the identity provider refuses. The token is a secret (never in the log, never in the
+        context); a step that names it as "bearer" calls the API with it."""
+        spec = substitute(do["login"], self.ctx)
+        realm, user, password = spec.get("realm"), spec.get("username"), spec.get("password")
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("login: the realm is not a valid slug")
+        if not (isinstance(user, str) and user and isinstance(password, str) and password):
+            raise RunnerError("login: needs username and password")
+        name = spec.get("as") or "session"
+        self.secret_values.add(password)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        if urllib.parse.urlsplit(idp).scheme != "https":
+            raise RunnerError("login: BPM_IDP_BASE_URL must be https (the password is sent to it)")
+        form = urllib.parse.urlencode({"grant_type": "password", "client_id": "letflow-web",
+                                       "username": user, "password": password}).encode()
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/token")
+        try:
+            req = urllib.request.Request(f"{idp}/realms/{realm}/protocol/openid-connect/token", data=form,
+                                         method="POST", headers={"Content-Type": "application/x-www-form-urlencoded",
+                                                                 "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+        except (OSError, ValueError) as err:
+            raise RunnerError(f"login: the identity provider did not answer ({type(err).__name__})") from None
+        token = None
+        if status == 200:
+            try:
+                token = json.loads(text).get("access_token")
+            except (ValueError, AttributeError):
+                token = None
+        if not isinstance(token, str) or not token:
+            return (status if status != 200 else 502), {"signed_in": False}, "{}"
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    # -- first_signin: the first administrator of a tenant made during the run -------------------
+
+    def _first_signin(self, step, do, record):
+        """Sign in as the first administrator of a tenant created in this run: read the temporary password from
+        the mail trap, do the forced password change of the realm through the login pages of the identity
+        provider (authorization code with PKCE, as the web app does), take the access token of the NEW realm.
+
+        The temporary password, the new password (made here), the code and the token live in memory only: they
+        are registered as secrets before they are used, so the log, the context and the summary never carry them.
+        A step that names the result as "bearer" (default name "new_admin") calls the API with the token. Every
+        refusal is a typed reason (first_signin refused: <reason>); no text of a mail or of an answer of the
+        identity provider is ever put into it."""
+        spec = substitute(do["first_signin"], self.ctx)
+        realm, recipient = spec.get("realm"), str(spec.get("recipient") or "").strip()
+        name = spec.get("as") or "new_admin"
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("first_signin refused: realm_invalid")
+        if not recipient:
+            raise RunnerError("first_signin refused: recipient_missing")
+        username = str(spec.get("username") or recipient)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        parts = urllib.parse.urlsplit(idp)
+        if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost")):
+            raise RunnerError("first_signin refused: idp_not_https")
+        trap = str(spec.get("trap_url") or self.mail_trap_url or "").rstrip("/")
+        if trap_problem(trap):
+            raise RunnerError("first_signin refused: trap_unusable")
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/auth", mail_to=mask_mail_recipient(recipient))
+        within = self._wait_time(spec, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        subject = str(spec.get("subject") or "")
+        message_id, _ = self._await_mail(trap, recipient, subject, bool(spec.get("subject_contains") or not subject),
+                                         within, interval, mask_mail_recipient(recipient))
+        message = self._mail_message(trap, message_id) or {}
+        body = str(message.get("Text") or message.get("text") or "")
+        found = re.search(spec.get("password_pattern") or TEMP_PASSWORD_RE, body)
+        if not found:
+            raise RunnerError("first_signin refused: mail_without_temporary_password")
+        temporary = found.group(1)
+        self.secret_values.add(temporary)
+        new_password = self.password_factory()
+        self.secret_values.add(new_password)
+        token = self._idp_first_login(idp, realm, username, temporary, new_password, spec)
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    def _idp_first_login(self, idp, realm, username, temporary, new_password, spec):
+        """The pages of the identity provider: sign-in form, forced password change, code, token."""
+        client = str(spec.get("client_id") or "letflow-web")
+        redirect = str(spec.get("redirect_uri") or self.base_url + "/")
+        verifier = secrets.token_urlsafe(48)
+        self.secret_values.add(verifier)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), _NoRedirect)
+        endpoint = f"{idp}/realms/{realm}/protocol/openid-connect"
+
+        def go(url, form=None):
+            data = urllib.parse.urlencode(form).encode() if form is not None else None
+            req = urllib.request.Request(url, data=data, method="POST" if data is not None else "GET",
+                                         headers={"Accept": "text/html,application/json"})
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    return answer.status, answer.read().decode("utf-8", "replace"), answer.headers.get("Location")
+            except urllib.error.HTTPError as err:
+                return err.code, err.read().decode("utf-8", "replace"), err.headers.get("Location")
+            except (OSError, ValueError):
+                raise RunnerError("first_signin refused: idp_unreachable") from None
+
+        def action_of(page):
+            match = re.search(r"<form[^>]*\baction=\"([^\"]+)\"", page, re.I)
+            return urllib.parse.urljoin(endpoint + "/", html.unescape(match.group(1))) if match else None
+
+        def code_of(status, location):
+            if status in (301, 302, 303, 307) and location:
+                if location.startswith(redirect):
+                    values = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query).get("code")
+                    return values[0] if values else ""
+            return None
+
+        def follow(status, page, location):
+            for _ in range(5):  # redirects inside the identity provider
+                if status in (301, 302, 303, 307) and location and not location.startswith(redirect):
+                    status, page, location = go(urllib.parse.urljoin(endpoint + "/", location))
+                else:
+                    break
+            return status, page, location
+
+        query = urllib.parse.urlencode({"client_id": client, "response_type": "code", "scope": "openid",
+                                        "redirect_uri": redirect, "state": secrets.token_hex(8),
+                                        "code_challenge": challenge, "code_challenge_method": "S256"})
+        status, page, location = follow(*go(f"{endpoint}/auth?{query}"))
+        action = action_of(page) if status == 200 else None
+        if not action:
+            raise RunnerError("first_signin refused: login_page_missing")
+        status, page, location = follow(*go(action, {"username": username, "password": temporary}))
+        code = code_of(status, location)
+        if code is None:
+            action = action_of(page) if status == 200 else None
+            if not action or "password-new" not in page:
+                raise RunnerError("first_signin refused: temporary_password_rejected")
+            status, page, location = follow(*go(action, {"password-new": new_password,
+                                                         "password-confirm": new_password}))
+            code = code_of(status, location)
+            if code is None:
+                raise RunnerError("first_signin refused: password_policy_refused"
+                                  if status == 200 and "password-new" in page else "first_signin refused: password_change_failed")
+        if not code:
+            raise RunnerError("first_signin refused: no_code")
+        self.secret_values.add(code)
+        form = urllib.parse.urlencode({"grant_type": "authorization_code", "client_id": client, "code": code,
+                                       "redirect_uri": redirect, "code_verifier": verifier}).encode()
+        req = urllib.request.Request(f"{endpoint}/token", data=form, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+        try:
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+            token = json.loads(text).get("access_token") if status == 200 else None
+        except (OSError, ValueError, AttributeError):
+            token = None
+        if not isinstance(token, str) or not token:
+            raise RunnerError("first_signin refused: token_missing")
+        return token
+
+    def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
+        """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
+        runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
+        answer is the one the step is judged on; `polls` says how often the read ran."""
+        conf = substitute(step["poll"], self.ctx)
+        within = self._wait_time(conf, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(conf, "interval_s", 2)
+        deadline = time.monotonic() + within
+        polls = 1
+        while not all(r["ok"] for r in self._assert_calls(step, do, [info["result"]], False)):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(interval)
+            info = self._call(role, spec, http_as, **(extra or {}))
+            polls += 1
+        record["polls"] = polls
+        return info
+
+    def _call(self, role, spec, http_as=None, bearer=None, bearer_base=None):
         """One HTTP call of a step (thread safe): the substituted request and the answer."""
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "body" in spec:
+        if "file" in spec and "field" in spec:  # an upload step: the call is a multipart body
+            body = self._multipart(spec)
+            redacted = body.summary
+        elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
-        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as))
+        result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
+                              bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _upload_file(self, rel: str) -> Path:
+        """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("upload_fixture_path_invalid: the file is a relative name under test/uat/fixtures")
+        if rel.startswith(UPLOAD_GENERATED_PREFIX):
+            import client1_workbook  # stdlib only; next to this file
+            out = self.run_dir / "generated-fixtures"
+            if not (out / "client1").is_dir():
+                client1_workbook.build(out / "client1")
+            path = out / rel[len("generated/"):]
+        else:
+            path = Path(self.upload_dir) / rel
+        if not path.is_file():
+            raise RunnerError(f"upload_fixture_missing: no fixture file {rel}")
+        return path
+
+    def _multipart(self, spec) -> Multipart:
+        field = substitute(spec["field"], self.ctx)
+        if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
+            raise RunnerError("upload: field is a plain form field name")
+        ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
+        if not isinstance(ctype, str) or not CONTENT_TYPE_RE.match(ctype):
+            raise RunnerError("upload: content_type is not a media type")
+        rel = substitute(spec["file"], self.ctx)
+        path = self._upload_file(rel)
+        if path.stat().st_size > UPLOAD_MAX_BYTES:
+            raise RunnerError(f"upload_fixture_too_big: {rel} is over {UPLOAD_MAX_BYTES} bytes")
+        fields = substitute(spec.get("fields") or {}, self.ctx)
+        if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
+                                                   "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
+            raise RunnerError("upload: fields is a map of plain names to one-line values")
+        return Multipart(fields, field, path.name, path.read_bytes(), ctype)
+
+    def _sweep(self, role, spec, http_as, record):
+        """T-2898: retire the throwaway definitions an EARLIER failed run left (a cleanup only knows its own ids).
+        List GET /api/v1/definitions (name filter, paged), keep the names that start with the scenario's throwaway
+        prefix and do not contain this run's marker, DELETE each (the product's own call: draft 204, active and
+        deprecated 200, archived 409, gone 404). One line per definition. A status outside `accept` fails the step;
+        nothing to sweep is '0 swept'. -> (200, {"swept": n, "already_gone": m, "lines": [...]}, text)."""
+        spec = substitute(spec, self.ctx)
+        prefix, marker = spec.get("prefix"), spec.get("exclude_contains")
+        versions_of = spec.get("draft_versions_of")
+        if versions_of is not None:  # T-2917: DRAFT uat-* VERSIONS of one named definition, not uat-tmp-* names
+            sweep_versions_problem(versions_of, marker)
+            prefix = versions_of
+        else:
+            sweep_prefix_problem(prefix, marker)
+        accept = spec.get("accept", SWEEP_ACCEPT)
+        found, cursor = [], None
+        for _ in range(SWEEP_MAX_PAGES):
+            path = "/api/v1/definitions?page_size=200&name=" + urllib.parse.quote(prefix, safe="")
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, _ = self.request(role, "GET", path, http_as=http_as)
+            if status != 200 or not isinstance(body, dict) or not isinstance(body.get("items"), list):
+                raise RunnerError(f"sweep: the list answered {status}, expected 200 with items")
+            for item in body["items"]:
+                name = item.get("name") if isinstance(item, dict) else None
+                if versions_of is not None:
+                    version = item.get("version") if isinstance(item, dict) else None
+                    # T-2930: EVERY draft of the named definition (an old draft has no uat- version)
+                    if name == versions_of and marker not in str(version) \
+                            and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                        found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
+                elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
+                    found.append((str(item["id"]), name, item.get("status")))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+        else:
+            raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
+        lines, swept, gone = [], 0, 0
+        for def_id, name, state in found:
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
+                raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept:
+                raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
+            outcome = "already gone" if status in (404, 409) else "swept"
+            swept += outcome == "swept"
+            gone += outcome != "swept"
+            line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
+            lines.append(line)
+            print(self.scrub(line), file=self.out, flush=True)
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        print(self.scrub(summary), file=self.out, flush=True)
+        record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
+        result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
 
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
@@ -1290,22 +1728,26 @@ class Runner:
         contains = bool(spec.get("subject_contains"))
         within = self._wait_time(spec, "within_s", 60)
         interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        message_id, polls = self._await_mail(trap, recipient, subject, contains, within, interval, shown)
+        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
+                      mail_to=shown, mail_subject=subject, mail_id=message_id)
+        answer = {"to": shown, "subject": subject, "message_id": message_id}
+        return 200, answer, json.dumps(answer, ensure_ascii=False)
+
+    def _await_mail(self, trap, recipient, subject, contains, within, interval, shown):
+        """-> (message id, polls) of the first mail to the recipient with the subject, or a timeout RunnerError."""
         deadline = time.monotonic() + within
         polls, message_id, problem = 0, None, None
         while True:
             polls += 1
             message_id, problem = self._find_mail(trap, recipient, subject, contains)
             if message_id:
-                break
+                return message_id, polls
             if time.monotonic() >= deadline:
                 detail = f" ({problem})" if problem else ""
                 raise RunnerError(f"timeout: no mail to {shown} with the subject {subject!r} "
                                   f"in {within:g} s, {polls} polls{detail}")
             time.sleep(interval)
-        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
-                      mail_to=shown, mail_subject=subject, mail_id=message_id)
-        answer = {"to": shown, "subject": subject, "message_id": message_id}
-        return 200, answer, json.dumps(answer, ensure_ascii=False)
 
     @staticmethod
     def _wait_time(spec, key, default):
@@ -1315,9 +1757,12 @@ class Runner:
             return float(default)
         value = spec[key]
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             raise RunnerError(f"wait_mail {key} must be a number, got {value!r}") from None
+        if not math.isfinite(number):
+            raise RunnerError(f"wait_mail {key} must be a finite number, got {value!r}")
+        return number
 
     def _find_mail(self, trap, recipient, subject, contains=False):
         """-> (message id, None) when the trap holds a mail to the recipient with the subject; (None, why) otherwise.
@@ -1488,12 +1933,17 @@ class Runner:
             steps_ok = False
             self.write_line({"phase": "inputs", "step": "inputs", "actor": "-", "verdict": "error", "ms": 0,
                              "error": "inputs missing: " + ", ".join(missing)})
+        failed_step = None
         for step in process["steps"] if steps_ok else []:
             if steps_ok:
                 steps_ok = self.run_step(step, "step")
+                if not steps_ok:
+                    failed_step = step["id"]
+            elif blocked_reason(step) or any(n in self.blocked_saves for n in step.get("requires", [])):
+                self.run_step(step, "step")  # a blocked step is reported as blocked, whatever failed before it
             else:
                 self.write_line({"phase": "step", "step": step["id"], "actor": step.get("actor") or "-",
-                                 "verdict": "skipped", "error": "an earlier step failed", "ms": 0})
+                                 "verdict": "skipped", "error": f"an earlier step failed ({failed_step})", "ms": 0})
         if steps_ok:
             try:
                 for name, expr in (process.get("outputs") or {}).items():
@@ -1611,7 +2061,10 @@ class Runner:
             if group["tenant"] not in wanted and not other:
                 continue  # the process of this tenant turned the check off
             out.append({"tenant": group["tenant"], "base_url": group["base_url"], "actors": group["actors"],
-                        "plain": any(not spec.get("tenant") for spec in group["actors"].values()),
+                        # the document check only where the process keeps the check on for the tenant: the
+                        # platform tenant holds no business documents (its own check is the platform one)
+                        "plain": group["tenant"] in wanted
+                        and any(not spec.get("tenant") for spec in group["actors"].values()),
                         "platform": sorted(other, key=lambda r: (0 if "platform" in r else 1, r))})
         return out
 
@@ -1730,10 +2183,14 @@ class Runner:
             if entry["tenant"] == tenant and entry["instance_id"] not in [i["instance_id"] for i in out]:
                 out.append(entry)
         for name in watch["instances"]:
+            if self._blocked_names(name):
+                continue  # the step that saves it was never run (blocked): there is no instance to watch
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
-                raise RunnerError(f"the platform_residue block names an unknown instance: {name}") from None
+                # a step that saves it never ran (an earlier step failed): there is nothing to watch, say so
+                print(f"not saved: {name}", file=self.out, flush=True)
+                continue
             if instance_id and instance_id not in [i["instance_id"] for i in out]:
                 out.append({"instance_id": instance_id, "tenant": tenant, "base_url": None, "role": None})
         return out
@@ -2219,7 +2676,10 @@ class Runner:
             f"- steps: {'pass' if steps_ok else 'FAIL'}   cleanup: {'pass' if cleanup_ok else 'FAIL'}",
             f"- cleanup mode: {self.cleanup_mode}",
             f"- tenant residue: {'pass' if residue_ok else 'FAIL'}",
-            f"- verdict: **{'PASS' if ok else 'FAIL'}**",
+            f"- steps not run (blocked_by): {sum(1 for r in self.records if r.get('verdict') == 'blocked')}",
+            f"- verdict: **{'PASS' if ok else 'FAIL'}**"
+            + (f" ({sum(1 for r in self.records if r.get('verdict') == 'blocked')} steps NOT RUN, blocked)"
+               if any(r.get('verdict') == 'blocked' for r in self.records) else ""),
         ]
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
@@ -2276,6 +2736,32 @@ def refuse_placeholders(text: str, source) -> None:
         raise ConfigError(f"{source}: placeholder {match.group()!r} is not allowed; use an input or a fixture")
 
 
+SWEEP_ACCEPT = [200, 204, 404, 409]
+SWEEP_MAX_PAGES = 50
+SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
+
+
+def sweep_prefix_problem(prefix, marker):
+    """Refuse a sweep that could reach a real definition: the prefix is a whole uat-tmp-<kind>- and this run's
+    marker is a real run id (never empty, or the sweep would also take this run's own definitions)."""
+    if not isinstance(prefix, str) or not SWEEP_PREFIX_RE.fullmatch(prefix):
+        raise RunnerError("sweep: prefix must be a throwaway prefix of the form uat-tmp-<kind>-")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
+SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platform.register_tenant
+
+
+def sweep_versions_problem(name, marker):
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions (T-2930: whatever their
+    version string) are retired, never an active/seeded version and never another definition."""
+    if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
+        raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
@@ -2289,9 +2775,32 @@ def validate_step(step, where) -> None:
     kind = kinds[0]
     if kind == "api":
         validate_call(do, where)
+    elif kind == "upload":
+        spec = do["upload"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("path", "field", "file")):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file")
+        if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
+            raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
+    elif kind == "login":
+        spec = do["login"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "username", "password")):
+            raise ConfigError(f"{where}: login needs a realm, a username and a password")
+        if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
+            raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
+    elif kind == "first_signin":
+        spec = do["first_signin"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "recipient")):
+            raise ConfigError(f"{where}: first_signin needs a realm and a recipient")
+        for key in ("password", "new_password"):
+            if key in spec:
+                raise ConfigError(f"{where}: first_signin takes no {key}: the temporary password comes from the "
+                                  "mail and the new one is made by the runner")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2318,17 +2827,51 @@ def validate_step(step, where) -> None:
         times = do.get("times", 2)
         if not isinstance(times, (int, str)) or (isinstance(times, int) and times < 2):
             raise ConfigError(f"{where}: repeat needs times of at least 2")
+    elif kind == "sweep":
+        spec = do["sweep"]
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
+                                            or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
+            raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
+        if "draft_versions_of" not in spec and isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
+                not SWEEP_PREFIX_RE.fullmatch(spec["prefix"]):
+            raise ConfigError(f"{where}: sweep prefix must be of the form uat-tmp-<kind>-")
+        if spec.get("exclude_contains") != "${run_id}":
+            raise ConfigError(f"{where}: sweep exclude_contains must be ${{run_id}}")
+        if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
+                                      and all(isinstance(c, int) for c in spec["accept"])):
+            raise ConfigError(f"{where}: sweep accept is a list of status codes")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:
             raise ConfigError(f"{where}: parallel is a list of 2 to 6 calls")
         for call in calls:
             validate_call(call, where)
+    if "poll" in step:
+        conf = step["poll"]
+        if kind not in ("api", "assert_only") or not isinstance(conf, dict) or (
+                kind == "api" and str(do["api"]).upper() != "GET") or "expect" not in step:
+            raise ConfigError(f"{where}: poll is an object on a GET step with an expect")
+        for key in ("within_s", "interval_s"):
+            if key in conf and not wait_time_ok(conf[key]):
+                raise ConfigError(f"{where}: poll {key} must be a number")
     for key in ("requires", "skip_if"):
         if key in step and not (isinstance(step[key], list) and all(isinstance(n, str) for n in step[key])):
             raise ConfigError(f"{where}: {key} is a list of names")
+    if "blocked_by" in step and not (isinstance(step["blocked_by"], str) and step["blocked_by"].strip()):
+        raise ConfigError(f"{where}: blocked_by is a non-empty text (what the step waits for)")
+    if "refusal_probe" in step and step["refusal_probe"] is not True:
+        raise ConfigError(f"{where}: refusal_probe can only be true")
+    if "refusal_probe" in step and "expect_refused" not in step:
+        raise ConfigError(f"{where}: refusal_probe belongs on an expect_refused step")
     if "http_as" in step and step["http_as"] != "shared_access":
         raise ConfigError(f"{where}: http_as can only be shared_access")
+    if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
+        raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
+                                      and step.get("bearer")):
+        raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
     if "http_as" not in step and not step.get("actor"):
         raise ConfigError(f"{where}: every step needs id, actor and do")
     if "expect_refused" in step and "expect" in step:
@@ -2456,7 +2999,7 @@ def load_chain(path) -> tuple:
         process = load_process(found)
         why = blocked_reason(process)
         if why:
-            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (never run)", flush=True)
+            print(f"chain: SKIPPED {process['id']}: blocked_by {why} (not run: {len(process.get('steps') or [])} step(s))", flush=True)
             continue
         processes.append(process)
     if not processes:
@@ -2650,6 +3193,9 @@ def refuse_retired(retired_map, tenant, actors, base_urls=(), docs=()):
 
 
 def blocked_reason(doc):
+    if isinstance(doc, dict) and "do" in doc:  # a step: its own blocked_by marker
+        reason = doc.get("blocked_by")
+        return reason if isinstance(reason, str) and reason.strip() else None
     block = doc.get("dry_run") if isinstance(doc, dict) else None
     reason = block.get("blocked_by") if isinstance(block, dict) else None
     return reason if isinstance(reason, str) and reason.strip() else None
@@ -2715,12 +3261,12 @@ def cmd_dry_run(args, out=None) -> int:
         doc = json.loads(path.read_text(encoding="utf-8"))
         why = blocked_reason(doc)
         if why:
-            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (never run)", file=out)
+            print(f"dry-run: SKIPPED {path.name}: blocked_by {why} (not run: {len(doc.get('steps') or [])} step(s))", file=out)
         else:
             runnable.append(path)
     files = runnable
     if not files:
-        print("dry-run: PASS (every file is blocked: nothing to run)", file=out)
+        print("dry-run: NOT RUN (every file is blocked: nothing was run, this is not a pass)", file=out)
         return 0
     entries = []
     for path in files:
@@ -2827,6 +3373,12 @@ def build_parser():
                      help="let a step create a tenant (POST /api/v1/tenants); without it the step is skipped")
     dry.add_argument("--mail-trap-url", help="the mail trap (Mailpit) a wait_mail step reads "
                                             "(default env MAIL_TRAP_URL or " + MAIL_TRAP_URL_DEFAULT + ")")
+    sweep = sub.add_parser("residue-sweep", help="reverse the documents and complete the tasks of a reviewed list on ONE QA tenant (T-2869)")
+    sweep.add_argument("list_file", help="e.g. test/uat/sweeps/residue-sweep-qoimeks-qa2.json")
+    sweep.add_argument("--tenant", required=True)
+    sweep.add_argument("--base-url")
+    sweep.add_argument("--base-url-template")
+    sweep.add_argument("--run-dir")
     return parser
 
 
@@ -2872,11 +3424,12 @@ def main_run(args) -> int:
         needed |= {c["actor"] for p in fixtures + processes for s in p["steps"] + (p.get("cleanup") or [])
                    for c in s["do"].get("parallel", []) if c.get("actor")}
         needed.discard(None)
+        needed.discard(ANONYMOUS_ACTOR)  # the anonymous caller needs no mapping
         if needed - actors.keys():
             raise ConfigError("actors missing in --actors: " + ", ".join(sorted(needed - actors.keys())))
         for p in processes:
             if p["id"] in overrides:
-                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None}
+                need = {s.get("actor") for s in p["steps"] + (p.get("cleanup") or []) if not s.get("http_as")} - {None, ANONYMOUS_ACTOR}
                 if need - overrides[p["id"]]["actors"].keys():
                     raise ConfigError(f"{p['id']}: actors missing for its tenant: " + ", ".join(sorted(need - overrides[p["id"]]["actors"].keys())))
         check_chain_inputs(processes, set(inputs), fixtures, chain.get("pass"), overrides)
@@ -2940,6 +3493,10 @@ def main(argv=None) -> int:
         return main_cleanup(args)
     if args.command == "dry-run":
         return cmd_dry_run(args)
+    if args.command == "residue-sweep":
+        import residue_sweep
+
+        return residue_sweep.main(args, sys.modules[__name__])
     return main_run(args)
 
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Bounded standard backend CI (T-2155); full suites only on schedule/dispatch.
 
-stdin: changed paths. stdout: mode, reason, skip_shards, selected_count, deferred_count.
+stdin: changed paths. stdout: mode, reason, skip_shards, selected_count, deferred_count,
+reserved_count.
 --plan-out writes explicit partition/test lines; --deferred-out lists budget overflow.
 Standard runs keep the textual two-hop module map, source scans, conventional pairs,
 config-selected module tests and explicit sensitive-path families. Global pins are
@@ -15,14 +16,37 @@ missing manifest, kill switch, red-main repair) now use bounded safety coverage.
 An unrecoverable selector error exits nonzero; CI must never run without a plan.
 --nightly-log-dir compares real failure headings with a successful standard push
 plan at the same SHA and emits selector miss lines with the test name.
+
+T-2691: the whole-tree source scans (the "real tree" scans: a test that reads a whole
+tree of the backend source and pins it) are MANDATORY for a diff that touches the backend
+source, and the stamp opener scan is mandatory whenever the diff adds or changes a query
+call site or touches a file of its @dynamic_sql_files list. A scan that is only a
+candidate is deferred to the nightly run when the budget is exceeded, and a deferred scan
+is a scan that does not run: main went red on 0d2bbf8b5 because the stamp opener scan ran
+only in the extended run. Every whole-tree reader is a member of that class, including a
+file that also holds database-backed cases: the scan itself is a pure function of the
+tree. A member reads a whole tree directly (a recursive glob over a backend-source root or
+subtree, however the path is assembled: one literal, or a `**` token plus a root literal of
+the same definition) or through a helper module of lib/ that walks a tree. A fixed-depth
+reader (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) is not recursive and is not a
+member. A scan of the handoff tree is not a member (it is outside the backend source).
+A mandatory check is never omitted, so the file cap and the per-partition target budget
+the optional candidates only; the whole run's budget is the hard bound.
 """
 import argparse
 import glob
 import math
 import os
+import posixpath
 import re
 import subprocess
 import sys
+
+# The helper-module index of a tree, cached per root: the class derivation reads it for
+# every test file, and the tree does not change while the selector runs.
+_HELPER_INDEX = {}
+# The backend-source roots a helper names, cached per helper module.
+_HELPER_ROOTS = {}
 
 # T-2638 (G-11): the security probes are the mechanical half of the security gates. A change to
 # a probe (or to the triage list it reads) therefore gets the high-risk coverage: a gate that
@@ -104,6 +128,7 @@ STANDARD_BP_DOC_TEST = [
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
+# G-04: the canary/taint harness (detector with seeded failing cases; HTTP surfaces).
 # G-11: the route inventory and the secret scanner must run on the REAL tree, not only on the
 # fake checkouts their own tests use.
 STANDARD_SECURITY_PROBE_TESTS = [
@@ -126,7 +151,85 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
     "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
     "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
+    "test/letflow/security_probe/g04_canary_detector_test.exs",
+    "test/letflow/security_probe/g04_http_surfaces_test.exs",
+    "test/letflow/security_probe/g04_outbound_surfaces_test.exs",
+    "test/letflow/security_probe/g04_dlq_surface_test.exs",
+    "test/letflow/security_probe/g04_artifact_surfaces_test.exs",
+    "test/letflow/security_probe/g14_refusal_mapping_matrix_test.exs",
 ]
+# T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole
+# tree of the backend source and pins it (an allowlist, a ledger or a count). A diff that
+# touches the tree can break such a pin, so the scan is a MANDATORY check of a
+# backend-source diff: as a mere CANDIDATE it is deferred to the nightly run when the
+# budget is exceeded, and that is how ~21 non-literal SQL sites merged unseen (T-2689;
+# main went red on 0d2bbf8b5 because the stamp opener scan ran only in the extended run).
+# The class is DERIVED from the tree, never a hand list, so a scan that lands later is
+# covered on the day it lands.
+#
+# The class does NOT exclude a scan whose file also holds database-backed cases: the scan
+# itself is a pure function of the tree, and the file that carries it is still a whole-tree
+# reader (T-2691 rework: `write_handler_registration_surface_test.exs` reads every
+# `lib/**/*.ex` and pins the allowed write-handler callers; it was excluded only because the
+# file also uses `Letflow.DataCase`, so a forbidden caller could merge unseen).
+#
+# A member reads a whole tree in one of TWO ways, and both count:
+#   * directly: a recursive glob over a backend-source root or subtree ("lib/**",
+#     "priv/**/*", "lib/letflow/modules/**/*"), also when the `**` is a token of its own
+#     and the root another literal of the definition (`["lib", "**", "*.ex"]`,
+#     `Path.join([root, dir, "**", "*.ex"])` with `@roots ["lib", "priv"]`);
+#   * through a helper: the test calls a module of lib/ that walks a tree, and the roots
+#     that helper scans lie in the backend source (the review's counterexample:
+#     `Scan.scan(["lib", "priv/modules"])` in the role-scope-grants writer scan, whose
+#     helper reads every file under those roots). A helper-backed scan is a whole-tree
+#     reader exactly like a direct one, so it belongs to the class (T-2691 rework 2).
+# A fixed-depth reader (`lib/letflow/ledger*.ex`, `priv/modules/*/pack.json`) is not
+# recursive and is not a member. A scan of a tree OUTSIDE the backend source (the handoff
+# tree) is not a member: a backend-source diff cannot break its pin. The test tree counts
+# as backend source because it contains `test/support/`.
+# The `/**` marker of a whole-tree glob, and the path characters that may precede it.
+# The root is the path before the marker, so the pattern stays linear: a nested-quantifier
+# pattern over every source file is quadratic and the class derivation reads the tree.
+WHOLE_TREE_GLOB_MARKER_RE = re.compile(r"/\*\*")
+PATH_TAIL_RE = re.compile(r"[A-Za-z0-9_./-]*$")
+# A root written relative to the test file: `Path.expand("../../../lib/x", __DIR__)`. The
+# literal names no backend-source prefix until it is resolved against the test's directory.
+EXPAND_ROOT_RE = re.compile(r'Path\.expand\(\s*"([^"\n]*)"\s*,\s*__DIR__\s*\)')
+# The other spellings of a recursive glob: the `**` is a token of its own in a path chain
+# (`Path.join([root, dir, "**", "*.ex"])`, `["lib", "**", "*.ex"]`, `@lib |> Path.join("**/*.ex")`),
+# so the root is a different literal of the same definition (T-2691 rework 3).
+GLOB_TOKEN_RE = re.compile(r'"(?:[^"\\]*/)?\*\*(?:/[^"]*)?"')
+UNIT_START_RE = re.compile(r"^  (?:defp?|test|describe|setup|@)\b", re.M)
+ATTRIBUTE_REF_RE = re.compile(r"@([a-z_]\w*)")
+STRING_LITERAL_RE = re.compile(r'"([^"\n]*)"')
+# A module alias in a test file: `alias Full.Name` or `alias Full.Name, as: Short`.
+ALIAS_RE = re.compile(
+    r"^\s*alias\s+([A-Z][A-Za-z0-9_.]*)(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?", re.M
+)
+# A call of an aliased or fully qualified module: `Short.fun(args)`.
+MODULE_CALL_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\.([a-z_][A-Za-z0-9_?!]*)\(([^()]*)\)"
+)
+# A list literal in a source file: `[ "lib", "priv" ]` (the roots a helper scans).
+HELPER_LIST_RE = re.compile(r"\[([^\[\]]*)\]")
+# A single-valued module attribute: `@default_dir "test"` (another way a helper names a root).
+HELPER_ATTRIBUTE_RE = re.compile(r"@\w+\s+\"([^\"]*)\"")
+# A directory literal: a relative path whose last segment has no file extension.
+DIRECTORY_LITERAL_RE = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
+# The roots the whole-tree scans read: lib/ (the sources), priv/ (migrations and seeds),
+# config/, scripts/ and test/support/ (four of the scans read the support tree as well,
+# so a change there can break their pin).
+BACKEND_SOURCE_PREFIXES = ("lib/", "priv/", "config/", "scripts/", "test/support/")
+BACKEND_SOURCE_RE = re.compile(
+    "^(?:%s)" % "|".join(re.escape(prefix) for prefix in BACKEND_SOURCE_PREFIXES)
+)
+# A query call site: Repo.query / Repo.query! / SQL.query / Ecto.Adapters.SQL.query, piped
+# or not. The scan counts a receiver variable (`repo.query!`) as well, so the lower case
+# name is here too.
+SQL_CALL_RE = re.compile(r"\b(?:Repo|repo|SQL|sql|Ecto\.Adapters\.SQL)\s*\.\s*query!?\s*\(")
+# The stamp opener scan: the mined instance of the class (T-2689). Its oracle is its own
+# @dynamic_sql_files list, read from the scan itself.
+DYNAMIC_SQL_SCAN_TEST = "test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
 # G-09: the test files a tenant-migration change must run. The list is the reviewed expectation
 # of the migration impact runner (test/support/migration_impact.ex): the manifest-position pins,
 # the tenant table oracle comparisons and the manifest replay / existing-row cases. The probe
@@ -525,6 +628,289 @@ def safety_tests(all_tests):
     ) & set(all_tests)
 
 
+def attribute_block(text, name):
+    """The body of a module attribute list (`@name [ ... ]`), or None when there is none."""
+    m = re.search(r"@" + re.escape(name) + r"\s*\[", text)
+    if not m:
+        return None
+    depth = 0
+    for i in range(m.end() - 1, len(text)):
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                return text[m.end():i]
+    return None
+
+
+def whole_tree_scan_tests(all_tests, root):
+    """The whole-tree source scans: a test that reads a whole tree of the backend source.
+
+    Such a scan is a pure function of the tree, so a diff that touches the tree can break
+    its pin. Derived from the tree, so a scan that lands later is covered on the day it
+    lands. A file that also holds database-backed cases is still a member: the exclusion of
+    such files left real whole-tree scans deferrable (T-2691 rework).
+
+    A member reads a whole tree either directly (a glob over a backend-source root) or
+    through a helper module of `lib/` that walks a tree (T-2691 rework 2: the role-scope-
+    grants writer scan calls `Scan.scan(["lib", "priv/modules"])`, so its wildcard lives in
+    the called scanner and not in the test source; a literal-only discovery left that scan
+    deferrable and its pin unverified).
+    """
+    scans = set()
+    for path in all_tests:
+        text = read(os.path.join(root, path)) or ""
+        if not text:
+            continue
+        if (whole_tree_glob_roots(text) or chain_glob_roots(text)
+                or expand_glob_roots(text, path) or indirect_tree_roots(text, root)):
+            scans.add(path)
+    return scans
+
+
+def source_root(literal):
+    """The backend-source root a directory literal names, or None.
+
+    A literal that names a file (its last segment has an extension) is not a root, and a
+    root outside the backend source (the handoff tree, the web tree) is not a root of this
+    class: a backend-source diff cannot break the pin of a scan of another tree. A root
+    that CONTAINS a domain root ("test" contains "test/support/") is one: the tree it
+    reads overlaps the backend source.
+    """
+    if not DIRECTORY_LITERAL_RE.match(literal):
+        return None
+    if "." in literal.rsplit("/", 1)[-1]:
+        return None
+    if BACKEND_SOURCE_RE.match(literal + "/"):
+        return literal
+    if any(prefix.startswith(literal + "/") for prefix in BACKEND_SOURCE_PREFIXES):
+        return literal
+    return None
+
+
+def expand_glob_roots(text, path):
+    """The backend-source roots of a recursive glob whose root is `Path.expand(rel, __DIR__)`.
+
+    The relative literal is resolved against the test file's directory; the definition must
+    also hold a `**` token and a `wildcard` call, so a single-file read through the same
+    form is not a member (T-2691 rework 4: the token-issuer, TA-audit-path and version-
+    binding scans were deferrable).
+    """
+    if "**" not in text or "wildcard" not in text:
+        return set()
+    roots = set()
+    for rel in EXPAND_ROOT_RE.findall(text):
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), rel))
+        root = source_root(resolved)
+        if root:
+            roots.add(root)
+    return roots
+
+
+def whole_tree_glob_roots(text):
+    """The backend-source roots a source file reads as a whole tree (`lib/**` -> "lib")."""
+    roots = set()
+    for m in WHOLE_TREE_GLOB_MARKER_RE.finditer(text):
+        tail = PATH_TAIL_RE.search(text, 0, m.start())
+        if not tail or not tail.group(0):
+            continue
+        # The path is a glob root only when a quote opens it: a mention of a tree in a
+        # message ("expected no lib/letflow_web/** files touched") is not a read.
+        if tail.start() == 0 or text[tail.start() - 1] not in "\"'":
+            continue
+        root = source_root(tail.group(0))
+        if root:
+            roots.add(root)
+    return roots
+
+
+def definition_units(text):
+    """The text split into top-level definitions (a function, a test, an attribute)."""
+    starts = [m.start() for m in UNIT_START_RE.finditer(text)]
+    if not starts:
+        return [text]
+    return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
+
+
+def chain_glob_roots(text):
+    """The backend-source roots of a recursive glob spelled as a chain of tokens.
+
+    A definition that calls `Path.wildcard` and holds a `**` token reads a whole tree; the
+    root is a directory literal of the same definition or of a module attribute it names
+    (`@roots ["lib", "priv"]`, `@lib Path.join(File.cwd!(), "lib")`). The text marker alone
+    left three scans of lib/ and priv/ outside the class (T-2691 rework 3).
+    """
+    if "**" not in text or "wildcard" not in text:
+        return set()
+    units = definition_units(text)
+    attributes = {}
+    for unit in units:
+        m = re.match(r"\s*@([a-z_]\w*)\b", unit)
+        if m:
+            attributes[m.group(1)] = unit
+    roots = set()
+    for unit in units:
+        if "wildcard" not in unit or not GLOB_TOKEN_RE.search(unit):
+            continue
+        literals = STRING_LITERAL_RE.findall(unit)
+        for name in ATTRIBUTE_REF_RE.findall(unit):
+            literals.extend(STRING_LITERAL_RE.findall(attributes.get(name, "")))
+        for literal in literals:
+            root = source_root(literal)
+            if root:
+                roots.add(root)
+    return roots
+
+
+def helper_module_index(root):
+    """The modules of lib/ and test/support/ that walk a tree, by name, with their file.
+
+    Only a tree-walking module can be the helper of a whole-tree reader, so the index
+    holds those alone (cached per root: the tree does not change while the selector runs).
+    """
+    key = os.path.abspath(root)
+    cached = _HELPER_INDEX.get(key)
+    if cached is not None:
+        return cached
+    index = {}
+    for pattern in ("lib/**/*.ex", "test/support/**/*.ex"):
+        for path in sorted(glob.glob(os.path.join(root, pattern), recursive=True)):
+            text = read(path)
+            if not text or not walks_a_tree(text):
+                continue
+            for module in DEFMODULE_RE.findall(text):
+                index.setdefault(module, path)
+    _HELPER_INDEX[key] = index
+    return index
+
+
+def walks_a_tree(text):
+    """True when a module walks a tree: a `Path.wildcard` over a `**` pattern."""
+    return "Path.wildcard" in text and '"**' in text
+
+
+def indirect_tree_roots(text, root):
+    """The backend-source roots a test reads as a whole tree through a helper module.
+
+    The helper must be a module of lib/ (or of test/support/) that walks a tree; the roots
+    it scans are the ones its source names (in a list: `@default_roots`, the `for dir <-`
+    of a comprehension, ...) and the ones the test passes to the call.
+    """
+    aliases = {}
+    for full, short in ALIAS_RE.findall(text):
+        aliases[short or full.rsplit(".", 1)[-1]] = full
+    index = helper_module_index(root)
+    roots = set()
+    for module, _function, arguments in MODULE_CALL_RE.findall(text):
+        target = aliases.get(module)
+        if target is None and "." in module:
+            target = module
+        if target is None:
+            matches = [v for k, v in aliases.items() if k.rsplit(".", 1)[-1] == module]
+            target = matches[0] if matches else None
+        if not target or target not in index:
+            continue
+        helper = read(index[target]) or ""
+        if not walks_a_tree(helper):
+            continue
+        roots.update(helper_source_roots(target, helper))
+        argument = arguments.strip()
+        if argument.startswith("["):
+            candidates = re.findall(r'"([^"]*)"', argument)
+        elif argument.startswith("@"):
+            block = attribute_block(text, argument[1:])
+            candidates = re.findall(r'"([^"]*)"', block) if block else []
+        else:
+            candidates = []
+        for candidate in candidates:
+            scanned = source_root(candidate)
+            if scanned:
+                roots.add(scanned)
+    return roots
+
+
+def helper_source_roots(module, helper):
+    """The backend-source roots a helper names in its source (cached per module).
+
+    The cache is keyed by the module name: the source is read again on every call, and
+    the identity of a temporary string is not stable (the allocator reuses it), so a key
+    built from it can return another module's roots.
+    """
+    key = module
+    cached = _HELPER_ROOTS.get(key)
+    if cached is not None:
+        return cached
+    roots = set()
+    candidates = []
+    for match in HELPER_LIST_RE.finditer(helper):
+        candidates.extend(re.findall(r'"([^"]*)"', match.group(1)))
+    candidates.extend(HELPER_ATTRIBUTE_RE.findall(helper))
+    for candidate in candidates:
+        scanned = source_root(candidate)
+        if scanned:
+            roots.add(scanned)
+    _HELPER_ROOTS[key] = roots
+    return roots
+
+
+def dynamic_sql_files(root, scan_test=DYNAMIC_SQL_SCAN_TEST):
+    """The files the stamp opener scan pins as dynamic-SQL sites.
+
+    Read from the scan itself (the authority), never from a hand list: the scan's
+    `@dynamic_sql_files` block with its module attributes resolved.
+    """
+    text = read(os.path.join(root, scan_test)) or ""
+    block = attribute_block(text, "dynamic_sql_files")
+    if block is None:
+        return set()
+    body = "\n".join(line.split("#", 1)[0] for line in block.splitlines())
+    attrs = dict(re.findall(r'@(\w+)\s+"([^"]+)"', text))
+    files = set()
+    for name, literal in re.findall(r'@(\w+)|"([^"]+)"', body):
+        if name:
+            if name in attrs:
+                files.add(attrs[name])
+        elif literal:
+            files.add(literal)
+    return files
+
+
+def sql_call_sites(text):
+    """The query call sites of a source file (`Repo.query`, `SQL.query`, ...)."""
+    return [m.group(0) for m in SQL_CALL_RE.finditer(text)]
+
+
+def dynamic_sql_trigger(changed, root, scan_test=DYNAMIC_SQL_SCAN_TEST):
+    """True when the diff can change the stamp opener scan's oracle.
+
+    A diff that adds or changes a `Repo.query` / `SQL.query` / `Ecto.Adapters.SQL.query`
+    call, or that touches a file of the scan's `@dynamic_sql_files` list, can add or remove a
+    dynamic-SQL site: the scan must then run in the bounded plan and may not be deferred to
+    the nightly run (T-2689: ~21 non-literal SQL sites merged unseen).
+    """
+    pinned = dynamic_sql_files(root, scan_test)
+    for path in changed:
+        if path in pinned:
+            return True
+        if not BACKEND_SOURCE_RE.match(path) or not path.endswith((".ex", ".exs")):
+            continue
+        text = read(os.path.join(root, path))
+        if text and sql_call_sites(text):
+            return True
+    return False
+
+
+def whole_tree_scan_required(changed, all_tests, root):
+    """The whole-tree source scans the diff can break: MANDATORY, never deferred."""
+    if not any(BACKEND_SOURCE_RE.match(p) for p in changed):
+        return set()
+    scans = whole_tree_scan_tests(all_tests, root)
+    if dynamic_sql_trigger(changed, root):
+        scans.add(DYNAMIC_SQL_SCAN_TEST)
+    return scans & set(all_tests)
+
+
 def inventory_tests(changed, all_tests, root):
     """Explicit input/file map, including removed files and nested module routers."""
     required = set()
@@ -560,6 +946,10 @@ def inventory_tests(changed, all_tests, root):
             required.update(RAW_SQL_TESTS)
     if any(ACTIVATION_SOURCE_RE.search(p) for p in changed):
         required.update(activation_tests(root))
+    # T-2691: the whole-tree source scans pin the tree they read, so a backend-source diff
+    # may break them. They are mandatory checks, not candidates: a deferred scan is a scan
+    # that does not run until the nightly job.
+    required.update(whole_tree_scan_required(changed, all_tests, root))
     return required & set(all_tests)
 
 
@@ -637,6 +1027,13 @@ def bounded_plan(selected, changed, weights, args, all_tests):
     and the changed module next, then at most three related families. Unknown timings
     cost 15 seconds rather than the old optimistic median. A mandatory pin that cannot
     fit fails selection; CI must not silently omit its fixed checks.
+
+    T-2691: the file cap and the per-partition target budget the OPTIONAL candidates. A
+    reserved check is never omitted, so it is admitted even when it does not fit the
+    target of its bin (the whole-tree scans are reserved and the heaviest of them is
+    slower than the target) and even when the optional file cap is reached. The hard
+    bound is the whole run's budget: a reserved set that does not fit it fails the
+    selection, which is loud, instead of being omitted.
     """
     required = safety_tests(all_tests) | inventory_tests(changed, all_tests, args.root)
     if any(FLOOR_LIB_RE.search(p) for p in changed):
@@ -662,22 +1059,46 @@ def bounded_plan(selected, changed, weights, args, all_tests):
         return 4
 
     bins = [[0.0, []] for _ in range(args.shards * args.per_shard)]
-    deferred, families, admitted = [], set(), 0
-    # Never admit the whole corpus, even in a small synthetic repository.
-    limit = min(args.standard_max_tests, max(0, len(all_tests) - 1))
+    # The optional candidates' own account per bin: the reserved weight is not charged
+    # against the per-partition target that measures them (T-2691 rework), or a heavy
+    # high-risk check would lose its place to the reserved set.
+    optional_load = {id(b): 0.0 for b in bins}
+    optional_weight = 0.0
+    deferred, families, optional_admitted = [], set(), 0
+    # The optional file cap: never admit the whole corpus, even in a small synthetic
+    # repository. The reserved set is admitted on top of it (T-2691), so it is never
+    # omitted to keep the plan under the cap.
+    optional_limit = min(args.standard_max_tests, max(0, len(all_tests) - 1))
+    # The whole run's budget: the sum of the per-partition targets. A reserved check may
+    # overrun its own partition's target, never the whole run's budget.
+    capacity = len(bins) * args.target_ms
+    reserved_weight = 0.0
     for t in sorted(selected, key=lambda t: (priority(t), -(weights.get(t) or 15000), t)):
         weight = max(1000.0, weights.get(t) or 15000.0)
         b = min(bins, key=lambda b: (b[0], len(b[1])))
         family = module_of(t) or t.split("/")[2]
         extra_family = priority(t) == 4 and family not in families and len(families) >= 3
-        if admitted >= limit or b[0] + weight > args.target_ms or extra_family:
-            if t in required:
+        if t in required:
+            # A reserved check is never omitted: it is admitted even when it does not fit
+            # its partition's target and even when the optional file cap is reached. The
+            # whole run's budget is the hard bound.
+            if reserved_weight + weight > capacity:
                 raise ValueError("mandatory global check does not fit standard budget: " + t)
+            b[0] += weight
+            b[1].append(t)
+            reserved_weight += weight
+            continue
+        if (optional_admitted >= optional_limit
+                or optional_load[id(b)] + weight > args.target_ms
+                or reserved_weight + optional_weight + weight > capacity
+                or extra_family):
             deferred.append(t)
             continue
         b[0] += weight
+        optional_load[id(b)] += weight
+        optional_weight += weight
         b[1].append(t)
-        admitted += 1
+        optional_admitted += 1
         if priority(t) == 4:
             families.add(family)
     # Compact the active bins so idle shards remain the tail.
@@ -685,7 +1106,7 @@ def bounded_plan(selected, changed, weights, args, all_tests):
     lines = ["%d %s" % (i, t) for i, (_, fs) in enumerate(bins, 1) for t in sorted(fs)]
     active = math.ceil(len(bins) / args.per_shard)
     skip = [str(k) for k in range(active + 1, args.shards + 1)]
-    return lines, skip, sorted(deferred)
+    return lines, skip, sorted(deferred), len(required)
 
 
 def main():
@@ -734,7 +1155,7 @@ def main():
         except Exception as e:
             selected = safety_tests(all_tests) | risk_tests(changed, all_tests, args.root)
             reason = "bounded safety set after selection error: %s: %s" % (type(e).__name__, e)
-        lines, skip, deferred = bounded_plan(selected, changed, weights, args, all_tests)
+        lines, skip, deferred, reserved = bounded_plan(selected, changed, weights, args, all_tests)
         if selected and not lines:
             raise ValueError("no tests fit standard budget")
         for path, output in ((args.plan_out, lines), (args.deferred_out, deferred)):
@@ -747,6 +1168,9 @@ def main():
         print("skip_shards=" + " ".join(skip))
         print("selected_count=%d" % len(lines))
         print("deferred_count=%d" % len(deferred))
+        # T-2691: the reserved checks (the fixed pins and the whole-tree scans) are never
+        # deferred and are admitted on top of the optional file cap.
+        print("reserved_count=%d" % reserved)
     except Full as e:
         print("mode=full")
         print("reason=" + str(e))

@@ -14,7 +14,9 @@ defmodule Letflow.PlatformProcesses.RegistrationMask do
   The hidden set of the engine is grant-driven (entity field grants). This
   module adds the registration labels to a caller's hidden set unless the
   caller holds `:TenantsManage`, and supplies the labels, which the start does
-  not store, at read time. It acts only in the platform tenant's schema, the
+  not store, at read time. The hostname is the third such value (T-2727 V9), and
+  the stored `instance.create` audit row carries none of the three
+  (`scrub_stored/2`). It acts only in the platform tenant's schema, the
   only place `platform.register_tenant` lives, so a tenant's own variable named
   `admin_email` is untouched.
 
@@ -26,7 +28,9 @@ defmodule Letflow.PlatformProcesses.RegistrationMask do
 
   @labels %{
     "admin_email" => ["platform_registration.admin_email"],
-    "realm_id" => ["platform_registration.realm_id"]
+    "realm_id" => ["platform_registration.realm_id"],
+    # T-2727 (V9): the hostname of the new tenant is masked like the e-mail and the realm.
+    "hostname" => ["platform_registration.hostname"]
   }
 
   # The value maps of a stored event payload and the label field of each
@@ -106,6 +110,21 @@ defmodule Letflow.PlatformProcesses.RegistrationMask do
     else
       entry
     end
+  end
+
+  @doc """
+  The STATE an audit row is written with, with the registration values replaced
+  by the redaction placeholder when the schema is the platform tenant's
+  (T-2727, finding V9). The engine stores the whole instance row (its
+  `variables`) as the `instance.create` row's `after_state`; in the platform
+  tenant that row would otherwise keep the e-mail, the realm and the hostname of
+  the registration for every reader. A tenant's own variables of the same names,
+  in a company schema, are untouched. The audit READ masks again
+  (`mask_audit_states/3`), which is a no-op on a scrubbed row.
+  """
+  @spec scrub_stored(term(), String.t() | nil) :: term()
+  def scrub_stored(state, prefix) do
+    if applies?(prefix), do: scrub(state), else: state
   end
 
   defp scrub(%{} = map) when not is_struct(map) do

@@ -1,0 +1,9 @@
+{
+  "description": "Residue found by the rc-sec dry run dry-run-20261126T071004Z (T-2542 attempt 14) on sss-rehearsal2 (T-2884): the posted quick count QCT-2026-000038. No step of rc-sec creates it (its quick counts are 0619c8e0.., b80a3f6b.., 77c3556b.., all reversed by their cleanups) and the rc-sss run does not either (its count is 0a5b5fe1..): it is a sibling session's. A posted quick count is reversed by the generic reverse route (Posting.reverse/6 has no kind filter); the sweep completes the Reverse task it opens. Run once: python3 -B scripts/uat/runner.py residue-sweep test/uat/sweeps/residue-sweep-sss-rehearsal2-qct38.json --tenant sss-rehearsal2",
+  "tenant": "sss-rehearsal2",
+  "admin": "sss-rehearsal2-admin",
+  "documents": [
+    {"number": "QCT-2026-000038", "id": "efc1a55c-519e-4304-973e-2b60b47cf9bd"}
+  ],
+  "tasks": []
+}

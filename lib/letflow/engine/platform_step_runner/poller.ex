@@ -27,6 +27,8 @@ defmodule Letflow.Engine.PlatformStepRunner.Poller do
   def handle_info(:tick, state) do
     # A cycle that fails is counted by the runner and tried again on the next tick.
     _ = PlatformStepRunner.run_tick()
+    # T-2810: the notification steps of every tenant ride the same ticker.
+    _ = Letflow.Engine.NotifyStepRunner.run_tick()
     Process.send_after(self(), :tick, poll_interval_ms())
     {:noreply, state}
   rescue

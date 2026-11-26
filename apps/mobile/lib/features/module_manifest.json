@@ -3,6 +3,9 @@
     "codes": {
       "depends_on": []
     },
+    "maintenance": {
+      "depends_on": []
+    },
     "stock": {
       "depends_on": ["codes"]
     }
