@@ -4,6 +4,7 @@
   "title": "Exam: write the question bank",
   "description": "The exam author (tenant administrator) builds a small question bank: creates a category and a question, replaces the question as a whole, then deletes the question and the category (leaf first); the cleanup repeats the removals if a step failed, so the tenant is left as found. Only the administrator acts: the refusal of a role without the authoring permission is BP-EXAM-07. Not played here: answer options (on the dry-run tenant the administrator may not write the restricted field is_correct, 403 restricted fields) and the tree and lineage refusals (the active category definition on the dry-run tenant does not yet declare parent_id).",
   "tenant": "${tenant}",
+  "residue_check": false,
   "inputs": [],
   "defaults": {
     "missing_id": "00000000-0000-4000-8000-000000000000"

@@ -4,6 +4,7 @@
   "title": "Exam: build an exam (author side)",
   "description": "The exam author (tenant administrator) creates an exam in draft with its pass mark, attempts, time limit and tab-leaving policy, adds a section and a random question rule that draws one question of a category, changes the exam as a whole (time limit 45), and sees an exam with a status outside the list refused. Everything is removed again, rule first, then section, exam and category. The exam stays draft so no candidate can start it. Not covered at API level: assigning the exam to a candidate (no route, see the gaps in the BP-EXAM-02 entry) and pinned questions (they need a question from BP-EXAM-01 kept alive; the rule step shows the same write path).",
   "tenant": "${tenant}",
+  "residue_check": false,
   "inputs": [],
   "defaults": {},
   "dry_run": {
