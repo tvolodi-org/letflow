@@ -85,7 +85,8 @@
     "outputs": ["exam id", "the exam in status draft or active"],
     "refusals": ["same as BP-EXAM-01: 403 without the permission, uniform 404 for an unknown type or another tenant's record"],
     "scenario": "test/uat/processes/BP-EXAM-02-build-an-exam.json",
-    "status": "partial"
+    "status": "partial",
+    "gap": "WHY PARTIAL: the builder write path is played by the scenario (draft exam, section, rule, edit, refusal, cleanup); the last task (assign the exam to a candidate) has no route, so it cannot be played. Pinned questions are not walked (they need a live BP-EXAM-01 question). Owner: PM/product owner decides the assignment route and screen; a developer task builds it, then a step is added here."
   },
   {
     "id": "BP-EXAM-03",
@@ -124,7 +125,8 @@
       "an exam_id that is not a UUID is answered like an exam that is not active (422)"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "gap": "WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. After it merges, add the scenario: assign, list available, start, 409 on a second start; cleanup needs a withdraw route for the assignment too."
   },
   {
     "id": "BP-EXAM-04",
@@ -178,7 +180,8 @@
       "a body with a candidate id, a score or an action_taken is not read (there is no such parameter)"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "gap": "WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs BP-EXAM-03 for an open session. Browser-only signals (tab switch, full screen) are posted to the events route by a script, but the deadline needs a session with a short time limit."
   },
   {
     "id": "BP-EXAM-05",
@@ -224,7 +227,8 @@
       "an answer already graded, on the grade route: 409"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "gap": "WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs a submitted session with a short-text answer (BP-EXAM-03/04). Graded answers have no undo: a disposable tenant or a re-run-tolerant assertion is needed."
   },
   {
     "id": "BP-EXAM-06",
@@ -268,7 +272,8 @@
       "grading still pending, session not submitted, exam without certificates, session not passed: 409 with a distinct text each"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "gap": "WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs a passed session; issuing a certificate has no undo route, so the cleanup must be decided with the owner."
   },
   {
     "id": "BP-EXAM-07",
