@@ -608,6 +608,11 @@ How to run the RC:
 whose name starts with the throwaway prefix `uat-tmp-<kind>-` and does not contain this run's id, listed through
 `GET /api/v1/definitions?name=<prefix>` paged; one line per definition, `accept` default 200/204/404/409, any other
 status fails; give it `expect: {status: 200}`),
+`{page_through: {path, page_size?, cursor?: "next_cursor", items?: "items", max_pages?}}` (T-2941: follows the cursor
+of a list route, at most 15 pages; per page status 200 and `count` (when present) equal to the items returned, else
+the step errors; the answer is the collected `{items, pages, truncated}`; the step's `expect` may also carry
+`age_at_least: {seconds, field?: created_at}` (no item old enough = the step is NOT RUN, "inconclusive: no old
+rows", never a pass) and `unique_ids: true | <field>` (no id twice across pages)),
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
