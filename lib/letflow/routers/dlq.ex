@@ -67,6 +67,18 @@ defmodule Letflow.Routers.Dlq do
   `Ecto.Changeset.t()` in that union), so this router's `case` is already
   exhaustive over the real contract.
 
+  ## The retry of a step failure (pilot gap G7)
+
+  An entry that names a step failure of the pilot's step library (a platform
+  step or a notification step) is wired to the retry of that step: the row's
+  own transition happens first and the step is run again afterwards
+  (`Letflow.Dlq.retry/2`). That retry is a PLATFORM act -- it runs a platform
+  function again -- so it carries an extra check the route's own
+  `:DlqOperate` permission does not give: the caller must be in the platform
+  tenant AND hold `:PLATFORM_ADMIN` there. A `:PROCESS_OPERATOR` (which holds
+  `:DlqOperate`) is refused with a 403 for a step entry and keeps the old
+  behaviour for every other entry.
+
   ## Response allowlist (INV-2)
 
   `dlq_entry_json/1` is a hand-built allowlist over every `Letflow.Dlq.Entry`
@@ -87,6 +99,8 @@ defmodule Letflow.Routers.Dlq do
   alias Letflow.Api.Response
   alias Letflow.Dlq
   alias Letflow.Dlq.Entry
+  alias Letflow.Instances.StepRetry
+  alias Letflow.PlatformTenant
 
   authz_get "/", :DlqReadRetryDiscard do
     handle_list(conn)
@@ -168,11 +182,41 @@ defmodule Letflow.Routers.Dlq do
 
   # ── POST /dlq/:id/retry, POST /dlq/:id/discard (design §6) ────────────────
 
+  # The retry of a STEP failure (pilot gap G7) is a platform act: it runs a
+  # platform function again, and only the platform admin may do that. The
+  # `:DlqOperate` permission of this route is wider than that (it is held by
+  # `:PROCESS_OPERATOR` too), so the step entries carry an EXTRA check: the
+  # caller must be in the platform tenant AND hold `:PLATFORM_ADMIN` there
+  # (`Letflow.PlatformTenant.scope_facts_for/1` recomputes both facts from
+  # the server-resolved context -- never from a stored flag).
+  #
+  # The refusal is a 403 with a fixed detail: the entry's own state says
+  # whether it names a step, so the answer does not depend on what the caller
+  # may see.
   defp handle_retry(conn, id, opts) do
-    id
-    |> Dlq.retry(opts)
-    |> handle_write_result(conn)
+    with {:ok, entry} <- Dlq.get(id, opts) do
+      if StepRetry.retryable_entry_type?(entry.entry_type) and
+           not platform_scope?(Map.get(conn.assigns, :auth_context)) do
+        Response.forbidden(conn, "forbidden")
+      else
+        id
+        |> Dlq.retry(opts)
+        |> handle_write_result(conn)
+      end
+    else
+      {:error, :not_found} -> Response.not_found(conn)
+      {:error, :invalid_id} -> Response.not_found(conn)
+    end
   end
+
+  # The platform scope of the caller: the platform tenant AND `:PLATFORM_ADMIN`
+  # in it. A hand-assigned context without the keys stays fail-closed (both
+  # facts false), so a caller that is not the platform admin is refused.
+  defp platform_scope?(auth_context) when is_map(auth_context) do
+    PlatformTenant.scope_facts_for(auth_context).platform_scope?
+  end
+
+  defp platform_scope?(_other), do: false
 
   defp handle_discard(conn, id, opts) do
     id

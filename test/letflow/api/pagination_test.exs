@@ -154,6 +154,33 @@ defmodule Letflow.Api.PaginationTest do
       assert {:ok, %Cursor{}} = Pagination.decode_cursor(encoded, "T:", 2)
     end
 
+    test "timestamp-key cursors expire from mint time even when their sort key is old" do
+      sort_timestamp = System.system_time(:microsecond) - 2 * 86_400_000_000
+      minted_25_hours_ago = System.system_time(:microsecond) - 25 * 3_600_000_000
+
+      expired =
+        Pagination.build_raw_cursor_timestamp_key(
+          "T:",
+          minted_25_hours_ago,
+          "task-1",
+          sort_timestamp
+        )
+        |> Pagination.encode_cursor()
+
+      assert Pagination.decode_cursor(expired, "T:", 2) == {:error, :expired}
+
+      fresh =
+        Pagination.build_raw_cursor_timestamp_key(
+          "T:",
+          System.system_time(:microsecond),
+          "task-1",
+          sort_timestamp
+        )
+        |> Pagination.encode_cursor()
+
+      assert {:ok, %Cursor{}} = Pagination.decode_cursor(fresh, "T:", 2)
+    end
+
     test "honours a custom expiry_window_us narrower than the default" do
       five_seconds_ago = System.system_time(:microsecond) - 5_000_000
       raw = Pagination.build_raw_cursor("T:", five_seconds_ago, "task-1")

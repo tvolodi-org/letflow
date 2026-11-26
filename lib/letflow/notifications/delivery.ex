@@ -10,7 +10,10 @@ defmodule Letflow.Notifications.Delivery do
   import Ecto.Changeset
 
   @statuses ~w(sent failed skipped)
-  @reasons ~w(no_email adapter_noop adapter_error)
+  # `rate_limited` (T-2592, pilot gap G4): the send was refused by the outbound
+  # send cap of the tenant, so nothing left the platform. The row says only THAT
+  # -- never the address, never the body (INV-4).
+  @reasons ~w(no_email adapter_noop adapter_error rate_limited)
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "notification_deliveries" do

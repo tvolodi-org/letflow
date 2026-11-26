@@ -65,38 +65,58 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   # TEST-DESIGNER for GH #2596 (the first run of this assertion printed exactly these sixteen);
   # adding a file here is a reviewed diff. `stamp.ex` is listed because the design names it; its
   # own queries are literals, so it is not currently found.
+  #
+  # T-2693: every entry below carries EXACTLY ONE safety reason, and the per-site table (every
+  # dynamic-SQL site of the tree, with the reason it is safe) is in
+  # `docs/security-probes/dynamic-sql-sites.md`. The shorthand in the reasons: (M) module-attribute
+  # constants only, (I) a quoted identifier whose value is a server-derived name, (B) bound
+  # parameters, (F) Postgres `format` on bound values.
   @dynamic_sql_files [
+    # listed by the design for GH #2596; its own statements are literals, so the scan finds no site in it.
     @stamp,
+    # (M) module-attribute constants only: the two `SET LOCAL` timeouts.
     "lib/letflow/engine.ex",
+    # (I+B) the registered column names are quoted as identifiers; every value is bound.
     "lib/letflow/entities/record/live_projection.ex",
+    # (I+B) the tenant schema and the `DDL.valid_identifier?`-checked table name are quoted; values are bound.
     "lib/letflow/entities/record/projector.ex",
+    # (M) module-attribute constants only: the two `SET LOCAL` timeouts.
     "lib/letflow/entities/step_writes.ex",
+    # (I+B) the tenant schema and this module's own partition/constraint names are quoted; values are bound where DDL allows it.
     "lib/letflow/event_store/partition_maintenance.ex",
+    # (M+I+B) module-attribute savepoint names; quoted schema/table names; the event types are bound.
     "lib/letflow/event_store/retention_operations.ex",
+    # (M) module-attribute constant only: the `SET LOCAL` lock timeout.
     "lib/letflow/identity.ex",
+    # (M) module-attribute constant only: the `SET LOCAL` lock timeout.
     "lib/letflow/identity/pending_admin_grants.ex",
-    # REQ-710: partition DDL text is built by Postgres `format('%I'/'%L')` from bound parameters (INV-7);
-    # reviewed by SECURITY-REVIEWER.
+    # (F) the statement text is built by Postgres `format` with `%I` from bound parameters (REQ-710).
     "lib/letflow/ledger/storage/ddl.ex",
-    # REQ-646 A3b: the subtree read interpolates only the prefix, checked against `@prefix_re` (INV-7).
+    # (I+B) the prefix is checked against `@prefix_re` and quoted; the node id is bound (REQ-646 A3b).
     "lib/letflow/modules/locations/tree.ex",
-    # REQ-770: `SET LOCAL lock_timeout/statement_timeout` interpolate module constants only (INV-7);
-    # reviewed by SECURITY-REVIEWER.
+    # (M) module-attribute constants only: the two `SET LOCAL` timeouts (REQ-770).
     "lib/letflow/module_upgrade/apply.ex",
-    # RU-S5 rollback: the same module-constant `SET LOCAL` timeouts as apply.ex (INV-7).
+    # (M) module-attribute constants only: the two `SET LOCAL` timeouts (RU-S5).
     "lib/letflow/module_upgrade/rollback.ex",
+    # (I) the tenant prefix is quoted; the table names are literals; no values.
     "lib/letflow/ordering/metrics.ex",
+    # (I+B) the tenant prefix is quoted; the timeout and the correlation id are bound.
     "lib/letflow/ordering/sweeper.ex",
+    # (I) the pool's own minted sandbox schema name, quoted.
     "lib/letflow/sandbox_pool.ex",
+    # (I+B) the pool-minted sandbox schema and the allow-listed fixture table are quoted; the row JSON is bound.
     "lib/letflow/sandbox_pool/fixture_loader.ex",
+    # (I) the tenant schema accepted by `tenant_id_for_schema_name/1` is quoted; the table is a literal.
     "lib/letflow/scope_node_paths.ex",
+    # (I+B) the tenant schema (registered `tenant_` <> 32 hex) and the registered DDL names are quoted; every value is bound.
     "lib/letflow/tenant_provisioning.ex",
-    # REQ-580: the one `DROP SCHEMA` whose name is the registered "tenant_" <> 32 hex (INV-7).
+    # (I) the registered `tenant_` <> 32 hex schema name is quoted (REQ-580).
     "lib/letflow/tenant_purge.ex",
+    # (I+B) the migration's own tenant schema is quoted; the tenant id is bound.
     "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
+    # (I) the migration's own tenant schema is quoted; no values.
     "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
-    # REQ-517 2a: the FK migration interpolates only the schema name from `prefix()` (same shape as
-    # the 20261015025331 migration above); reviewed by SECURITY-REVIEWER (code gate step-07).
+    # (I) the migration's own tenant schema is quoted; no values (REQ-517 2a).
     "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs"
   ]
   # Assertion 3: file => the ONLY setting names its `set_config('name', ...)` literals may use. Minimal:

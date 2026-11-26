@@ -24,6 +24,8 @@ import time
 
 # (label, regex) pairs; the label is what the log shows.
 DOWNLOAD_FLAKE_PATTERNS = [
+    # 429 first: a Maven 429 line also says "Could not GET".
+    ("429", r"(?i)(status code |HTTP(/\d(\.\d)?)? |response code: |error: )429\b|Too Many Requests"),
     ("Could not resolve", r"Could not resolve"),
     ("Could not find", r"Could not find "),
     ("Could not GET", r"Could not GET"),
@@ -33,6 +35,10 @@ DOWNLOAD_FLAKE_PATTERNS = [
     ("ECONNRESET", r"ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection reset"),
 ]
 RETRY_PAUSE_S = 15
+# T-2910: a 429 from a package repository (Maven) is rate limiting: wait longer each time
+# (pause * 2^n: 15, 30, 60 s... by default 30 s base below) and try up to 3 more times.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_PAUSE_S = 30
 MIN_REMAINING_AFTER_PAUSE_S = 60
 
 
@@ -44,6 +50,11 @@ def match_download_flake(text):
     return None
 
 
+def latest_tmp_dir():
+    dirs = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "letflow_test_parallel.*"))
+    return max(dirs, key=os.path.getmtime) if dirs else None
+
+
 def unfinished_files():
     plan = os.environ.get("TEST_PARALLEL_PLAN")
     if not plan or not Path(plan).is_file():
@@ -51,8 +62,7 @@ def unfinished_files():
     shard = int(os.environ.get("TEST_PARALLEL_SHARD", "1/1").split("/")[0])
     width = int(os.environ.get("TEST_PARALLEL_N", "4"))
     first, last = (shard - 1) * width + 1, shard * width
-    dirs = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "letflow_test_parallel.*"))
-    latest = max(dirs, key=os.path.getmtime) if dirs else None
+    latest = latest_tmp_dir()
     completed = set()
     if latest:
         for log in Path(latest).glob("partition-*.log"):
@@ -66,6 +76,42 @@ def unfinished_files():
     return pending or ["All planned partitions reported completion; inspect the current shell step."]
 
 
+def running_state(tail_lines=10):
+    """What each partition of this shard was doing when the deadline hit.
+
+    T-2652: a shard that runs into the job limit used to say only WHICH test
+    files were unfinished; it never said WHICH FILE WAS RUNNING, which tests had
+    started in it, or what the partition log's last lines said. Run 45010058431
+    (shard 3/8, 2026-11-22) hung for its whole 2700 s budget and left exactly
+    that question open -- the hang was in the create/migrate phase, before any
+    partition had launched, so there was no partition log at all.
+    """
+    latest = latest_tmp_dir()
+    if not latest:
+        return []
+    root = Path(latest)
+    lines = []
+    for log in sorted(root.glob("partition-*.log")):
+        index = int(log.stem.split("-")[-1])
+        lines.append(f"- partition {index}:")
+        marker = root / "markers" / f"current-{index}.txt"
+        if marker.is_file():
+            for line in marker.read_text(errors="replace").splitlines():
+                if line.strip():
+                    lines.append(f"  - {line.strip()}")
+        else:
+            lines.append("  - running test file marker: none published")
+        for line in log.read_text(errors="replace").splitlines()[-tail_lines:]:
+            lines.append(f"  | {line}")
+    # A shard that hung in the create/migrate phase has no partition log at all:
+    # the create logs are the only evidence there is.
+    for create in sorted(root.glob("create-*.log")):
+        lines.append(f"- {create.name} (create/migrate phase):")
+        for line in create.read_text(errors="replace").splitlines()[-tail_lines:]:
+            lines.append(f"  | {line}")
+    return lines
+
+
 def report():
     label = os.environ.get("CI_JOB_LABEL", os.environ.get("GITHUB_JOB", "unknown job"))
     limit = int(os.environ.get("CI_JOB_LIMIT_MINUTES", "10")) * 60
@@ -73,6 +119,10 @@ def report():
                "Shorten/split tests or move overflow to nightly; do not retry or raise the limit.\n"
                "Unfinished test files (running or pending in partitions without Result):\n" +
                "\n".join("- " + f for f in unfinished_files()))
+    state = running_state()
+    if state:
+        message += ("\nRunning state per partition (which file was running, which tests had "
+                    "started, last log lines):\n" + "\n".join(state))
     print(message, flush=True)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -118,8 +168,8 @@ def run_once(command, remaining, capture):
     return code, "".join(tail), timed_out
 
 
-def note_retry(label):
-    message = f"retry 1/1: {label}"
+def note_retry(label, n=1, total=1):
+    message = f"retry {n}/{total}: {label}"
     print(message, flush=True)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -145,13 +195,23 @@ def main():
     if not retry or code == 0 or timed_out:
         return code
     label = match_download_flake(tail)
-    pause = float(os.environ.get("CI_RETRY_PAUSE_S", RETRY_PAUSE_S))
-    remaining = float(deadline) - time.time() - pause
-    if label is None or remaining < float(os.environ.get("CI_RETRY_MIN_REMAINING_S", MIN_REMAINING_AFTER_PAUSE_S)):
-        return code
-    note_retry(label)
-    time.sleep(pause)
-    code, _tail, _timed_out = run_once(command, float(deadline) - time.time(), True)
+    min_remaining = float(os.environ.get("CI_RETRY_MIN_REMAINING_S", MIN_REMAINING_AFTER_PAUSE_S))
+    total = RATE_LIMIT_RETRIES if label == "429" else 1
+    for n in range(1, total + 1):
+        if label == "429":
+            pause = float(os.environ.get("CI_RATE_LIMIT_PAUSE_S", RATE_LIMIT_PAUSE_S)) * 2 ** (n - 1)
+        else:
+            pause = float(os.environ.get("CI_RETRY_PAUSE_S", RETRY_PAUSE_S))
+        if label is None or float(deadline) - time.time() - pause < min_remaining:
+            return code
+        note_retry(label, n, total)
+        time.sleep(pause)
+        code, tail, timed_out = run_once(command, float(deadline) - time.time(), True)
+        if code == 0 or timed_out:
+            return code
+        label = match_download_flake(tail) if label == "429" else None
+        if label != "429":
+            return code
     return code
 
 

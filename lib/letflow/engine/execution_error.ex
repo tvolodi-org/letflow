@@ -142,6 +142,8 @@ defmodule Letflow.Engine.ExecutionError do
           required(:variables) => map(),
           optional(:details) => map(),
           optional(:labels) => map(),
+          optional(:dlq_entry_type) => String.t(),
+          optional(:dlq_reference_id) => String.t(),
           required(:actor_id) => Ecto.UUID.t() | nil,
           required(:idempotency_key) => String.t()
         }
@@ -283,7 +285,8 @@ defmodule Letflow.Engine.ExecutionError do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     dlq_attrs = %{
-      entry_type: "event",
+      entry_type: Map.get(error_args, :dlq_entry_type, "event"),
+      reference_id: Map.get(error_args, :dlq_reference_id),
       instance_id: error_args.instance_id,
       # `reason` is the short-form varchar(255) column (design doc §4.3) --
       # `error_args.reason` is caller-supplied and not itself length-bounded

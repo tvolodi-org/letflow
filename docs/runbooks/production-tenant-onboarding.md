@@ -439,6 +439,18 @@ created after D-165 has that rule OFF by default, so there is nothing to switch 
 D-165 switches the count rule OFF once, before the first count, with the reason below. Switching a rule that is
 already OFF writes nothing and audits nothing: the value did not change.
 
+**For production, the explicit browser setup of the count row is RECOMMENDED, not required.** A tenant created
+after D-165 already has the rule OFF, so the count posts at once with NO setup. The explicit row is still the
+record of who decided what: a real value change writes `approval_rule.changed` with the owner's reason (D-164)
+and the administrator's name. An OFF-to-OFF save writes no row and no audit entry; to leave the recommended
+record on an untouched default-OFF tenant, switch ON once with its own reason, then OFF with the exact D-164
+reason. / **В production явная настройка строки подсчёта в браузере РЕКОМЕНДУЕТСЯ, но не обязательна.** У нового
+клиента правило уже выключено (D-165), поэтому подсчёт проводится сразу без настройки. Явная строка всё же
+рекомендуется как запись о том, кто и что решил: реальное изменение значения создаёт запись аудита
+`approval_rule.changed` с причиной владельца (D-164) и именем администратора. Сохранение OFF без изменения не
+создаёт ни строки, ни записи аудита; чтобы оставить рекомендуемую запись на новом клиенте, включите правило один
+раз со своей причиной, затем выключите его с точной причиной D-164.
+
 With the count switch OFF the storekeeper's count posts at once on the phone and on the web. The audit shows one `task.self_approved` entry with the note "self-approved, four-eyes off" for each such count. A count issued while the rule was ON stays pending until an administrator approves it in My Tasks (T-2410): turning the switch OFF later does not post it by itself.
 
 
@@ -572,23 +584,38 @@ machine draft and is not repeated here.
 Open `https://<host>` and sign in as the company administrator. The menu group "Tenant administration" /
 «Администрирование организации» holds both screens.
 
-### 2. Count rule OFF (owner decision D-164)
+### 2. Count rule OFF — RECOMMENDED, not required (owner decision D-164)
 
-The Approval rules screen lists TWO rules for stock: "Stock opening balances" (`stock_opening`) and the quick
-count (`stock_quick_count`). The Excel balances load has no rule of its own: it is built as a `stock_quick_count`
-document, so it follows the quick count rule. / На экране два правила для склада: «Остатки на начало»
-(`stock_opening`) и быстрый подсчёт (`stock_quick_count`). У загрузки остатков из Excel своего правила нет: она
-создаёт документ `stock_quick_count` и подчиняется правилу подсчёта.
+The Approval rules screen lists TWO rows for stock: "Stock opening balances" (`stock_opening`) and the quick
+count (`stock_quick_count`). On a new tenant each selected row shows "Never changed (default: off)" until an
+administrator changes it. The Excel balances load has no rule of its own: it is built as a `stock_quick_count`
+document, so it follows the quick count rule. / На экране две строки для склада: «Остатки на начало»
+(`stock_opening`) и быстрый подсчёт (`stock_quick_count`). У нового клиента в каждой выбранной строке указано
+«Не менялось (по умолчанию: выключено)», пока администратор её не изменил. У загрузки остатков из Excel своего правила нет: она создаёт документ `stock_quick_count` и подчиняется правилу подсчёта.
+
+**RECOMMENDED, not required on production.** A new tenant starts with the count rule OFF (D-165), so the count
+posts at once with no setup. The explicit row is still recommended because a real value change writes
+`approval_rule.changed` with the owner's reason (D-164) and the administrator's name: the record of who decided
+what. An unchanged OFF-to-OFF save writes nothing; on an untouched tenant use the ON-then-OFF path below to leave
+that record. / **В production настройка строки подсчёта РЕКОМЕНДУЕТСЯ, но не обязательна.** У нового клиента
+правило подсчёта уже выключено (D-165), поэтому подсчёт проводится сразу без настройки. Явная строка всё же
+рекомендуется: реальное изменение значения создаёт запись `approval_rule.changed` с причиной владельца (D-164) и
+именем администратора — запись о том, кто и что решил. Сохранение OFF без изменения ничего не записывает; на
+новом клиенте используйте описанное ниже включение и последующее выключение, чтобы оставить эту запись.
 
 1. Open `/admin/approval-rules`: title "Approval rules" / «Правила утверждения».
 2. In the list, columns "Document type" / «Тип документа», "Step" / «Шаг», "Different person" / «Другой человек»,
    find the row `stock_quick_count`, step `approve` ("Approval" / «Утверждение»). The pill shows the current
    value: "Off" / «Выключено» for a tenant created after D-165 (the default of every rule), "On" / «Включено»
    for a tenant created before it. Click the row; the panel on the right opens.
-3. Switch OFF "Require a different person to approve" / «Требовать утверждения другим человеком». The warning
-   "One person will be able to issue and approve" / «Один человек сможет оформлять и утверждать» appears. A
-   tenant created after D-165 already shows Off: the rule is OFF by default and there is nothing to switch
-   (step 20); the same screen switches a rule ON, when the company wants a second person.
+3. Read the current value. On a tenant created before D-165, switch OFF "Require a different person to approve" /
+   «Требовать утверждения другим человеком». The warning "One person will be able to issue and approve" /
+   «Один человек сможет оформлять и утверждать» appears. On an untouched tenant created after D-165 the rule is
+   already OFF: an OFF-to-OFF save writes no explicit row or audit entry. To leave the recommended decision
+   record, switch ON once with a short reason and save, then switch OFF and continue with the exact reason below.
+   / На клиенте, созданном до D-165, выключите переключатель. На новом клиенте правило уже выключено: сохранение
+   OFF без изменения не создаёт явной строки или записи аудита. Чтобы оставить рекомендуемую запись о решении,
+   включите правило один раз с краткой причиной и сохраните, затем выключите его и укажите точную причину ниже.
 4. In the box "Reason" / «Причина» type EXACTLY, on one line (a line break is refused):
 
    ```
@@ -606,9 +633,23 @@ own document..." and "Last change": your name, the time, "Reason: ..." / «Пр�
 (F5): the row is still Off with the same reason, and `GET /api/v1/approval-rules` (the approver's own browser
 session, or the screen) shows `four_eyes` false for `stock_quick_count / approve` with the reason. (c) The audit
 (`GET /api/v1/audit`, `AuditRead`) has one `approval_rule.changed` entry with before `four_eyes: true`, after
-`four_eyes: false` and the reason, when the switch changed the value; a tenant created after D-165 has no
-switch to make and therefore no such entry. (d) The readiness report line `INFO four-eyes on=1 off=1
-steps=stock_opening.approve=on,stock_quick_count.approve=off` (step 20).
+`four_eyes: false` and the exact D-164 reason for the final OFF change. An untouched default-OFF tenant has no
+such entry until the administrator makes the recommended ON-then-OFF record; the intermediate ON change has its
+own reason. (d) With both stock rules otherwise untouched, the readiness report line is `INFO four-eyes on=0 off=2
+steps=stock_opening.approve=off,stock_quick_count.approve=off` (step 20).
+
+### Screen remarks from the fresh-tenant proof (T-2424)
+
+- **Stock paths / Пути к экранам склада.** The stock screens are under `/admin/stock/...`: use
+  `/admin/stock/balances`, `/admin/stock/quick-count` and `/admin/stock/documents` for Balances, Quick count and
+  Stock documents. `/stock/balances` is a 404. / Экраны склада находятся в `/admin/stock/...`: используйте
+  `/admin/stock/balances`, `/admin/stock/quick-count` и `/admin/stock/documents` для остатков, быстрого подсчёта и
+  документов склада. Адрес `/stock/balances` возвращает 404.
+- **Quick count reason / Причина быстрого подсчёта.** The quick count form shows the "Reason note" box only after the reason "Other" / «Другое» is chosen; then the note is required. / Форма быстрого подсчёта показывает поле
+  примечания к причине только после выбора причины «Другое»; после этого примечание обязательно.
+- **Save / Сохранение.** On a rule or setting, Save stays disabled until a reason is typed; the screen says
+  "Enter a reason to save" / «Укажите причину, чтобы сохранить». / Для правила или настройки кнопка «Сохранить» неактивна, пока не введена причина; на экране указано «Укажите причину, чтобы сохранить».
+- **Reverse / Сторнирование.** The Reverse task is created for the administrator group and must be CLAIMED first, then completed. / Задача сторнирования создаётся для группы администраторов; её нужно сначала ВЗЯТЬ В РАБОТУ, а затем завершить.
 
 ### 3. Negative balances (decision 0090, runbook step 19)
 
@@ -631,11 +672,14 @@ text; after a reload (F5) the same; `GET /api/v1/ledger-settings` shows `allow_n
 
 ### 4. Opening rule `stock_opening / approve`: owner decision pending
 
-The opening rule is NOT decided (D-164 decides the count only). Leave the row `stock_opening` / `approve` ON
-until the owner decides: with ON and one administrator the opening cannot be confirmed alone (a second
-administrator approves it in My Tasks). To switch it OFF later, use the same click path as in part 2 on that row,
-with its own reason; it writes its own `approval_rule.changed` entry. Record "opening rule: owner to decide" in
-the go summary.
+The opening rule is NOT decided (D-164 decides the count only). On a new tenant its default is OFF (D-165); leave
+it OFF and unchanged until the owner decides. A company that wants a second person switches it ON with its own
+reason; a tenant created before D-165 instead starts ON and needs an explicit OFF change for one administrator.
+Each real change writes its own `approval_rule.changed` entry. Record "opening rule: owner to decide" in the go
+summary. / Правило ввода начальных остатков решено отдельно (D-164 касается только подсчёта). У нового клиента
+его значение по умолчанию OFF (D-165); не меняйте его до решения владельца. Если нужен второй человек, включите
+правило со своей причиной. Клиент, созданный до D-165, начинает с ON и для одного администратора требует явного
+выключения. В итоговой записи укажите «opening rule: owner to decide».
 
 ### 5. Nothing to set
 

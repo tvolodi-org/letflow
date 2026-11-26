@@ -408,11 +408,72 @@ defmodule Letflow.Identity.TenantTest do
       assert %{settings: [_]} = errors_on(changeset)
     end
 
-    test "REQ-595 A1 / REQ-703 TZ-1 / T-1640 W1: the closed vocabulary is exactly the eleven keys" do
+    test "REQ-595 A1 / REQ-703 TZ-1 / T-1640 W1: the closed vocabulary is exactly the thirteen keys" do
       assert Enum.sort(Letflow.Identity.TenantSettings.allowed_keys()) ==
                Enum.sort(
-                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default notifications.email_copy module_upgrade.window)
+                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default notifications.email_copy module_upgrade.window notifications.outbound_cap_per_hour notifications.outbound_cap_per_day)
                )
+    end
+
+    test "T-2592 CAP-1: a tenant may LOWER its own outbound send cap" do
+      tenant = insert_tenant!()
+
+      changeset =
+        Tenant.settings_changeset(tenant, %{
+          "settings" => %{
+            "notifications.outbound_cap_per_hour" => 10,
+            "notifications.outbound_cap_per_day" => 100
+          }
+        })
+
+      assert changeset.valid?, "a tenant that lowers its own cap must be able to write it"
+    end
+
+    test "T-2592 CAP-2: a cap above the platform ceiling is refused" do
+      tenant = insert_tenant!()
+      ceiling = Tenant.outbound_cap_ceiling()
+
+      changeset =
+        Tenant.settings_changeset(tenant, %{
+          "settings" => %{"notifications.outbound_cap_per_hour" => ceiling.per_hour + 1}
+        })
+
+      refute changeset.valid?
+      assert %{settings: [_]} = errors_on(changeset)
+    end
+
+    test "T-2592 CAP-3: a malformed cap is refused" do
+      tenant = insert_tenant!()
+
+      for bad <- [0, -1, "60", 1.5] do
+        changeset =
+          Tenant.settings_changeset(tenant, %{
+            "settings" => %{"notifications.outbound_cap_per_day" => bad}
+          })
+
+        refute changeset.valid?, "#{inspect(bad)} must not be a cap"
+      end
+
+      # nil means "absent": the platform ceiling applies.
+      changeset =
+        Tenant.settings_changeset(tenant, %{
+          "settings" => %{"notifications.outbound_cap_per_day" => nil}
+        })
+
+      assert changeset.valid?
+    end
+
+    test "T-2592 CAP-4: the caps a tenant asks for are clamped to the ceiling" do
+      ceiling = Tenant.outbound_cap_ceiling()
+
+      assert Tenant.outbound_caps(%{"notifications.outbound_cap_per_hour" => 10}) ==
+               {10, ceiling.per_day}
+
+      assert Tenant.outbound_caps(%{"notifications.outbound_cap_per_hour" => 10_000}) ==
+               {ceiling.per_hour, ceiling.per_day}
+
+      assert Tenant.outbound_caps(%{}) == {ceiling.per_hour, ceiling.per_day}
+      assert Tenant.outbound_caps(nil) == {ceiling.per_hour, ceiling.per_day}
     end
 
     test "T-1640 W1b: module_upgrade.window takes nil or a valid {start, end}" do

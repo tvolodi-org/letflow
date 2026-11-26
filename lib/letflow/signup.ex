@@ -37,13 +37,15 @@ defmodule Letflow.Signup do
 
   import Ecto.Query
 
-  alias Letflow.Identity.TenantMembership
+  alias Letflow.Identity.{Tenant, TenantMembership}
   alias Letflow.Repo
   alias Letflow.Signup.{Captcha, EmailPolicy, Mailer, Messages, Provisioning, Request}
 
   @terms_version "placeholder-0"
   @max_company 200
   @max_email 254
+  @max_user_name 100
+  @slug_re ~r/\A[a-z0-9](?:[a-z0-9-]{1,28})[a-z0-9]\z/
   @max_sends 5
   @lock_key "letflow:signup"
   @email_re ~r/^[^\s@,;<>()\[\]\\"]+@[^\s@,;<>()\[\]\\"]+\.[^\s@,;<>()\[\]\\"]+$/
@@ -91,6 +93,15 @@ defmodule Letflow.Signup do
     @defaults |> Keyword.merge(Application.get_env(:letflow, __MODULE__, [])) |> Map.new()
   end
 
+  @doc "The configured hostname domain (e.g. `qa.example.com`) as a string, or nil when unset."
+  @spec hostname_domain() :: String.t() | nil
+  def hostname_domain do
+    case config().hostname_domain do
+      nil -> nil
+      domain -> to_string(domain)
+    end
+  end
+
   @doc "True only when the platform flag is exactly `true`."
   @spec enabled?() :: boolean()
   def enabled?, do: config().enabled == true
@@ -130,10 +141,10 @@ defmodule Letflow.Signup do
   Verifies a token. Idempotent within the token's lifetime. One failure for unknown, expired, closed
   and malformed tokens (INV-5).
   """
-  @spec verify(term(), DateTime.t()) :: :ok | {:error, :invalid}
-  def verify(token, now \\ DateTime.utc_now())
+  @spec verify(term(), DateTime.t(), boolean()) :: :ok | {:error, :invalid | :slug_taken}
+  def verify(token, now \\ DateTime.utc_now(), retry? \\ false)
 
-  def verify(token, now) when is_binary(token) and byte_size(token) in 20..100 do
+  def verify(token, now, retry?) when is_binary(token) and byte_size(token) in 20..100 do
     hash = hash_token(token)
 
     {:ok, result} =
@@ -143,7 +154,13 @@ defmodule Letflow.Signup do
             from(r in Request,
               where:
                 r.token_hash == ^hash and
-                  r.state in ["pending_verification", "verified", "provisioning", "completed"],
+                  r.state in [
+                    "pending_verification",
+                    "verified",
+                    "provisioning",
+                    "completed",
+                    "failed"
+                  ],
               lock: "FOR UPDATE"
             )
           )
@@ -151,9 +168,12 @@ defmodule Letflow.Signup do
         cond do
           is_nil(request) -> {:error, :invalid}
           DateTime.compare(request.token_expires_at, now) != :gt -> {:error, :invalid}
+          request.state == "failed" -> {:failed, request}
           true -> verify_row(request, now)
         end
       end)
+
+    result = maybe_retry_failed(result, retry?)
 
     # T-1593: after the commit, off the request path; never changes the answer (INV-8).
     case result do
@@ -166,7 +186,82 @@ defmodule Letflow.Signup do
     end
   end
 
-  def verify(_token, _now), do: {:error, :invalid}
+  def verify(_token, _now, _retry), do: {:error, :invalid}
+
+  # T-2748: a failed row stays a valid link (the result page shows its named failure on reload). Only the
+  # explicit retry of the visitor puts a retryable failure back to work, within the token lifetime.
+  defp maybe_retry_failed({:failed, request}, true) do
+    case Provisioning.retry_failed(request.tenant_id) do
+      :ok -> {:ok, request.tenant_id}
+      :not_retryable -> :ok
+      :slug_taken -> {:error, :slug_taken}
+    end
+  end
+
+  defp maybe_retry_failed({:failed, _request}, false), do: :ok
+  defp maybe_retry_failed(other, _retry), do: other
+
+  @doc """
+  T-2748: the progress of a verified request, for the result page. The mailed token is the credential
+  (one generic `{:error, :invalid}` for unknown, expired or malformed tokens). `:ready` carries the tenant
+  host; `:failed` carries a closed, visitor-safe reason (`demo_cap_reached`, `unavailable`, `rate_limited`,
+  `slug_taken`, `internal`); the stored `last_error` text is never passed through.
+  """
+  @spec status(term(), DateTime.t()) ::
+          {:ok,
+           %{state: :pending | :ready | :failed, host: String.t() | nil, reason: String.t() | nil}}
+          | {:error, :invalid}
+  def status(token, now \\ DateTime.utc_now())
+
+  def status(token, now) when is_binary(token) and byte_size(token) in 20..100 do
+    hash = hash_token(token)
+
+    request =
+      Repo.one(
+        from(r in Request,
+          where:
+            r.token_hash == ^hash and
+              r.state in ["verified", "provisioning", "completed", "failed"]
+        )
+      )
+
+    cond do
+      is_nil(request) ->
+        {:error, :invalid}
+
+      DateTime.compare(request.token_expires_at, now) != :gt ->
+        {:error, :invalid}
+
+      request.state == "completed" ->
+        {:ok,
+         %{
+           state: :ready,
+           host: Provisioning.hostname(request, config()),
+           realm: Letflow.TenantProvisioner.Request.slug(request.tenant_id),
+           reason: nil
+         }}
+
+      request.state == "failed" ->
+        {:ok, %{state: :failed, host: nil, realm: nil, reason: public_reason(request.last_error)}}
+
+      true ->
+        {:ok, %{state: :pending, host: nil, realm: nil, reason: nil}}
+    end
+  end
+
+  def status(_token, _now), do: {:error, :invalid}
+
+  defp public_reason(code)
+       when code in ["demo_cap_reached", "source_budget", "email_domain_budget"],
+       do: "demo_cap_reached"
+
+  defp public_reason(code)
+       when code in ["unavailable", "bad_response", "bad_url", "unauthorized"],
+       do: "unavailable"
+
+  defp public_reason("rate_limited"), do: "rate_limited"
+  defp public_reason("tenant_conflict"), do: "slug_taken"
+  defp public_reason(_other), do: "internal"
 
   defp verify_row(%Request{state: "verified", step: "ready_for_provisioning"} = request, _now),
     do: {:ok, request.tenant_id}
@@ -252,6 +347,10 @@ defmodule Letflow.Signup do
           cfg.pending_cap ->
         {:error, :unavailable}
 
+      # T-2748: a chosen slug held by a tenant or by any live request is refused (422 slug_taken), whatever the e-mail (INV-5).
+      fields.slug && slug_taken?(fields.slug) ->
+        {:error, :slug_taken}
+
       open = open_request(fields.email) ->
         resend(open, cfg, now)
 
@@ -313,6 +412,8 @@ defmodule Letflow.Signup do
       Repo.insert!(%Request{
         tenant_id: Ecto.UUID.generate(),
         email: fields.email,
+        slug: fields.slug,
+        user_name: fields.user_name,
         company_name: fields.company_name,
         language: fields.language,
         state: "pending_verification",
@@ -364,6 +465,8 @@ defmodule Letflow.Signup do
     email = normalize_email(Map.get(params, "email"))
     company = normalize_company(Map.get(params, "company_name"))
     language = Map.get(params, "language")
+    user_name = normalize_user_name(Map.get(params, "user_name"))
+    slug = Map.get(params, "slug")
 
     errors =
       Enum.reject(
@@ -371,14 +474,26 @@ defmodule Letflow.Signup do
           if(is_nil(company), do: "company_name"),
           if(is_nil(email), do: "email"),
           if(language in Messages.languages(), do: nil, else: "language"),
+          if(user_name == :invalid, do: "user_name"),
+          if(not is_nil(slug) and slug_check(slug) in [:invalid, :reserved], do: "slug"),
           if(Map.get(params, "terms_accepted") == true, do: nil, else: "terms_accepted")
         ],
         &is_nil/1
       )
 
     case errors do
-      [] -> {:ok, %{email: email, company_name: company, language: language}}
-      fields -> {:error, {:invalid, fields}}
+      [] ->
+        {:ok,
+         %{
+           email: email,
+           company_name: company,
+           language: language,
+           user_name: user_name,
+           slug: slug
+         }}
+
+      fields ->
+        {:error, {:invalid, fields}}
     end
   end
 
@@ -403,4 +518,61 @@ defmodule Letflow.Signup do
   end
 
   defp normalize_company(_other), do: nil
+
+  # Optional: absent is nil; a present value must be a short printable string.
+  defp normalize_user_name(nil), do: nil
+
+  defp normalize_user_name(name) when is_binary(name) do
+    trimmed = String.trim(name)
+
+    if byte_size(trimmed) in 1..(@max_user_name * 4)//1 and
+         String.length(trimmed) <= @max_user_name and String.valid?(trimmed) and
+         not String.match?(trimmed, ~r/[\x00-\x1f]/),
+       do: trimmed,
+       else: :invalid
+  end
+
+  defp normalize_user_name(_other), do: :invalid
+
+  @doc """
+  T-2748: the live slug check of the sign-up form. `:available`, `:taken`, `:reserved` or `:invalid`
+  (shape: 3..30 of a-z, 0-9, `-`, no leading or trailing `-`, no `--`, no `t-` prefix, which is the derived
+  label). The answer is the same for every caller (no per-address state is read), and the sign-up flag gates
+  the route like every other path of the mount.
+  """
+  @spec slug_status(term()) :: :available | :taken | :reserved | :invalid
+  def slug_status(slug) do
+    case slug_check(slug) do
+      :ok -> if slug_taken?(slug), do: :taken, else: :available
+      other -> other
+    end
+  end
+
+  defp slug_check(slug) when is_binary(slug) and byte_size(slug) <= 64 do
+    cond do
+      not Regex.match?(@slug_re, slug) -> :invalid
+      String.contains?(slug, "--") or String.starts_with?(slug, "t-") -> :invalid
+      Tenant.reserved_slug?(slug) -> :reserved
+      true -> :ok
+    end
+  end
+
+  defp slug_check(_other), do: :invalid
+
+  defp slug_taken?(slug) do
+    Repo.exists?(from(t in Tenant, where: t.slug == ^slug)) or host_registered?(slug) or
+      Repo.exists?(
+        from(r in Request,
+          where: r.slug == ^slug and r.state not in ["failed", "expired"]
+        )
+      )
+  end
+
+  # T-2748: the authoritative host registry; a tenant created outside sign-up may hold `<slug>.<domain>`.
+  defp host_registered?(slug) do
+    case hostname_domain() do
+      nil -> false
+      domain -> Letflow.TenantHosts.taken?(slug <> "." <> String.downcase(domain), nil)
+    end
+  end
 end

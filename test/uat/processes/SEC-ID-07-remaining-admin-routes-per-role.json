@@ -1,0 +1,127 @@
+{
+  "id": "SEC-ID-07",
+  "bp_entry": "BP-TENANT-ADMIN-33",
+  "title": "Role matrix of the other administration routes: the tenant administrator reads them, the storekeeper is refused every read and change with one identical answer",
+  "description": "Second half of the role matrix of tenant administration (the first half is SEC-ID-03). The tenant administrator reads the data export datasets, the scope enforcement integrity report, the scope enforcement token preconditions and the role list: each answers 200. The storekeeper sends the same reads and the changes of the same families (create a role, rebind a role, set a label, set a currency, uninstall a module, list and create a number sequence, download a data export): every one is refused with 403 and the same body (Forbidden, insufficient permissions). The permission is checked before the id and the body are read, so the change requests carry an unknown id and an empty body on purpose: if a refusal were missing, the request would end in a not-found or a validation answer and change nothing. At the end the administrator reads the role list again: the same first role as at the start. Not in this file: the routes mounted at the root of a two-part prefix (company settings, scope enforcement mode, solution install, role grants, scoped role grants), which the static check of the runner cannot match yet, and the roles that have no login in the roster (tenant auditor, process designer, task worker); see the map entry. Read-only for the administrator; no cleanup.",
+  "tenant": "${tenant}",
+  "residue_check": false,
+  "inputs": [],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/data-export/datasets"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/tenant/scope-enforcement/integrity"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/tenant/scope-enforcement/token-preconditions"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/roles"},
+      "expect": {"status": 200},
+      "save": {"first_role_before": {"pick": "$.items[0].id", "default": "none"}}
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/data-export/datasets"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/tenant/scope-enforcement/integrity"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/tenant/scope-enforcement/token-preconditions"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/identity/roles"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/identity/roles", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/identity/roles/${missing_id}/rebind", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {"api": "PUT", "path": "/api/v1/labels/uat.none.${run_id}", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {"api": "PUT", "path": "/api/v1/currencies/XXX", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules/${missing_id}/uninstall", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/number-sequences"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/number-sequences", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s16",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/data-export", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/roles"},
+      "expect": {"status": 200, "json": {"$.items[0].id": "${first_role_before}"}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

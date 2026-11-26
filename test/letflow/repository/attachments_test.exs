@@ -488,6 +488,48 @@ defmodule Letflow.Repository.AttachmentsTest do
       assert length(items_a) == 1
     end
 
+    test "rows older than 24 hours remain pageable" do
+      %{schema_name: schema} = provisioned_tenant("cursor-issue-time-attachments")
+      instance_id = Ecto.UUID.generate()
+
+      entries =
+        for n <- 1..3 do
+          assert {:ok, entry} =
+                   Attachments.upload(
+                     upload_attrs(instance_id: instance_id, raw_bytes: "old-#{n}"),
+                     prefix: schema
+                   )
+
+          entry
+        end
+
+      old =
+        DateTime.utc_now()
+        |> DateTime.add(-2 * 86_400, :second)
+        |> DateTime.truncate(:microsecond)
+
+      ids = Enum.map(entries, & &1.id)
+
+      Repo.update_all(from(a in Attachment, where: a.id in ^ids), [set: [created_at: old]],
+        prefix: schema
+      )
+
+      assert {:ok, %{items: [_], next_cursor: cursor1}} =
+               Attachments.list(%{instance_id: instance_id, cursor: nil, page_size: 1},
+                 prefix: schema
+               )
+
+      assert {:ok, %{items: [_], next_cursor: cursor2}} =
+               Attachments.list(%{instance_id: instance_id, cursor: cursor1, page_size: 1},
+                 prefix: schema
+               )
+
+      assert {:ok, %{items: [_], next_cursor: nil}} =
+               Attachments.list(%{instance_id: instance_id, cursor: cursor2, page_size: 1},
+                 prefix: schema
+               )
+    end
+
     test "cursor pagination returns the next distinct page with no repeated or skipped ids (AC6)" do
       %{schema_name: schema} = provisioned_tenant()
       instance_id = Ecto.UUID.generate()

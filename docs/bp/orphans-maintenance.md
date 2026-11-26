@@ -1,22 +1,30 @@
 # Orphans of the area `maintenance`
 
-Every item of `python3 scripts/uat/bp_inventory.py maintenance` (19 items: 15 routes, 2 module write handlers,
-2 pack nodes) is used by a process of `docs/bp/maintenance.json`, so there is no orphan row.
+Every item of `python3 scripts/uat/bp_inventory.py maintenance` (23 items) is used by a process of `docs/bp/maintenance.json`, (T-2876, 2026-11-26: the request and order screens are tasks of BP-MAINTENANCE-09 and -10; the stale rows are deleted). No orphan remains. The T-2427 phone screens (REQ-900) will add routes later; they are held (D-207) and get a process entry when built.
 
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
 
-## Notes for the owner (not orphans)
+## Orphan review (BA, D-169, T-2560, 2026-11-21): decision for every entry
 
-- **Naming.** The inventory's area `maintenance` also holds three routes that are not the CMMS module:
-  `GET /maintenance/v1/problem-reports`, `GET /maintenance/v1/error-groups` and
-  `POST /maintenance/v1/owner-list/import` (the platform's problem-report export and owner-list import, T-1948,
-  T-1951, T-1963). They are covered by BP-MAINTENANCE-12, -13 and -20. They would sit better in the `platform`
-  area; moving them is a change of `AREAS` in `scripts/uat/bp_inventory.py`, not decided here.
-- **Screens.** The inventory lists no screen: `web/src` has no maintenance route and `apps/mobile` no maintenance
-  screen. The screens are requirements REQ-898, REQ-899 and REQ-900 (entries BP-MAINTENANCE-09..11, status
-  `planned`). "My work orders" does not exist yet; today the technician works from the core inbox (BP-MAINTENANCE-06).
-- **Runner scenarios.** None written (`scenario: null`). The release flag `:maintenance_enabled` is false on QA and
-  production, the actor roster has no tenant with the module installed or a technician login, and the runner has no
-  multipart step, so a dry run on QA could only fail on a 404. The security processes (BP-MAINTENANCE-14..21) are
-  `automation: planned` for that reason; they are covered by ExUnit tests named in each entry's `tests` field.
+`python3 scripts/uat/bp_inventory.py maintenance` lists 19 items, all used by a process of `docs/bp/maintenance.json`
+(`check_catalog.py maintenance`: 19/19 before PR #5099 added four screen routes). `docs/bp/dead-code.json` has no function row for `modules/maintenance`
+(checked with a filter on the file path). So the area has no orphan; the entries below are the earlier notes, each decided.
+Nothing is deleted.
+
+- (a) USED, in the map: the three routes `GET /maintenance/v1/problem-reports`, `GET /maintenance/v1/error-groups`,
+  `POST /maintenance/v1/owner-list/import` (T-1948, T-1951, T-1963) belong to BP-MAINTENANCE-12, -13 and -20. They are
+  platform functions that only share the URL prefix; moving them to the `platform` area is a change of `AREAS` in
+  `scripts/uat/bp_inventory.py`, which this task may not change, so it is left to the owner.
+- (b) INFRASTRUCTURE / planned, not orphan: the screens "my work orders" and the technician screens are requirements
+  REQ-898, REQ-899, REQ-900 (entries BP-MAINTENANCE-09..11, status `planned`); the four web routes of PR #5099 are orphan rows above until BP-MAINTENANCE-09 gets its entry; `apps/mobile` has no maintenance screen. Today the technician works from the core inbox (BP-MAINTENANCE-06).
+- Runner scenarios: none (`scenario: null`). The flag `:maintenance_enabled` is false on QA and production, the roster has
+  no tenant with the module installed or a technician login, and the runner has no multipart step; that is a runner/environment
+  task, not an orphan. BP-MAINTENANCE-14..21 stay `automation: planned` and are covered by the ExUnit tests in each entry's `tests`.
+
+## Gaps: entries that stay planned or partial (T-2553, 2026-11-26, re-checked after merging origin/main)
+
+- BP-MAINTENANCE-09 (planned): the request screens now exist in web/src/modules/maintenance (routes `admin/maintenance/requests`, `requests/new`, `requests/:id`, REQ-898). It stays planned: the requirement is still `pending` in the register, no test pins the screens as a process, the flag `:maintenance_enabled` is off on QA, and the runner has no browser step against a tenant with the module on.
+- BP-MAINTENANCE-10 (planned): no order screen and no My work orders list in web/src; the routes file has only the three request routes. Tracked by REQ-899 (pending).
+- BP-MAINTENANCE-11 (planned): apps/mobile/lib has no maintenance file. Tracked by REQ-900 (pending).
+- BP-MAINTENANCE-21 (partial): no test of the unmatched path, and the flag `:maintenance_enabled` is off on QA, so no runner scenario can pass. Needs a QA tenant with the module on, a technician login and an ExUnit test.

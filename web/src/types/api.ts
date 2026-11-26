@@ -74,6 +74,13 @@ export interface SubProcessInterface {
   outputs: SubProcessInterfaceEntry[]
 }
 
+/** T-2811: one declared variable of a definition (the server's `variable_schemas` row). */
+export interface DeclaredVariable {
+  variable_key: string
+  json_schema?: Record<string, unknown> | null
+  description?: string | null
+}
+
 export interface ProcessDefinition {
   id: string
   name: string
@@ -81,6 +88,8 @@ export interface ProcessDefinition {
   description?: string
   status: DefinitionStatus
   graph: DefinitionGraph
+  /** T-2811: the declared variables; present on the single-definition read only. */
+  variable_schemas?: DeclaredVariable[]
   created_by: string
   /** Set for definitions shipped by a module. */
   owner_module?: string | null
@@ -96,6 +105,8 @@ export interface CreateDefinitionRequest {
   stage?: string | null
   /** T-1563: a new draft version keeps the declared variables of this definition (server-side copy). */
   copy_variable_schemas_from?: string
+  /** T-2811: the full list of declared variables (replaces the stored ones; not sent together with the copy). */
+  variable_schemas?: DeclaredVariable[]
 }
 
 // ── Process Instances (Stage 3) ───────────────────────────────────────────────
@@ -817,4 +828,59 @@ export interface EntityAggregateRequest {
 
 export interface EntityAggregateResponse {
   results: { group?: Record<string, unknown>; values: Record<string, unknown> }[]
+}
+
+// ── Notification template catalogue (T-2600, pilot gap G5b) ─────────────────
+//
+// The COMPILED catalogue of registered notification templates, as
+// `GET /api/v1/notification-templates/catalogue` publishes it. Platform data only: a key and the NAMES of the
+// placeholders it accepts. The tenant's own text is a different route.
+
+/** One registered template: its key and the placeholders a step may fill. */
+export interface NotificationTemplateEntry {
+  template_key: string
+  placeholders: string[]
+}
+
+/** The catalogue of the registered templates. */
+export interface NotificationTemplateCatalogue {
+  items: NotificationTemplateEntry[]
+}
+
+// ── Platform function catalogue (T-2599, pilot gap G5a) ─────────────────────
+//
+// The COMPILED catalogue of platform functions, as `GET /api/v1/platform-functions` publishes it
+// (`Letflow.PlatformFunctions.Catalog.entry_map/1`). There is no write route: an entry exists only if it is
+// compiled into the build.
+
+/** One typed input of a catalogue entry. `source_class` is `start`, `step` or `person`. */
+export interface PlatformFunctionInput {
+  name: string
+  type: string
+  required: boolean
+  source_class: string
+}
+
+/** One typed output of a catalogue entry. */
+export interface PlatformFunctionOutput {
+  name: string
+  type: string
+}
+
+/** One catalogue entry. */
+export interface PlatformFunctionEntry {
+  name: string
+  family: string
+  version: string
+  permission: string
+  platform_tenant_only: boolean
+  idempotency_inputs: string[]
+  inputs: PlatformFunctionInput[]
+  outputs: PlatformFunctionOutput[]
+  side_effects: { text: string; class: string }[]
+}
+
+/** The catalogue the caller's tenant may use. */
+export interface PlatformFunctionCatalogue {
+  items: PlatformFunctionEntry[]
 }

@@ -40,6 +40,7 @@ defmodule Letflow.CiDownloadRetryTest do
         env: [
           {"CI_JOB_DEADLINE_S", to_string(System.os_time(:second) + 300)},
           {"CI_RETRY_PAUSE_S", "0"},
+          {"CI_RATE_LIMIT_PAUSE_S", "0"},
           {"CI_RETRY_MIN_REMAINING_S", "1"},
           {"GITHUB_STEP_SUMMARY", summary},
           {"TMPDIR", dir}
@@ -106,6 +107,31 @@ defmodule Letflow.CiDownloadRetryTest do
 
     assert status == 3
     assert runs(count) == 1
+  end
+
+  @tag :tmp_dir
+  test "a Maven 429 is retried with backoff, up to 3 times (T-2910)", %{tmp_dir: dir} do
+    {script, count} =
+      fake(
+        dir,
+        "Could not GET 'https://repo.maven.apache.org/x.pom'. Received status code 429",
+        true
+      )
+
+    {out, status, summary} = run(dir, script)
+    assert status == 3
+    assert runs(count) == 4
+    assert out =~ "retry 1/3: 429"
+    assert out =~ "retry 3/3: 429"
+    assert summary =~ "retry 3/3: 429"
+  end
+
+  test "workflow: the mobile job restores a Gradle cache" do
+    jobs = @ci_yml |> YamlElixir.read_from_file!() |> Map.fetch!("jobs")
+    step = Enum.find(jobs["mobile"]["steps"], &(&1["name"] == "Cache Gradle dependencies"))
+    assert step["uses"] =~ "actions/cache@v4"
+    assert step["with"]["path"] =~ "~/.gradle/caches/modules-2"
+    assert step["with"]["key"] =~ "pubspec.lock"
   end
 
   test "workflow: download steps use the retry flag, test and compile steps do not" do

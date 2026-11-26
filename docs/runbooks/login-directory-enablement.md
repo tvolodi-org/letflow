@@ -50,5 +50,7 @@ documented" means nothing in code verifies it; the owner is the only control.
 The "task assigned" mail is sent only when the tenant setting `notifications.email_copy` is `true` (default off; set it
 through the tenant-settings PATCH). A user opts out with the preference `notifications.email` = `"off"`
 (`PUT /api/v1/me/preferences`). At most 20 such mails per user per hour; an adapter failure is retried twice inside the
-delivery task. Sending to real people in production needs the SMTP credentials (`LETFLOW_SMTP_*`, infra); on QA/demo
-mailpit catches the mail. The log carries no address or subject.
+delivery task. Sending to real people in production needs the SMTP credentials (`LETFLOW_SMTP_*`, infra); the mail trap
+is the target on QA and on the demo stack, but as of 2026-11-21 neither application has its own adapter configured (no
+mail variable is set, so the `Noop` adapter stands and Letflow sends no mail of its own - see
+`docs/testing/uat-mail-trap.md`). The log carries no address or subject.

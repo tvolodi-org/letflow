@@ -339,8 +339,12 @@ defmodule Letflow.LoginDirectory.KeyRotationTest do
 
       log = LoggerCollector.text(entries)
 
+      # QueryLogFilter (#5118) redacts the parameter values of personal-value SELECTs, so the
+      # control asserts the query itself is logged (text and source), not the bound value.
       assert log =~ "QUERY"
-      assert log =~ "control-slug-443"
+      assert log =~ ~s(source="tenants")
+      assert log =~ "[redacted]"
+      refute log =~ "control-slug-443"
     end
 
     test "source: every Repo call in key_rotation.ex carries log: false (balanced-paren scan)" do

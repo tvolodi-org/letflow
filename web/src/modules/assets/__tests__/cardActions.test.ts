@@ -8,10 +8,10 @@ import type { AssetBalanceRow } from '../register/assetRegister.api'
 const row = (over: Partial<AssetBalanceRow> = {}): AssetBalanceRow => ({
   asset: 'c-1', org_unit: 'u-1', location: 'l-1', material_responsible: 'e-1', actual_user: 'e-2', unit_ref: 'pcs', quantity: '1.000000000', ...over,
 })
-const facts = (over: Partial<CardFacts> = {}): CardFacts => ({ active: true, kind: 'fixed', held: false, rows: [], canRead: true, ...over })
+const facts = (over: Partial<CardFacts> = {}): CardFacts => ({ active: true, kind: 'fixed', held: false, rows: [], canRead: true, maintenanceInstalled: false, canReport: false, ...over })
 const IDS: CardActionId[] = ['commission', 'change', 'handover', 'writeoff']
 const R = 'assets.cardActions.reason.'
-const no = (r: string): CardActionState => ({ allowed: false, reasonId: R + r })
+const no = (r: string): CardActionState => ({ allowed: false, reasonId: R + r, hidden: false })
 const yes: CardActionState = { allowed: true }
 
 describe('U1 status x action', () => {
@@ -40,8 +40,34 @@ describe('U1 status x action', () => {
     expect(cardStatus(facts({ canRead: false }))).toBe('unknown')
   })
 
-  it('lists exactly the four document kinds, all behind AssetsPost, and names no role', () => {
-    expect(CARD_ACTIONS.map((a) => [a.id, a.kind, a.permission])).toEqual(IDS.map((id) => [id, id, 'AssetsPost']))
+  it('lists the four document kinds behind AssetsPost and the report action of the maintenance module', () => {
+    expect(CARD_ACTIONS.map((a) => [a.id, a.kind ?? null, a.permission])).toEqual([
+      ['commission', 'commission', 'AssetsPost'],
+      ['change', 'change', 'AssetsPost'],
+      ['handover', 'handover', 'AssetsPost'],
+      ['writeoff', 'writeoff', 'AssetsPost'],
+      ['reportProblem', null, 'MaintenanceRequestCreate'],
+    ])
+  })
+
+  it('REQ-898: the report action needs an active card, the installed module and the permission', () => {
+    const ok = facts({ maintenanceInstalled: true, canReport: true })
+    expect(cardActionState('reportProblem', ok)).toEqual({ allowed: true })
+    expect(cardActionState('reportProblem', facts({ maintenanceInstalled: true }))).toEqual({
+      allowed: false,
+      reasonId: R + 'noPermission',
+      hidden: true,
+    })
+    expect(cardActionState('reportProblem', facts({ canReport: true }))).toEqual({
+      allowed: false,
+      reasonId: R + 'noMaintenance',
+      hidden: true,
+    })
+    expect(cardActionState('reportProblem', facts({ active: false, maintenanceInstalled: true, canReport: true }))).toEqual({
+      allowed: false,
+      reasonId: R + 'retired',
+      hidden: true,
+    })
   })
 
   it('builds the addresses', () => {

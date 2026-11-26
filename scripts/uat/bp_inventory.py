@@ -64,7 +64,7 @@ AREAS: dict[str, dict] = {
             "tenant_modules", "tenant_role_grants", "tenant_role_scope_grants", "tenant_scope_" "enforcement",
             "tenant_scope_node_paths", "tenant_solutions", "approval_rules", "ledger_settings", "labels",
             "currencies", "number_sequences", "notification_templates", "notification_deliveries", "audit",
-            "data_export", "help", "mobile_tenant_config", "entity_scope_declarations",
+            "data_export", "help", "mobile_tenant_config", "entity_scope_declarations", "outbound_destinations",
         ],
         "web": [
             r"^admin/(users|groups|tokens|audit|appearance|print-templates|currencies|official-forms|"
@@ -82,6 +82,7 @@ AREAS: dict[str, dict] = {
         "routers": [
             "tenants", "onboarding", "signup", "login_discovery", "admin_v1", "admin_services",
             "platform_migrations", "platform_module_rollouts", "platform_problem_reports", "platform_status",
+            "platform_functions",
             "event_retention", "metrics_exposition", "modules", "router",
         ],
         "web": [
