@@ -278,19 +278,19 @@ defmodule Letflow.Modules.Assets.HandoverCardMoveTest do
     assert CardMoves.backward(ctx.schema, header, [%{"asset_id" => m.fixed2}]) == {:ok, []}
   end
 
-  test "H8 a posting without card_moves (a document in flight before this change) moves nothing",
+  test "H8 a posting without card_moves is refused (T-2432): it differs from the start",
        ctx do
     m = ctx.ma
     to = D.place!(ctx.schema)
     D.commission!(ctx)
     doc = handover!(ctx, to)
 
-    assert {:ok, _} =
+    assert {:error, {:entity_write_refused, 0, :validation_failed}} =
              complete_with(ctx, doc, fn posting ->
                %{"posting" => Map.delete(posting, "card_moves")}
              end)
 
-    assert D.get!(ctx, doc["id"])["state"] == "posted"
+    assert D.get!(ctx, doc["id"])["state"] == "issued"
     assert unit_of(ctx, m.fixed) == m.unit
   end
 
