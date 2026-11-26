@@ -16,6 +16,7 @@ import { tenantsApi } from '@/api/tenants'
 import { queryKeys } from '@/api/queryKeys'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
+import { StatusPill } from '@/components/ui/StatusPill'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/hooks/useToast'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -252,8 +253,14 @@ export default function EditTenantPage() {
 
       <div style={fieldGroupStyle}>
         <label style={labelStyle}>Status</label>
-        <span data-testid="edit-tenant-status" style={readOnlyValueStyle}>{isActive ? 'active' : 'inactive'}</span>
-        <span data-testid="edit-tenant-status-action" style={{ display: 'inline-block', marginTop: '.5rem' }}>
+        <StatusPill
+          tone={isActive ? 'success' : 'neutral'}
+          glyph={isActive ? 'dot' : 'ring'}
+          data-testid="edit-tenant-status"
+        >
+          {isActive ? 'active' : 'inactive'}
+        </StatusPill>
+        <span data-testid="edit-tenant-status-action" className="lf-status-row__action">
           <Button
             variant={isActive ? 'danger' : 'secondary'}
             size="sm"

@@ -469,3 +469,6 @@ samp {
 .lf-guide-panel__body ol { list-style: decimal; }
 .lf-guide-panel__body table { border-collapse: collapse; }
 .lf-guide-panel__body th, .lf-guide-panel__body td { border: 1px solid var(--line); padding: var(--space-1) var(--space-2); text-align: start; }
+
+/* T-2752: Edit Tenant status row: the action sits under the status pill. */
+.lf-status-row__action { display: block; margin-top: var(--space-2); }
