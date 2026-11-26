@@ -24,7 +24,7 @@ The area `master` has 16 process(es): 13 implemented, 3 partial. Executed by: 16
 | BP-MASTER-11 | Security: permission matrix of the master data routes | Who may do what in org, locations, catalog lots and codes, and who is refused. | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MASTER-13 | Security: crafted write requests are refused and change nothing | Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key wit... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
-| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | yes | yes | see report |
 | BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | direct | yes | yes | see report |
 | BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | direct | yes | yes | see report |
 
@@ -482,17 +482,17 @@ A call with no credential, a wrong or expired token, a token of another tenant n
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-MASTER-14-no-credential-refused.json` (runner id `BP-MASTER-14`)
 
 **Status.**
 
 - implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 
 **Gaps.**
 
-- WHY PARTIAL: the runner always sends the actor's own valid token; it has no step kind for a call with no credential, a malformed header or an expired token (only http_as: shared_access and per-actor tokens exist). Needs a runner task: a step with `auth: none | bad`. The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline.
+- WHY PARTIAL: the no-credential half is walked (anonymous caller, 401 on org sites, location nodes, code resolve, generic import). A wrong or expired token and an unknown host cannot be forged by the runner (it always sends the actor's own valid token). Owner: the runner maintainer (a step option for a bad bearer). The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline.
 
 ## BP-MASTER-15 -- Security: import types, size and format limits
 
@@ -566,5 +566,5 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 9 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10, BP-MASTER-14
+- 8 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10
 - 3 process(es) are not implemented: BP-MASTER-14, BP-MASTER-15, BP-MASTER-16
