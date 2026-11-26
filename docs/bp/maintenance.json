@@ -534,7 +534,37 @@
     "preconditions": [
       "BP-MAINTENANCE-01..03 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "MaintenanceRequestFormPage"
+        ],
+        "functions": [],
+        "route": "requests/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:16",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
+        ],
+        "result": "The new-request form opens under the maintenance admin area, guarded by the request-create permission."
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "MaintenanceRequestsPage"
+        ],
+        "functions": [],
+        "route": [
+          "requests",
+          "requests/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
+        ],
+        "result": "The request list and the request page open under the maintenance admin area, guarded by the read permission."
+      }
+    ],
     "inputs": [
       "request fields"
     ],
