@@ -190,6 +190,11 @@ content. Refusals before anything is sent carry a class at the start of the erro
 `upload_fixture_path_invalid`, `upload_fixture_too_big` (over 25 MiB, the server's cap). A refusal by the server (wrong
 type, too big) is an expected negative: `"expect": {"status": 415}` as for any step.
 
+**A raw upload (T-2857).** The stock-workbook `check` and `apply` routes and the records import routes read the xlsx as the
+WHOLE request body of its media type (`Letflow.Plugs.XlsxBodyParser`), and answer `xlsx_unreadable` to a multipart form.
+`"raw": true` (no `field`, no `fields`) sends the file bytes as the body with `content_type` as the media type; the log
+keeps the same SHA-256 and byte count with `"raw": true`.
+
 **The Client 1 workbook set** is synthetic (D-050: no real data) and is generated, not committed: a file named
 `generated/client1/<name>` is built on first use under `<run dir>/generated-fixtures/client1` by `client1_workbook.py`,
 which runs `scripts/pilot/qoimeks_gen.py` (seed 42: 134 places, 666 items, 600 balances) and

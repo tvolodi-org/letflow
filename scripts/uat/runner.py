@@ -654,6 +654,17 @@ class Multipart:
                                    "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
 
 
+class RawFile(Multipart):
+    """The file as the WHOLE request body of its media type (the stock-workbook and records import routes read an
+    xlsx body, not a multipart form; T-2857). The log gets the same summary with `raw: true`."""
+
+    def __init__(self, filename: str, content: bytes, content_type: str):
+        self.data = content
+        self.content_type = content_type
+        self.summary = {"upload": {"raw": True, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
     """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
 
@@ -1648,7 +1659,7 @@ class Runner:
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "file" in spec and "field" in spec:  # an upload step: the call is a multipart body
+        if "file" in spec and ("field" in spec or spec.get("raw")):  # an upload step: multipart, or the raw file body
             body = self._multipart(spec)
             redacted = body.summary
         elif "body" in spec:
@@ -1677,7 +1688,8 @@ class Runner:
         return path
 
     def _multipart(self, spec) -> Multipart:
-        field = substitute(spec["field"], self.ctx)
+        raw = spec.get("raw") is True
+        field = "file" if raw else substitute(spec["field"], self.ctx)
         if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
             raise RunnerError("upload: field is a plain form field name")
         ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
@@ -1691,6 +1703,10 @@ class Runner:
         if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
                                                    "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
             raise RunnerError("upload: fields is a map of plain names to one-line values")
+        if raw:
+            if fields:
+                raise RunnerError("upload: a raw upload has no fields (the body is the file)")
+            return RawFile(path.name, path.read_bytes(), ctype)
         return Multipart(fields, field, path.name, path.read_bytes(), ctype)
 
     def _sweep(self, role, spec, http_as, record):
@@ -2965,9 +2981,9 @@ def validate_step(step, where) -> None:
         validate_call(do, where)
     elif kind == "upload":
         spec = do["upload"]
-        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
-                                                  for k in ("path", "field", "file")):
-            raise ConfigError(f"{where}: upload needs a path, a field and a file")
+        need = ("path", "file") if isinstance(spec, dict) and spec.get("raw") is True else ("path", "field", "file")
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip() for k in need):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file (a raw upload: a path and a file)")
         if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
             raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
     elif kind == "wait_task":
