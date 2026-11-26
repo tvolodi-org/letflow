@@ -164,13 +164,6 @@ export const maintenanceScreens: HarnessScreen[] = [
     render: () => withAuth(<ClickTestId id="request-reject"><MaintenanceRequestsPage /></ClickTestId>),
   },
   {
-    name: 'maintenance-request-order',
-    initialPath: '/r-1',
-    routePattern: '/:id',
-    routes: routes(),
-    render: () => withAuth(<ClickTestId id="request-make-order"><MaintenanceRequestsPage /></ClickTestId>),
-  },
-  {
     name: 'maintenance-request-form',
     initialPath: '/new',
     routePattern: '/new',

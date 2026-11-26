@@ -18,6 +18,8 @@ entry; they do not each need their own menu item.
 | `/admin/bilimbaga` | Legacy exam administration landing route. |
 | `/admin/bilimbaga/:entityType` | Exam entity browser from exam administration. |
 | `/admin/bilimbaga/exam-builder/:examId` | Builder action on an exam. |
+| `/admin/maintenance/orders/:id` | Selected work order from Maintenance orders. |
+| `/admin/maintenance/orders/new` | New work order action on Maintenance orders, and Make work order on a request. |
 | `/admin/maintenance/requests/:id` | Selected request from Maintenance requests. |
 | `/admin/maintenance/requests/new` | Report a problem action on Maintenance requests and on an asset card. |
 | `/admin/onboarding` | Alias of Register Tenant. |

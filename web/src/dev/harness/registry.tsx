@@ -60,6 +60,7 @@ import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
 import { assetsIssueRefusedScreens } from './fixtures/assetsDocumentsIssueRefused'
 import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
 import { maintenanceScreens } from './fixtures/maintenance'
+import { maintenanceOrdersScreens } from './fixtures/maintenanceOrders'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { assetsOpeningScreens } from './fixtures/assetsDocumentsOpening'
 import { assetsPrintButtonsScreens } from './fixtures/assetsPrintButtons'
@@ -374,6 +375,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...assetsIssueRefusedScreens,
     ...assetsCardActionsScreens,
     ...maintenanceScreens,
+    ...maintenanceOrdersScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
     ...assetsOpeningScreens,
