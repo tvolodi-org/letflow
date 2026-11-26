@@ -30,10 +30,6 @@ import { errorMessageId, formatWhen, statusTone, urgencyTone } from './maintenan
 
 const LIST_SCREEN = 'maintenance.requests'
 
-function newKey(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `k-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
 /** The screen inside the module's own IntlProvider (the labels come from the module's catalog). */
 export default function MaintenanceRequestsPage() {
   return (
@@ -68,7 +64,6 @@ function MaintenanceRequestsScreen() {
   const [rejectReason, setRejectReason] = useState('')
   const [rejectError, setRejectError] = useState<string | null>(null)
   const [rejectReasonError, setRejectReasonError] = useState<string | null>(null)
-  const [orderOpen, setOrderOpen] = useState(false)
 
   const canRead = can(MAINTENANCE_READ)
   const canCreate = can(MAINTENANCE_REQUEST_CREATE)
@@ -110,14 +105,6 @@ function MaintenanceRequestsScreen() {
       await invalidate()
     },
     onError: (err) => setRejectError(t(errorMessageId(err))),
-  })
-
-  const makeOrder = useMutation({
-    mutationFn: () => maintenanceApi.createOrder(selectedId as string, newKey()),
-    onSuccess: async () => {
-      setOrderOpen(false)
-      await invalidate()
-    },
   })
 
   const open = (id: string) => {
@@ -220,7 +207,7 @@ function MaintenanceRequestsScreen() {
         setRejectReason('')
         setRejectOpen(true)
       }}
-      onMakeOrder={() => setOrderOpen(true)}
+      onMakeOrder={() => navigate(`/admin/maintenance/orders/new?request=${encodeURIComponent(selectedId as string)}`)}
       onClose={close}
       error={reject.isError ? t(errorMessageId(reject.error)) : null}
     />
@@ -334,19 +321,6 @@ function MaintenanceRequestsScreen() {
           </Banner>
         </div>
       )}
-      <Dialog
-        open={orderOpen}
-        title={t('maintenance.requests.makeOrderTitle')}
-        confirmText={t('maintenance.requests.makeOrder')}
-        cancelText={t('maintenance.common.cancel')}
-        isLoading={makeOrder.isPending}
-        error={makeOrder.isError ? t(errorMessageId(makeOrder.error)) : null}
-        onCancel={() => setOrderOpen(false)}
-        onConfirm={() => makeOrder.mutate()}
-        testId="make-order-dialog"
-      >
-        <p>{t('maintenance.requests.makeOrderBody')}</p>
-      </Dialog>
     </>
   )
 }

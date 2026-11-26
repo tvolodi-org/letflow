@@ -1,5 +1,7 @@
 # Pilot scenarios run by the engine uat_smoke (T-2823). One per line: an id, or "<id> planned".
 # A listed id with no file in test/uat/processes fails the smoke; "planned" prints "not run: planned" and never fails.
+# 25 runs first: its cleanup retires the throwaway definitions of the editor audit before 01's C4 reads the draft list.
+BP-PLATFORM-25
 BP-PLATFORM-01
 BP-PLATFORM-02 planned
 BP-PLATFORM-24
