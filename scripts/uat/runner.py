@@ -2493,6 +2493,27 @@ class Runner:
         self.write_line(record)
         return verdict not in ("fail", "error")
 
+    def retire_stale_shared_access(self, started_at, out=None) -> str:
+        """T-2980: retire a shared-stock-access object an EARLIER run left (its cleanup call lost to a 503).
+        Only on a QA tenant of the sweep list, only when GET says exists and created_at is older than this run's
+        start; DELETE as the tenant admin; a 404 is 'already gone'. -> the line printed ('' when nothing to do)."""
+        out = out or self.out
+        if self.tenant not in SHARED_ACCESS_SWEEP_TENANTS or "admin" not in self.actors:
+            return ""
+        status, body, _ = self.request("admin", "GET", SHARED_ACCESS_PATH)
+        if status != 200 or not isinstance(body, dict) or body.get("exists") is not True:
+            return ""
+        created = str(body.get("created_at") or "")
+        if not created or created[:19] >= started_at[:19]:  # ISO UTC strings compare as text; a younger object is this run's
+            return ""
+        status, _, _ = self.request("admin", "DELETE", SHARED_ACCESS_PATH)
+        outcome = "retired" if status in (200, 204) else "already gone" if status == 404 else f"refused ({status})"
+        line = f"{self.tenant}: {outcome} shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        if outcome == "retired":
+            line = f"{self.tenant}: retired shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        print(line, file=out, flush=True)
+        return line
+
     def record_residue_baseline(self) -> bool:
         """Before the first process: record the existing documents and open tasks of every tenant the run touches,
         and the throwaway platform tenants that exist already. An unreadable baseline is a failing residue row,
@@ -2681,6 +2702,11 @@ class Runner:
         results = {}
         stopped = False
         cleanup_ok = True
+        if any(SHARED_ACCESS_PATH in json.dumps(p) for p in self.processes):
+            try:
+                self.retire_stale_shared_access(started_at)
+            except RunnerError as err:
+                print(f"{self.label}: shared-stock-access sweep skipped: {err}", file=self.out, flush=True)
         residue_ok = self.record_residue_baseline()
         self._save_safety_expectations()  # what a cleanup replay of this run has to judge (G-08)
         try:
@@ -2925,6 +2951,8 @@ def refuse_placeholders(text: str, source) -> None:
 
 
 SWEEP_ACCEPT = [200, 204, 404, 409]
+SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
+SHARED_ACCESS_SWEEP_TENANTS = ("qoimeks-qa2",)  # the QA tenants of the reviewed sweep list (T-2980)
 SWEEP_MAX_PAGES = 50
 SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
 

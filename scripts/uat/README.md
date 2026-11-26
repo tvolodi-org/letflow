@@ -747,3 +747,5 @@ The list file names the tenant, its admin user, the documents to reverse (reason
 to complete. Exit 2 and no request for a retired tenant, a tenant other than the list file's, or a base url that is not
 the tenant's QA host. One line per item (done / already gone / refused (status)); "already gone" never fails the run.
 It ends by re-reading the residue baseline and printing its sha256. Run it ONCE before the next RC regression.
+
+**Stale shared-stock-access (T-2980).** On a QA tenant of the sweep list (`SHARED_ACCESS_SWEEP_TENANTS`, qoimeks-qa2) the runner retires a shared-stock-access object created before the run started (GET exists + created_at older than the run, then DELETE as admin; 404 = already gone) before the first step of any run whose scenarios use that route. The line `retired shared-stock-access (created_at ..., created_by ...)` is logged. The reviewed sweep list can ask for the same with `"shared_stock_access": true`.
