@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `designer` has 33 process(es): 31 implemented, 2 partial. Executed by: 33 direct, 0 definition.
+The area `designer` has 33 process(es): 32 implemented, 1 partial. Executed by: 33 direct, 0 definition.
 
 ## The processes of the area
 
@@ -32,8 +32,8 @@ The area `designer` has 33 process(es): 31 implemented, 2 partial. Executed by: 
 | BP-DESIGNER-19 | Map fields for an integration | An administrator defines how external field names map to the tenant's field names. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-DESIGNER-20 | Run a job on a schedule | An administrator defines a scheduled job, switches it on or off, edits it and reads it. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-DESIGNER-21 | Govern documents: retention, hold and print forms | An administrator sets how long a kind of document is kept, puts a document on hold and releases it, keeps the tenant's own print layout (... | TENANT_ADMIN | implemented | direct | no | no | see report |
-| BP-DESIGNER-22 | Share a record read-only with an outside person (public read) | An administrator issues a handle for one record kind and id; the outside person opens the public address with the handle and sees a fixed... | TENANT_ADMIN | partial | direct | no | no | see report |
-| BP-DESIGNER-23 | List the services a process may call | A designer looks up the services the tenant may use as service tasks in a process. | PROCESS_DESIGNER | partial | direct | no | no | see report |
+| BP-DESIGNER-22 | Share a record read-only with an outside person (public read) | An administrator issues a handle for one record kind and id; the outside person opens the public address with the handle and sees a fixed... | TENANT_ADMIN | partial | direct | yes | no | see report |
+| BP-DESIGNER-23 | List the services a process may call | A designer looks up the services the tenant may use as service tasks in a process. | PROCESS_DESIGNER | implemented | direct | yes | no | see report |
 | BP-DESIGNER-24 | SECURITY: permission matrix of the designer area, role by role | Each write route of the area is refused with 403 to a role that does not hold its permission (storekeeper, task worker, auditor, operator... | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-DESIGNER-25 | SECURITY: cross-tenant read and write refused, uniform 404 | A token of tenant A used on an id of tenant B (definition, entity definition, record, instance, task, webhook subscription, script versio... | TENANT_ADMIN | implemented | direct | no | yes | see report |
 | BP-DESIGNER-26 | SECURITY: unknown, malformed and absent ids answer one uniform 404 | An id that does not exist in the tenant is answered by the same 404 on the read and the write routes of definitions, with no change. | TENANT_ADMIN | implemented | direct | yes | yes | see report |
@@ -753,15 +753,16 @@ An administrator issues a handle for one record kind and id; the outside person 
 
 - unknown kind or handle, revoked, expired, wrong kind: uniform 404
 - rate limit 429
+- a role without PublicReadHandlesIssue (storekeeper, process designer) gets 403: played by the scenario
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-DESIGNER-22.json` (runner id `BP-DESIGNER-22`)
 
 **Status.**
 
 - implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
 ## BP-DESIGNER-23 -- List the services a process may call
@@ -783,12 +784,12 @@ A designer looks up the services the tenant may use as service tasks in a proces
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-DESIGNER-23.json` (runner id `BP-DESIGNER-23`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
 ## BP-DESIGNER-24 -- SECURITY: permission matrix of the designer area, role by role
@@ -1092,5 +1093,5 @@ The orphan file of the area lists no orphan row (the file itself explains why: `
 
 ## Gaps of the area
 
-- 30 process(es) have no runner scenario: BP-DESIGNER-02, BP-DESIGNER-03, BP-DESIGNER-04, BP-DESIGNER-05, BP-DESIGNER-06, BP-DESIGNER-07, BP-DESIGNER-08, BP-DESIGNER-09, BP-DESIGNER-10, BP-DESIGNER-11, BP-DESIGNER-12, BP-DESIGNER-13, BP-DESIGNER-14, BP-DESIGNER-15, BP-DESIGNER-16, BP-DESIGNER-17, BP-DESIGNER-18, BP-DESIGNER-19, BP-DESIGNER-20, BP-DESIGNER-21, BP-DESIGNER-22, BP-DESIGNER-23, BP-DESIGNER-25, BP-DESIGNER-27, BP-DESIGNER-28, BP-DESIGNER-29, BP-DESIGNER-30, BP-DESIGNER-31, BP-DESIGNER-32, BP-DESIGNER-33
-- 2 process(es) are not implemented: BP-DESIGNER-22, BP-DESIGNER-23
+- 28 process(es) have no runner scenario: BP-DESIGNER-02, BP-DESIGNER-03, BP-DESIGNER-04, BP-DESIGNER-05, BP-DESIGNER-06, BP-DESIGNER-07, BP-DESIGNER-08, BP-DESIGNER-09, BP-DESIGNER-10, BP-DESIGNER-11, BP-DESIGNER-12, BP-DESIGNER-13, BP-DESIGNER-14, BP-DESIGNER-15, BP-DESIGNER-16, BP-DESIGNER-17, BP-DESIGNER-18, BP-DESIGNER-19, BP-DESIGNER-20, BP-DESIGNER-21, BP-DESIGNER-25, BP-DESIGNER-27, BP-DESIGNER-28, BP-DESIGNER-29, BP-DESIGNER-30, BP-DESIGNER-31, BP-DESIGNER-32, BP-DESIGNER-33
+- 1 process(es) are not implemented: BP-DESIGNER-22

@@ -1,0 +1,32 @@
+{
+  "id": "BP-DESIGNER-23",
+  "bp_entry": "BP-DESIGNER-23",
+  "title": "The administrator lists the services a process may call; a storekeeper without definition rights is refused",
+  "description": "The administrator (holds DefinitionsRead) reads the service list and gets 200. The storekeeper (no DefinitionsRead) is refused 403. Nothing is written.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/services"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/services"},
+      "expect_refused": {"status": 403}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
