@@ -1551,7 +1551,12 @@ class Runner:
         nothing to sweep is '0 swept'. -> (200, {"swept": n, "already_gone": m, "lines": [...]}, text)."""
         spec = substitute(spec, self.ctx)
         prefix, marker = spec.get("prefix"), spec.get("exclude_contains")
-        sweep_prefix_problem(prefix, marker)
+        versions_of = spec.get("draft_versions_of")
+        if versions_of is not None:  # T-2917: DRAFT uat-* VERSIONS of one named definition, not uat-tmp-* names
+            sweep_versions_problem(versions_of, marker)
+            prefix = versions_of
+        else:
+            sweep_prefix_problem(prefix, marker)
         accept = spec.get("accept", SWEEP_ACCEPT)
         found, cursor = [], None
         for _ in range(SWEEP_MAX_PAGES):
@@ -1563,7 +1568,12 @@ class Runner:
                 raise RunnerError(f"sweep: the list answered {status}, expected 200 with items")
             for item in body["items"]:
                 name = item.get("name") if isinstance(item, dict) else None
-                if isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
+                if versions_of is not None:
+                    version = item.get("version") if isinstance(item, dict) else None
+                    if name == versions_of and isinstance(version, str) and version.startswith("uat-") \
+                            and marker not in version and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                        found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
+                elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
                     found.append((str(item["id"]), name, item.get("status")))
             cursor = body.get("next_cursor")
             if not cursor:
@@ -2739,6 +2749,18 @@ def sweep_prefix_problem(prefix, marker):
         raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
 
 
+SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platform.register_tenant
+
+
+def sweep_versions_problem(name, marker):
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions starting with uat- are
+    retired (never an active/seeded version, never a version without the uat- prefix)."""
+    if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
+        raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
@@ -2806,9 +2828,12 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: repeat needs times of at least 2")
     elif kind == "sweep":
         spec = do["sweep"]
-        if not isinstance(spec, dict) or set(spec) - {"prefix", "exclude_contains", "accept"}:
-            raise ConfigError(f"{where}: sweep is {{prefix, exclude_contains, accept?}}")
-        if isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
+                                            or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
+            raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
+        if "draft_versions_of" not in spec and isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
                 not SWEEP_PREFIX_RE.fullmatch(spec["prefix"]):
             raise ConfigError(f"{where}: sweep prefix must be of the form uat-tmp-<kind>-")
         if spec.get("exclude_contains") != "${run_id}":
