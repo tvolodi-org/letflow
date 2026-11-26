@@ -56,7 +56,16 @@ defmodule Letflow.EngineCatalogServiceTaskTest do
   defp unique(prefix),
     do: prefix <> "-" <> to_string(System.unique_integer([:positive, :monotonic]))
 
-  defp tenant!, do: TenantFixture.provisioned_tenant!(slug_prefix: "iss0917")
+  defp tenant! do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "iss0917")
+
+    # T-2597 (pilot gap G14): this file's INLINE service-task graph carries an
+    # `endpoint` attribute, and the tenant's outbound allow-list is empty by
+    # default -- so the door is opened for the host it names.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["example.test"])
+
+    tenant
+  end
 
   defp cleanup_entry!(service_id) do
     Repo.delete_all(from(v in Version, where: v.service_id == ^service_id))

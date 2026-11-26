@@ -169,6 +169,7 @@ defmodule Letflow.Definitions.Graph do
   """
 
   alias Letflow.Api.Authorization
+  alias Letflow.Definitions.NotifyCalls
   alias Letflow.Engine.Expr
 
   @type node_type ::
@@ -286,6 +287,23 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_downstream_only
             | :expression_references_reserved_variable
             | :extension_site_unknown_node
+            # T-2588 (pilot gap G2): a company tenant may not carry a `platform_call`,
+            # and a platform-call node has no HTTP, catalogue-service or script route.
+            | :platform_call_not_allowed
+            | :conflicting_platform_call_routes
+            # T-2594 (pilot gap G13): the TYPED STEP MAPPING of a step that maps
+            # variables -- the declared reads and writes against the definition's
+            # own `variable_schemas`, the reserved engine namespace, and the
+            # variables a person may write.
+            | :step_mapping_declaration_missing
+            | :step_mapping_declaration_malformed
+            | :step_mapping_reserved_refused
+            | :step_mapping_variable_undeclared
+            | :step_mapping_type_mismatch
+            | :step_mapping_entry_type_mismatch
+            | :step_mapping_write_refused
+            | :step_mapping_write_not_declared
+            | :step_mapping_read_undeclared
 
     @type t :: %__MODULE__{
             code: code(),
@@ -484,6 +502,8 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_role/1,
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
+        &check_service_task_platform_call_route/1,
+        &check_notify/1,
         &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
@@ -1056,6 +1076,14 @@ defmodule Letflow.Definitions.Graph do
     # GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.2): a script binding is the third
     # alternative route; its own shape is CHK-10s below.
     |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
+    # T-2588 (pilot gap G2): a SERVICE_TASK bound to a platform function is a fourth
+    # route, next to the HTTP endpoint, the catalogue service and the Lua script: it
+    # carries no endpoint of its own.
+    |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") == nil))
+    # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth
+    # route, next to the HTTP endpoint, the catalogue service, the Lua script and
+    # the platform call: it carries no endpoint of its own.
+    |> Enum.filter(&(attribute_value(&1.attributes, "notify") == nil))
     |> Enum.map(fn node ->
       %Violation{
         code: :missing_endpoint,
@@ -1116,6 +1144,56 @@ defmodule Letflow.Definitions.Graph do
     end)
   end
 
+  # T-2588 (pilot gap G2): a platform-call node is a CLOSED catalogue call. It
+  # must not also carry an outbound HTTP endpoint, a catalogue service id or a
+  # script binding. Otherwise the runtime would parse the node as that other
+  # route (ServiceTask.parse_config_from_node_attributes/1 ignores platform_call),
+  # while the platform-call source rules would exempt it as a trusted step.
+  # Messages name the node id only, never a URL or another attribute value.
+  @spec check_service_task_platform_call_route(t()) :: [Violation.t()]
+  defp check_service_task_platform_call_route(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") != nil))
+    |> Enum.filter(fn node ->
+      Enum.any?(
+        ["endpoint", "service_id", "script_key"],
+        &(attribute_value(node.attributes, &1) != nil)
+      )
+    end)
+    |> Enum.map(fn node ->
+      %Violation{
+        code: :conflicting_platform_call_routes,
+        message:
+          "Node '#{node.id}' (SERVICE_TASK) binds a platform call and also carries an " <>
+            "'endpoint', 'service_id' or 'script_key'"
+      }
+    end)
+  end
+
+  # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth route
+  # (next to the HTTP endpoint, the catalogue service, the Lua script and the
+  # platform call). The rules of the declaration live in
+  # `Letflow.Definitions.NotifyCalls` -- ONE parse, shared with the dispatcher,
+  # so a step that passed this check cannot be read differently at dispatch time.
+  # Messages name the node id only, never a template key, an address or a value.
+  #
+  # The check runs over EVERY node that carries the attribute, not only over the
+  # SERVICE_TASK ones: the node type is one of the rules the declaration states
+  # (a notification step is a SERVICE_TASK), so a HUMAN_TASK carrying a `notify`
+  # attribute is refused in the DRAFT, not only when the version is switched on.
+  @spec check_notify(t()) :: [Violation.t()]
+  defp check_notify(%__MODULE__{nodes: nodes}) do
+    for node <- nodes,
+        attribute_value(node.attributes, "notify") != nil,
+        violation <- NotifyCalls.violations(node, nodes) do
+      %Violation{
+        code: violation.code,
+        message: "Node '#{node.id}' carries an invalid 'notify' attribute (#{violation.code})"
+      }
+    end
+  end
+
   # REQ-569 / GH #3246 (decision 0067 D9, slice F-1): a HUMAN_TASK node may name a form-validation
   # script with "validation_script_key" + "validation_script_version". Both or neither: the key must
   # match Letflow.Scripts.Validation.key?/1 and the version be an integer >= 1. The message names the
@@ -1157,7 +1235,15 @@ defmodule Letflow.Definitions.Graph do
     |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
     # GH 2534 PR 7c-1: a script-bound node ignores timeout_ms (the manifest's limits govern,
     # design 4.1), so CHK-11 does not apply to it.
-    |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
+    # T-2588 (pilot gap G2): a platform-call-bound node ignores it too: the call runs in
+    # the step library's own durable dispatcher, not in the request.
+    # T-2592 (pilot gap G4): a notification-bound node ignores it as well: the send runs
+    # in the notification step's own runner, under the adapter's timeout.
+    |> Enum.filter(
+      &(attribute_value(&1.attributes, "script_key") == nil and
+          attribute_value(&1.attributes, "platform_call") == nil and
+          attribute_value(&1.attributes, "notify") == nil)
+    )
     |> Enum.filter(&invalid_timeout?(&1.attributes))
     |> Enum.map(fn node ->
       value = attribute_value(node.attributes, "timeout_ms")

@@ -1,0 +1,113 @@
+{
+  "id": "second_place",
+  "description": "A second active stock location linked to the given org unit, plus the source place. The lookup reuses an active location marked with external_ref_system UAT-FIX-second_place-<tenant>; otherwise it creates a location and its org-unit link through the locations API as the administrator. Codes, addresses and external reference ids contain the run id, so a place retired by an earlier cleanup never blocks a later run.",
+  "leaves": "A location and link that were found are left untouched. A link made by this run is retired, then a location made by this run is retired (locations have no delete). A retired UAT fixture location remains on the tenant; the next run ignores inactive locations and creates a fresh one. If cleanup fails, an active fixture location or link can remain and be reused or retired by hand.",
+  "inputs": ["place", "org_unit"],
+  "provides": ["place_from", "place_to"],
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": [
+            {"field": "external_ref_system", "op": "eq", "value": "UAT-FIX-second_place-${tenant}"},
+            {"field": "active", "op": "eq", "value": true}
+          ]
+        }
+      },
+      "expect": {"status": 200},
+      "save": {
+        "place_from": "${place}",
+        "place_to": {"pick": "$.items[0].record_id", "optional": true}
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "admin",
+      "skip_if": ["place_to"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-fix-second-place-node-${tenant}-${run_id}",
+          "code": "UAT2-${run_id}",
+          "name": "UAT fixture second stock place",
+          "node_kind": "warehouse",
+          "segment": "UAT2",
+          "location_type": "pick",
+          "address": "UAT2-${run_id}",
+          "external_ref_system": "UAT-FIX-second_place-${tenant}",
+          "external_ref_id": "${run_id}"
+        }
+      },
+      "expect": {"status": 201, "json": {"active": true}},
+      "save": {"place_to": "$.record_id", "second_place_created": "yes"}
+    },
+    {
+      "id": "f3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_org_unit_link",
+          "filters": [
+            {"field": "location_id", "op": "eq", "value": "${place_to}"},
+            {"field": "org_unit_id", "op": "eq", "value": "${org_unit}"},
+            {"field": "active", "op": "eq", "value": true}
+          ]
+        }
+      },
+      "expect": {"status": 200},
+      "save": {"second_place_link_id": {"pick": "$.items[0].record_id", "optional": true}}
+    },
+    {
+      "id": "f4",
+      "actor": "admin",
+      "skip_if": ["second_place_link_id"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/links",
+        "body": {
+          "idempotency_key": "uat-fix-second-place-link-${tenant}-${run_id}",
+          "location_id": "${place_to}",
+          "org_unit_id": "${org_unit}"
+        }
+      },
+      "expect": {"status": 201, "json": {"active": true}},
+      "save": {"second_place_link_id": "$.record_id", "second_place_link_created": "yes"}
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["second_place_link_created"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/links/retire",
+        "body": {
+          "idempotency_key": "uat-fix-second-place-unlink-${tenant}-${run_id}",
+          "location_id": "${place_to}",
+          "org_unit_id": "${org_unit}"
+        }
+      },
+      "expect": {"status": [200, 404]}
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": ["second_place_created"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${place_to}/retire",
+        "body": {"idempotency_key": "uat-fix-second-place-retire-${tenant}-${run_id}"}
+      },
+      "expect": {"status": [200, 404, 422]}
+    }
+  ]
+}

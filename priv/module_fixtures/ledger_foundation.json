@@ -32,6 +32,7 @@
             "id": "ht",
             "node_type": "HUMAN_TASK",
             "attributes": {
+              "completer_inputs": ["label"],
               "role": "REVIEWER",
               "module_writes": [
                 {
@@ -61,6 +62,7 @@
             "id": "ht",
             "node_type": "HUMAN_TASK",
             "attributes": {
+              "completer_inputs": ["label"],
               "role": "REVIEWER",
               "entity_writes": [
                 {
@@ -113,6 +115,7 @@
             "id": "ht",
             "node_type": "HUMAN_TASK",
             "attributes": {
+              "completer_inputs": ["label"],
               "role": "REVIEWER",
               "entity_writes": [{ "op": "create", "entity_type": "aaa_move", "fields": { "label": { "const": "v" } } }],
               "module_writes": [{ "module": "fixture_ledger", "handler": "post_entry", "args": { "item": { "var": "label" }, "quantity": { "const": 1 } } }]
@@ -137,6 +140,7 @@
             "id": "ht",
             "node_type": "HUMAN_TASK",
             "attributes": {
+              "completer_inputs": ["label"],
               "role": "REVIEWER",
               "entity_writes": [{ "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }],
               "module_writes": [{ "module": "fixture_ledger", "handler": "post_entry", "args": { "item": { "var": "label" }, "quantity": { "const": 1 } } }]

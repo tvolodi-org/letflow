@@ -36,6 +36,7 @@ defmodule Letflow.TenantProvisioner.Request do
           hostname: String.t(),
           idp_realm_id: String.t(),
           expires_at: DateTime.t(),
+          expires_at_sent: String.t() | nil,
           source_ip_key: binary() | nil,
           email_domain_key: binary()
         }
@@ -71,6 +72,9 @@ defmodule Letflow.TenantProvisioner.Request do
          hostname: hostname,
          idp_realm_id: realm,
          expires_at: expires_at,
+         # The value AS SENT (nil when absent): the request fingerprint of a process create (T-2728)
+         # is built from it, never from the computed default, so a replay that omits it matches.
+         expires_at_sent: Map.get(body, "expires_at"),
          source_ip_key: source_ip_key,
          email_domain_key: domain_key(email_key)
        }}

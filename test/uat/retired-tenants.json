@@ -1,0 +1,7 @@
+{
+  "description": "Retired QA tenants (T-2538). The UAT runner, check_processes.py and bp_dryrun (runner.py dry-run) refuse, with exit 2 and before any request, a process, chain or fixture file, a --tenant, a --actors user or a base url that names one of them. A user belongs to a tenant when its name is the tenant slug or starts with the slug and a dash (qoimeks-qa-admin).",
+  "retired": {
+    "qoimeks-qa": "retired; never touch it (standing rule)",
+    "qoimeks-client1-qa": "client1 is read-only: no runner run at all"
+  }
+}

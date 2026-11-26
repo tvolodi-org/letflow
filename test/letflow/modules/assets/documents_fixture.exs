@@ -208,6 +208,24 @@ defmodule Letflow.AssetsDocsFixture do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
+  @doc """
+  Overwrites variables of the task's instance directly in the projection (T-2430). The completion
+  body can no longer set a key a `module_writes` argument reads (422 `output_refused`), so a test of
+  the HANDLER's own checks forges the instance state here instead of through the body.
+  """
+  def tamper!(ctx, task, variables) do
+    projection = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema)
+
+    {1, _} =
+      Repo.update_all(
+        from(p in InstanceProjection, where: p.instance_id == ^task.instance_id),
+        [set: [variables: Map.merge(projection.variables, variables)]],
+        prefix: ctx.schema
+      )
+
+    :ok
+  end
+
   @doc "Claims and completes `task` through the tasks routes with `token`; returns the complete conn."
   def claim_and_complete(task, token) do
     assert task_route(task, token, "claim", "{}").status == 200

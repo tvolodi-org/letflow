@@ -74,6 +74,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Ecto.Multi
   alias Letflow.Definitions
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Definitions.SubProcessInterface
   alias Letflow.Engine.ExecutionError
@@ -90,6 +91,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.VariableSchema
+  alias Letflow.Engine.WriteTargets
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.Registry.JsonSchema
@@ -345,11 +347,13 @@ defmodule Letflow.Engine.SubProcess do
              activation_failure()
              | {:graph_structure_invalid, term()}
              | {:activation_failed, term()}}
-  def prepare_child_activation(_parent_instance_id, parent_variables, %Graph.Node{} = node, opts) do
+  def prepare_child_activation(parent_instance_id, parent_variables, %Graph.Node{} = node, opts) do
     prefix = Keyword.get(opts, :prefix)
 
     with {:ok, definition} <- resolve_child_definition(node, prefix),
          {:ok, graph} <- Letflow.Engine.build_graph(definition.graph),
+         :ok <- refuse_module_only_child(graph, definition, parent_instance_id, prefix),
+         :ok <- refuse_platform_call_child(graph),
          {parsed_interface, _violations} <-
            SubProcessInterface.parse_interface(
              node.id,
@@ -406,6 +410,92 @@ defmodule Letflow.Engine.SubProcess do
         end
       end
     end
+  end
+
+  # T-2444: a definition with `module_writes` reads its write targets from the start variables, so it
+  # is started by its module only: as a child it needs a parent definition stamped with the SAME
+  # module (a module composes its own definitions). A tenant-made parent, whose completers or start
+  # variables could carry the targets, is answered as for an unknown definition. `owner_module` is a
+  # read-only stamp set by module install, never by a tenant.
+  defp refuse_module_only_child(graph, definition, parent_instance_id, prefix) do
+    if not WriteTargets.module_writes?(graph) or
+         same_module_parent?(definition, parent_instance_id, prefix),
+       do: :ok,
+       else: {:error, {:definition_not_found, :module_only_definition}}
+  end
+
+  defp same_module_parent?(%{owner_module: owner}, parent_instance_id, prefix)
+       when is_binary(owner) do
+    with {:ok, snapshot} <- SnapshotStore.get_by_instance_id(parent_instance_id, prefix: prefix),
+         {:ok, parent} <- Definitions.get_by_id(snapshot.definition_id, prefix: prefix) do
+      parent.owner_module == owner
+    else
+      _unknown -> false
+    end
+  end
+
+  defp same_module_parent?(_definition, _parent_instance_id, _prefix), do: false
+
+  # T-2588 (pilot gap G2, decision (e)): a child that calls a platform function
+  # is started with the PARENT's variables (the values the person who started
+  # the parent chose), and the server-side caller is NOT propagated to this
+  # activation -- the child activation runs inside the parent's own activation
+  # loop, with no request context. Until that propagation lands (gap G3/G17
+  # own it), the child is refused: fail closed, with the answer for an unknown
+  # definition. The parent's own start already refuses a caller without the
+  # entry's permission, so the hole this closes is the one a definition edited
+  # after the parent started would open.
+  defp refuse_platform_call_child(graph) do
+    if PlatformCalls.declares_call?(graph) do
+      {:error, {:definition_not_found, :platform_call_child_start}}
+    else
+      :ok
+    end
+  end
+
+  @doc """
+  The SUB_PROCESS child definitions a graph starts, resolved in the tenant's own
+  schema (the active version of each named child), transitively.
+
+  A child that does not resolve is skipped: the child's own activation refuses
+  it later, with the ordinary error. The list is what the start fence of a
+  definition reads: a child inherits the parent's start variables, so it needs
+  the same authority as a direct start (T-2588, decision (e)).
+  """
+  @spec child_definitions(map() | term(), String.t()) :: [map()]
+  def child_definitions(graph_map, prefix) when is_binary(prefix) do
+    case Letflow.Engine.build_graph(graph_map) do
+      {:ok, graph} -> child_definitions_of(graph, prefix, MapSet.new(), [])
+      _not_a_graph -> []
+    end
+  end
+
+  def child_definitions(_graph_map, _prefix), do: []
+
+  defp child_definitions_of(graph, prefix, seen, acc) do
+    Enum.reduce(graph.nodes, acc, fn node, acc ->
+      if node.node_type == :SUB_PROCESS do
+        case resolve_child_definition(node, prefix) do
+          {:ok, definition} ->
+            if MapSet.member?(seen, definition.id) do
+              acc
+            else
+              acc = [definition | acc]
+              seen = MapSet.put(seen, definition.id)
+
+              case Letflow.Engine.build_graph(definition.graph) do
+                {:ok, child_graph} -> child_definitions_of(child_graph, prefix, seen, acc)
+                _not_a_graph -> acc
+              end
+            end
+
+          {:error, _reason} ->
+            acc
+        end
+      else
+        acc
+      end
+    end)
   end
 
   # GH #2694 -- the child's own pins, resolved FRESH for the child's definition with the same
@@ -1333,6 +1423,7 @@ defmodule Letflow.Engine.SubProcess do
          cascade_lookup_key,
          child_instance_id,
          parent_instance_id,
+         parent_token.node_id,
          final_instance_state,
          merge_variables,
          merge_labels,
@@ -1353,6 +1444,7 @@ defmodule Letflow.Engine.SubProcess do
          cascade_lookup_key,
          child_instance_id,
          parent_instance_id,
+         parent_node_id,
          final_instance_state,
          merge_variables,
          merge_labels,
@@ -1367,6 +1459,7 @@ defmodule Letflow.Engine.SubProcess do
     |> Multi.run(event_key, fn _repo, _changes ->
       append_sub_process_completed_event(
         parent_instance_id,
+        parent_node_id,
         child_instance_id,
         merge_variables,
         merge_labels,
@@ -1609,6 +1702,7 @@ defmodule Letflow.Engine.SubProcess do
 
   defp append_sub_process_completed_event(
          parent_instance_id,
+         parent_node_id,
          child_instance_id,
          merge_variables,
          merge_labels,
@@ -1621,6 +1715,14 @@ defmodule Letflow.Engine.SubProcess do
     payload =
       %{
         child_instance_id: child_instance_id,
+        # The node of the PARENT that ran the sub-process (the parent's own
+        # SUB_PROCESS node). The event is written on the parent's stream, so
+        # the node it is about is the parent's -- named here the same way
+        # every other completion event names its node (`node_id`), so a
+        # reader of the parent's history (the step log of the instance,
+        # `Letflow.Instances.StepLog`) can close the parent's visit with
+        # this event.
+        node_id: parent_node_id,
         output_variables: merge_variables,
         merged_variable_events: VariableLabels.encode_merge_events(merge_events),
         activated_nodes: Enum.map(final_instance_state.tokens, & &1.node_id)

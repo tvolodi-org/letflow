@@ -190,9 +190,12 @@ defmodule Letflow.RiskTierTest do
                "docs/migration/decisions/0082-cross-module-posting-lines.md",
                "docs/migration/stage-7-simulation-uat-parity.md",
                "docs/open-source/audit-report.md",
+               "docs/platform-steps.md",
                "docs/requirements.yaml",
                "docs/roles.md",
                "docs/runbooks/",
+               "docs/security-advisories.md",
+               "docs/security-probes/",
                "docs/status/requirement_status[^/]*.yaml",
                "docs/status/work_board_cutover.yaml"
              ],
@@ -212,9 +215,13 @@ defmodule Letflow.RiskTierTest do
             "docs/migration/decisions/0082-cross-module-posting-lines.md",
             "docs/migration/stage-7-simulation-uat-parity.md",
             "docs/open-source/audit-report.md",
+            "docs/platform-steps.md",
             "docs/requirements.yaml",
             "docs/roles.md",
             "docs/runbooks/x.md",
+            "docs/security-advisories.md",
+            "docs/security-probes/G-02.md",
+            "docs/security-probes/G-09.md",
             "docs/status/requirement_status.yaml",
             "docs/status/work_board_cutover.yaml"
           ] do

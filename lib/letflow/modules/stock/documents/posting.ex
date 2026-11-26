@@ -328,7 +328,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     # REQ-831: the document's org unit is the instance's scope node (nil: an unscoped start).
     attrs = if node, do: Map.put(attrs, :scope_node_id, node), else: attrs
 
-    case Engine.create(attrs, prefix: prefix) do
+    # T-2444: module code starts its own write definitions (the public start is refused)
+    case Engine.create(attrs, prefix: prefix, module_start: true) do
       {:ok, %{replayed: true, status: status}} when status != :active and tries_left > 1 ->
         attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, node, tries_left - 1)
 

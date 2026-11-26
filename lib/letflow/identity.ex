@@ -120,6 +120,7 @@ defmodule Letflow.Identity do
   # exactly like the pending-admin-grant bind (`PendingAdminGrants`' @lock_timeout).
   @sync_lock_timeout "2s"
   @tenant_admin_role "TENANT_ADMIN"
+  @platform_admin_role "PLATFORM_ADMIN"
   @tenant_admin_lock_label "letflow:tenant_admin_lock:v1:"
   @int32_min -2_147_483_648
   @int32_limit 2_147_483_648
@@ -180,7 +181,8 @@ defmodule Letflow.Identity do
   @spec resolve_tenant_by_realm(idp_realm_id :: String.t()) ::
           {:ok, Tenant.t()} | {:error, :not_found}
   def resolve_tenant_by_realm(idp_realm_id) do
-    case Repo.get_by(Tenant, idp_realm_id: idp_realm_id) do
+    # log: false (INV-4, T-2704): the realm is a bound parameter and must not reach a debug query log.
+    case Repo.get_by(Tenant, [idp_realm_id: idp_realm_id], log: false) do
       %Tenant{} = tenant -> {:ok, tenant}
       nil -> {:error, :not_found}
     end
@@ -1377,6 +1379,39 @@ defmodule Letflow.Identity do
       )
 
     Repo.all(query, prefix: prefix)
+  end
+
+  @doc """
+  The ids of the ACTIVE users who hold the PLATFORM_ADMIN platform role in `prefix`,
+  sorted ascending by id (so a caller that picks "the first one" picks the same one
+  every time).
+
+  The PLATFORM_ADMIN role is the ONLY role that holds `:TenantsManage`
+  (`docs/roles.md`), the permission the tenant lifecycle routes and the pilot's
+  platform steps need. This is the read the seed of the pilot's registration
+  definition uses to find the administrator whose authority may sign the
+  switch-on of a version that calls a platform function
+  (`Letflow.PlatformProcesses.Seed`): a seed cannot invent that authority, so it
+  names a real holder.
+
+  One prefix-scoped query, same join as `list_effective_role_names/2` (group
+  members to `tenant_role` rows of kind `:platform_role`), with the users that
+  are not active left out. Read-only: no transaction, no lock, no write.
+  """
+  @spec list_platform_admin_user_ids(prefix :: String.t()) :: [Ecto.UUID.t()]
+  def list_platform_admin_user_ids(prefix) when is_binary(prefix) do
+    from(u in User,
+      join: gm in GroupMember,
+      on: gm.user_id == u.id,
+      join: tr in TenantRole,
+      on: tr.group_id == gm.group_id,
+      where:
+        u.status == :active and tr.name == ^@platform_admin_role and tr.kind == :platform_role,
+      select: u.id,
+      distinct: true,
+      order_by: [asc: u.id]
+    )
+    |> Repo.all(prefix: prefix)
   end
 
   @doc """

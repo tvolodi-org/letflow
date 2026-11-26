@@ -460,7 +460,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       posting = inst.variables["posting"]
       lines = List.update_at(posting["lines"], 0, &Map.put(&1, "sku", Ecto.UUID.generate()))
       out = %{"posting" => Map.put(posting, "lines", lines)}
-      result = P.complete(x, task, output: out)
+      result = P.complete(x, task, variables: out)
       assert {:error, {:entity_write_refused, 0, :validation_failed}} = result
       assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
       assert marks(x, id) == 0
@@ -654,23 +654,118 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     end
   end
 
-  describe "P7 the posting check" do
-    test "a changed quantity gives posted + mismatch and no detail", ctx do
+  describe "P7 IB-C the posting is the one the instance was started with (T-2431)" do
+    # Forges instance variables in the projection (the start event stays as written).
+    defp forge!(x, task, forged) do
+      vars = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables
+
+      {1, _} =
+        Repo.update_all(
+          from(p in InstanceProjection, where: p.instance_id == ^task.instance_id),
+          [set: [variables: Map.merge(vars, forged)]],
+          prefix: x.s
+        )
+
+      :ok
+    end
+
+    defp assert_not_posted(x, id, task) do
+      assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
+      assert marks(x, id) == 0
+      assert movements(x, id) == []
+    end
+
+    test "IB-C1 a changed quantity, item or location in the posting is refused", ctx do
       x = world!(ctx, :a)
       id = signed!(x)
       post!(x, id)
       task = task!(x, id, "post")
-      instance = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s)
-      posting = instance.variables["posting"]
-      lines = List.update_at(posting["lines"], 0, &Map.put(&1, "quantity", "1.5"))
+      original = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables
+      posting = original["posting"]
 
-      assert {:ok, _} =
-               P.complete(x, task, output: %{"posting" => Map.put(posting, "lines", lines)})
+      changes = [
+        &Map.put(&1, "quantity", "1.5"),
+        &Map.put(&1, "sku", Ecto.UUID.generate()),
+        fn line ->
+          side = if Map.has_key?(line, "from"), do: "from", else: "to"
+          Map.update!(line, side, &Map.put(&1, "location", Ecto.UUID.generate()))
+        end
+      ]
 
-      read = count(x, id)
-      assert read["posting_state"] == "posted"
-      assert read["posting_check"] == "mismatch"
-      refute inspect(read) =~ "mismatch_detail"
+      for change <- changes do
+        lines = List.update_at(posting["lines"], 0, change)
+        :ok = forge!(x, task, %{"posting" => Map.put(posting, "lines", lines)})
+        result = P.complete(x, task)
+        assert {:error, {:entity_write_refused, 0, :validation_failed}} = result
+        assert_not_posted(x, id, task)
+      end
+
+      :ok = forge!(x, task, original)
+      complete!(x, id)
+      assert marks(x, id) == 1
+      assert count(x, id)["posting_check"] == "ok"
+    end
+
+    test "IB-C2 another tenant's count posting, or extra lines, is refused (cross-tenant)", ctx do
+      x = world!(ctx, :a)
+      xb = world!(ctx, :b)
+      id = signed!(x)
+      other = signed!(xb)
+      post!(x, id)
+      post!(xb, other)
+      task = task!(x, id, "post")
+      task_b = task!(xb, other, "post")
+      other_vars = Repo.get!(InstanceProjection, task_b.instance_id, prefix: xb.s).variables
+
+      for forged <- [
+            Map.take(other_vars, ~w(document_id version_no org_unit_id posting)),
+            %{"posting" => Map.update!(other_vars["posting"], "lines", &(&1 ++ &1))}
+          ] do
+        :ok = forge!(x, task, forged)
+        assert {:error, {:entity_write_refused, 0, _}} = P.complete(x, task)
+        assert_not_posted(x, id, task)
+        assert marks(xb, other) == 0
+        assert Repo.get!(Task, task_b.id, prefix: xb.s).status == :pending
+      end
+    end
+  end
+
+  describe "WT-S6 post_count write targets (T-2430)" do
+    test "a body carrying a posting, a document id or a mark is refused: 422, nothing posted",
+         ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      post!(x, id)
+      task = task!(x, id, "post")
+      vars = Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables
+      posting = vars["posting"]
+      lines = List.update_at(posting["lines"], 0, &Map.put(&1, "quantity", "99"))
+
+      bodies = [
+        %{"posting" => Map.put(posting, "lines", lines)},
+        %{"document_id" => Ecto.UUID.generate()},
+        %{"mark" => Map.fetch!(vars, "mark")},
+        %{"version_no" => 7},
+        %{"org_unit_id" => Ecto.UUID.generate(), "note" => "x"}
+      ]
+
+      for body <- bodies do
+        conn =
+          Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", Jason.encode!(body))
+          |> put_req_header("authorization", "Bearer " <> x.chair_tok)
+          |> put_req_header("content-type", "application/json")
+          |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+
+        assert conn.status == 422, inspect({body, conn.status, conn.resp_body})
+        assert Jason.decode!(conn.resp_body)["code"] == "output_refused"
+        assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
+        assert marks(x, id) == 0
+        assert movements(x, id) == []
+      end
+
+      assert Repo.get!(InstanceProjection, task.instance_id, prefix: x.s).variables == vars
+      complete!(x, id)
+      assert marks(x, id) == 1
     end
   end
 

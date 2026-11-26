@@ -102,7 +102,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :OfficialFormTemplatesManage,
     :LedgerSettingsManage,
     :PhotosAdd,
-    :PhotosDelete
+    :PhotosDelete,
+    :OutboundDestinationsManage
   ]
 
   @link_route {"POST", "/instances/:id/attachments/:attachment_id/link"}
@@ -152,7 +153,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 53
+      assert length(@auditor_refused_core) == 54
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 

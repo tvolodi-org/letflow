@@ -48,6 +48,18 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   `{:request_build_error, :target_url_not_allowed}` instead (design §5.2,
   §6).
 
+  ## The per-tenant OUTBOUND ALLOW-LIST (T-2597, pilot gap G14)
+
+  The SSRF gate answers "may this URL be requested at all?"; the tenant's own
+  allow-list answers "may THIS tenant reach this host?". The second gate sits
+  one step further out, in `do_attempt_dispatch/2`'s `:inline_url` branch
+  (`dispatch_inline/4`): the list is read on the very attempt that would open
+  the socket, so a host that was removed from the list AFTER the definition
+  was switched on stops the step (decision record G2 S7). A host the list
+  does not name is refused with
+  `{:request_build_error, :outbound_destination_not_allowed}` — a request
+  that was never made, not a retriable failure.
+
   ## Test-only SSRF-validation bypass seam (TEST-DESIGNER finding, queue
   task 415)
 
@@ -91,6 +103,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   alias Letflow.Engine.ServiceTask
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.OutboundDestinations
   alias Letflow.Repo
   alias Letflow.Webhooks.UrlValidator
 
@@ -394,6 +407,81 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     end
   end
 
+  # ===========================================================================
+  # The per-tenant OUTBOUND ALLOW-LIST, re-read at DISPATCH (T-2597, pilot
+  # gap G14 -- decision record G2 (c): "checked at ACTIVATION AND at
+  # DISPATCH"; the S7 threat: "a host is removed, the definition still
+  # runs").
+  # ===========================================================================
+
+  # The allow-list is checked at the ACTIVATION too
+  # (`Letflow.Definitions.check_outbound_destinations/2`), but the list can
+  # SHRINK after a version was switched on: the host the admin removed is
+  # still the host the running definition reaches. So the list is read again
+  # here, on the very attempt that would open the socket.
+  #
+  # The check is the SAME one the activation applies to the same target: the
+  # literal host of the URL the definition carries (the SSRF gate's own
+  # `UrlValidator` decides whether a URL may be requested AT ALL; the
+  # allow-list decides whether THIS tenant may reach it). A host that cannot
+  # be READ (no host, a placeholder host, a URL too long or not valid UTF-8)
+  # cannot be CHECKED, and a target nobody can check is a target nobody may
+  # reach -- the same fail-closed rule `Letflow.OutboundDestinations.check/3`
+  # applies to a destination it cannot read.
+  #
+  # A refusal is a `:request_build_error`: the request was never made, the
+  # outcome is not retriable (`Letflow.Engine.ServiceTask.is_retriable_failure/1`
+  # says `:request_build_error` is not), and no outbound-request audit row is
+  # written for it -- a request that was never sent is not a request that was
+  # sent. The SSRF gate's own refusal (`{:request_build_error,
+  # :target_url_not_allowed}`) is classified exactly the same way.
+  #
+  # The `:catalog_service` route kind is NOT checked here: its endpoint comes
+  # from the tenant's own PINNED service catalogue, not from the definition
+  # the definition author draws, so it is not the target the activation fence
+  # checks either (`Letflow.OutboundDestinations.node_target/1` reads the
+  # `endpoint` attribute of an inline HTTP step only).
+  @spec dispatch_inline(
+          tenant_schema :: String.t(),
+          ServiceTask.Config.t(),
+          rendered_url :: String.t(),
+          rendered_body :: String.t() | nil
+        ) ::
+          ServiceTask.raw_outcome()
+  defp dispatch_inline(tenant_schema, config, rendered_url, rendered_body)
+       when is_binary(tenant_schema) and is_binary(rendered_url) do
+    case outbound_host(rendered_url) do
+      {:ok, host} ->
+        case OutboundDestinations.check(tenant_schema, "http", host) do
+          :ok ->
+            http_transport(config, rendered_url, rendered_body)
+
+          {:error, _reason} ->
+            {:request_build_error, :outbound_destination_not_allowed}
+        end
+
+      :unreadable ->
+        {:request_build_error, :outbound_destination_not_allowed}
+    end
+  end
+
+  # Not a URL at all, or no tenant schema to read the allow-list of: refuse,
+  # never send (fail closed).
+  defp dispatch_inline(_tenant_schema, _config, _rendered_url, _rendered_body) do
+    {:request_build_error, :outbound_destination_not_allowed}
+  end
+
+  # The literal host of the rendered URL, or `:unreadable`. The byte bound and
+  # the UTF-8 check come FIRST (SF-01): `URI.parse/1` raises on a binary that
+  # is not valid UTF-8.
+  @spec outbound_host(String.t()) :: {:ok, String.t()} | :unreadable
+  defp outbound_host(rendered_url) when is_binary(rendered_url) do
+    case OutboundDestinations.http_host(rendered_url) do
+      host when is_binary(host) -> {:ok, host}
+      _other -> :unreadable
+    end
+  end
+
   @spec do_http_transport(
           ServiceTask.Config.t(),
           rendered_url :: String.t(),
@@ -406,7 +494,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
        body_or_empty(rendered_body)}
 
     method_atom(config.method)
-    |> :httpc.request(request, [{:timeout, config.timeout_ms}], [])
+    # `autoredirect: false` is NOT the :httpc default: without it :httpc
+    # follows up to five redirects, so a validated target could answer 302
+    # and the follow-up request would reach a host the validator never saw
+    # (INV-9: "redirects not followed or revalidated per hop").
+    |> :httpc.request(request, [{:timeout, config.timeout_ms}, {:autoredirect, false}], [])
     |> case do
       {:ok, {{_http_version, status, _reason_phrase}, _resp_headers, resp_body}} ->
         {:http, status, to_string_or_nil(resp_body)}
@@ -867,7 +959,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
         rendered_url = row.config_snapshot["rendered_url"]
         rendered_body = row.config_snapshot["rendered_body"]
 
-        raw_outcome = http_transport(config, rendered_url, rendered_body)
+        raw_outcome = dispatch_inline(tenant_schema, config, rendered_url, rendered_body)
 
         audit_context =
           if genuine_attempt?(raw_outcome) do

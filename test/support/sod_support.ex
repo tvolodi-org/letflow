@@ -250,6 +250,8 @@ defmodule Letflow.SodSupport do
   """
   @spec activate!(String.t(), map(), map()) :: struct()
   def activate!(schema_name, graph, schemas) do
+    open_outbound_targets!(schema_name, graph)
+
     {:ok, definition} =
       Definitions.create(
         %{
@@ -271,6 +273,25 @@ defmodule Letflow.SodSupport do
 
     {:ok, %{definition: activated}} = Definitions.activate(definition.id, prefix: schema_name)
     activated
+  end
+
+  # Pilot gap G14 (#5044): the outbound allow-list is deny by default, so a definition whose
+  # nodes send (notification channels, literal HTTP hosts) is refused at activation until the
+  # tenant opens them. The fixture opens exactly the targets of this graph, for this tenant.
+  defp open_outbound_targets!(schema_name, graph) do
+    {:ok, %Letflow.Definitions.Graph{nodes: nodes}} = Letflow.Definitions.Graph.from_map(graph)
+
+    nodes
+    |> Enum.map(&Letflow.OutboundDestinations.node_target/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.each(fn {channel, destination} ->
+      {:ok, _channel} = Letflow.OutboundDestinations.add(schema_name, nil, channel, nil)
+
+      if is_binary(destination),
+        do:
+          {:ok, _entry} = Letflow.OutboundDestinations.add(schema_name, nil, channel, destination)
+    end)
   end
 
   @spec start_instance!(String.t(), struct(), map()) :: String.t()

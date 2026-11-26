@@ -29,6 +29,17 @@ export interface OnboardingSubmitRequest {
   hostname: string
 }
 
+/**
+ * The answer of POST /api/v1/onboarding since T-2704 (pilot gap G17b): 202, the route started the
+ * `platform.register_tenant` process. The tenant does not exist yet; follow the instance.
+ */
+export interface OnboardingStartAnswer {
+  instance_id: string
+  status: string
+  slug: string
+  replayed?: boolean
+}
+
 // ── Wire shape of the synchronous backend (ISS-1030) ──────────────────────────
 // lib/letflow/routers/onboarding.ex: POST /onboarding answers 201 with the
 // onboarding record plus `login`, `administrator`, `ignored_fields`;
@@ -141,14 +152,14 @@ export function fieldErrorConstraint(
 
 /**
  * POST /api/v1/onboarding
- * A repeated submit is not replayed: the slug/hostname unique constraints answer 409 and nothing is
- * created twice (ISS-1091 / GH 2437).
- * Throws OnboardingApiError on non-201 responses so callers can inspect the
+ * A repeated identical submit is a replay: it answers 202 with the first instance (replayed: true).
+ * The same slug with other values answers 409; nothing is created twice (T-2704).
+ * Throws OnboardingApiError on non-2xx responses so callers can inspect the
  * status and body for the error taxonomy (section 9.2).
  */
 export async function submitOnboarding(
   formValues: OnboardingFormValues,
-): Promise<OnboardingRecord> {
+): Promise<OnboardingStartAnswer> {
   const adminEmail = nonBlank(formValues.admin_email)
   const realmId = nonBlank(formValues.idp_realm_id)
 
@@ -161,7 +172,7 @@ export async function submitOnboarding(
   }
 
   return client
-    .post<OnboardingRecord>('/api/v1/onboarding', body)
+    .post<OnboardingStartAnswer>('/api/v1/onboarding', body)
     .catch((err: unknown) => {
       throw toOnboardingApiError(err)
     })

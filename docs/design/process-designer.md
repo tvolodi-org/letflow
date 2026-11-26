@@ -35,6 +35,8 @@ PARALLEL_GATEWAY, TIMER, SUB_PROCESS. What the picture does with each piece:
 | HUMAN_TASK | `distinct_from` (four-eyes rule) | SUMMARISED: "Must differ from: <step labels>" |
 | HUMAN_TASK / SERVICE_TASK | `module_writes` | SUMMARISED: handler names only (`post_document`, ...); `args` are never shown |
 | SERVICE_TASK | `service_id` | SUMMARISED: "Service: <id>" |
+| SERVICE_TASK | `platform_call` | SUMMARISED: the function name (`tenant.validate`); the node caption is its short name; `args`, `reads` and `writes` are edited in the step panel, never shown here |
+| SERVICE_TASK | `notify` | SUMMARISED: the template key and the recipient VARIABLE name; the node caption is `notify`; values are edited in the step panel |
 | SERVICE_TASK | `endpoint` | SUMMARISED: scheme and host only (a path or query may carry a token); a malformed URL shows "endpoint set" |
 | SERVICE_TASK | `script_key`, `script_version`, `timeout_ms` | SHOWN: `script_key` as the sub-line; version and timeout in details |
 | TIMER | `duration_iso8601` | SHOWN: sub-line, raw (for example `PT15M`) |
@@ -56,8 +58,9 @@ Inputs, all from responses the page already reads: `status`, `current_nodes`, `e
 (the error attribution source; an `affected` of kind "field" or none is shown as a banner, no step is marked error)
 and the full timeline. The timeline is read page by page (page size 200) until `next_cursor` is null, at most 25
 pages; while the instance is ACTIVE all pages are re-read every 2 s (5 s beyond 3 pages), and once more when it
-ends. Completion evidence is only `TASK_COMPLETED`, `SERVICE_TASK_COMPLETED`, `SCRIPT_TASK_COMPLETED` and
-`TIMER_FIRED` (the events with a top-level `node_id`); `EXECUTION_ERROR` and `SUB_PROCESS_COMPLETED` carry none.
+ends. Completion evidence is only `TASK_COMPLETED`, `SERVICE_TASK_COMPLETED`, `SCRIPT_TASK_COMPLETED`,
+`SUB_PROCESS_COMPLETED` (the parent's node, since T-2602) and `TIMER_FIRED` (the events with a top-level `node_id`);
+`EXECUTION_ERROR` carries none at top level: it names the node under `affected` (`kind` "node").
 From REQ-793 the engine records a `NODE_ENTERED` event (`node_id`, `node_type`, `via_edge_id`) for every node a
 token enters, for moves committed after that deploy; instances that moved earlier have none, so gateways,
 sub-processes and END are still inferred for them (the screen requirement owns reading the new event).

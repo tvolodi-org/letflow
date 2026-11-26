@@ -56,9 +56,9 @@ git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "dry_ru
 
 # size<TAB>path for every tracked path (0 when the file is absent from the disk); stat only reads.
 sizes() {
-  git -C "$root" ls-files -z | while IFS= read -r -d '' p; do
-    if [ -f "$root/$p" ]; then printf '%s\t%s\n' "$(stat -c %s "$root/$p")" "$p"; else printf '0\t%s\n' "$p"; fi
-  done
+  # One batched stat instead of one process per tracked file (a fork per file took ~15 s per call, T-2795).
+  git -C "$root" ls-files -z | (cd "$root" && xargs -0 -r stat -L -c '%s'$'\t''%n' -- 2>/dev/null) || true
+  git -C "$root" ls-files -z -d | while IFS= read -r -d '' p; do printf '0\t%s\n' "$p"; done
 }
 
 awk -F'\t' -v mode="$mode" -v want="$want" -v listfile="$list" '

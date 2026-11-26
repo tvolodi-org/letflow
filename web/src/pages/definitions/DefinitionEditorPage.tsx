@@ -38,6 +38,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JsonEditor } from '@/components/ui/JsonEditor'
 import { Banner } from '@/components/ui/Banner'
 import { definitionsMessages } from './definitionsMessages'
+import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
+import { useGuideStore } from '@/stores/guideStore'
 
 import ProcessCanvas from '@/components/canvas/ProcessCanvas'
 import NodePalette from '@/components/canvas/NodePalette'
@@ -99,7 +101,10 @@ export default function DefinitionEditorPage() {
 
   const [name, setName] = useState('')
   const [version, setVersion] = useState('1.0.0')
-  const [description, setDescription] = useState('')
+  // T-2742: the description starts as the STORED one. It used to start as '' and so differed from every definition
+  // that has a description, which wrote a one-field "unsaved local draft" on a fresh open (the banner on QA).
+  const [descriptionEdit, setDescription] = useState<string | null>(null)
+  const description = descriptionEdit ?? def?.description ?? ''
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRawJson, setShowRawJson] = useState(false)
@@ -182,6 +187,7 @@ export default function DefinitionEditorPage() {
   const [previewGraph, setPreviewGraph] = useState<DefinitionGraph | null>(null)
   // T-1563: "Edit diagram" keeps its own draft; the Editor and the draft never hold two divergent unsaved states.
   const [diagramDirty, setDiagramDirty] = useState(false)
+  const [savedProblems, setSavedProblems] = useState(0)
   const [editRefused, setEditRefused] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [goTo, setGoTo] = useState<string | null>(null)
@@ -295,9 +301,15 @@ export default function DefinitionEditorPage() {
         dirtyKeys.push('graph')
       }
       if (dirtyKeys.length === 0) return
+      const body = { name: def?.name ?? '', version: def?.version ?? '', description, graph }
+      // T-2738: an unchanged mirror is not written again. `draftStore` is a fresh object after every `setDraft`, so
+      // an unconditional write re-ran this effect for ever (React error 185) on a graph whose canvas round trip
+      // never equals the stored one (a platform_call or notify step).
+      const prev = draftStore.draft
+      if (prev && prev.definitionId === id && JSON.stringify(prev.body) === JSON.stringify(body) && prev.dirtyFieldKeys.join() === dirtyKeys.join()) return
       draftStore.setDraft({
         definitionId: id,
-        body: { name: def?.name ?? '', version: def?.version ?? '', description, graph },
+        body,
         dirtyFieldKeys: dirtyKeys,
         savedAt: draftStore.draft?.savedAt ?? null,
       })
@@ -783,6 +795,7 @@ export default function DefinitionEditorPage() {
         background: 'var(--surface-page)',
       }}
     >
+      <DesignerGuidePanel />
       <QueryStateBoundary
         state={rendererState}
         onRetry={() => { void refetch() }}
@@ -824,6 +837,9 @@ export default function DefinitionEditorPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', minWidth: 0 }}>
+          <Button variant="secondary" size="sm" data-testid="btn-guide" onClick={() => useGuideStore.getState().openGuide()}>
+            {dm.guideButton}
+          </Button>
           {hasDesignerRole && !isNew && view === 'edit' && def?.status === 'DRAFT' && (
             <Button
               variant="primary"
@@ -831,8 +847,8 @@ export default function DefinitionEditorPage() {
               data-testid="btn-publish-diagram"
               onClick={() => { void handleSubmitForRelease() }}
               loading={releaseCheck.phase === 'checking'}
-              disabled={diagramDirty || dirty || releaseCheck.phase === 'checking'}
-              title={diagramDirty || dirty ? dm.saveBeforePublish : undefined}
+              disabled={diagramDirty || dirty || savedProblems > 0 || releaseCheck.phase === 'checking'}
+              title={diagramDirty || dirty ? dm.saveBeforePublish : savedProblems > 0 ? dm.fixBeforePublish.replace('{count}', String(savedProblems)) : undefined}
             >
               {releaseCheck.phase === 'checking' ? dm.publishing : dm.publish}
             </Button>
@@ -954,6 +970,7 @@ export default function DefinitionEditorPage() {
       </div>
 
       {view === 'edit' && (diagramDirty || dirty) && <p className="lf-hint">{dm.saveBeforePublish}</p>}
+      {view === 'edit' && !(diagramDirty || dirty) && savedProblems > 0 && <p className="lf-hint" data-testid="publish-blocked-reason">{dm.fixBeforePublish.replace('{count}', String(savedProblems))}</p>}
       {view === 'edit' && releaseCheck.phase === 'clean' && <Banner tone="success">{dm.published}</Banner>}
       {view === 'edit' && releaseCheck.phase === 'error' && <Banner tone="danger">{dm.publishFailed} {releaseCheck.message}</Banner>}
       {view === 'edit' && releaseCheck.phase === 'blocked' && (
@@ -1142,8 +1159,10 @@ export default function DefinitionEditorPage() {
               justSaved={def.id === justSavedCopyId}
               editorDirty={dirty}
               onDirtyChange={setDiagramDirty}
+              onProblemsChange={setSavedProblems}
               onSaved={handleDiagramSaved}
               onReload={() => void refetch()}
+              tenantId={tenantId}
             />
           </ProcessDiagramIntlProvider>
         </div>

@@ -76,10 +76,32 @@ defmodule Letflow.StockPostingFixture do
     )
   end
 
-  @doc "Completes `task` as `user` (default: the TENANT_ADMIN holder) with the OIDC credential."
+  @doc """
+  Overwrites variables of the task's instance directly in the projection (T-2430). The completion
+  body can no longer set a key a `module_writes` argument reads (422 `output_refused`), so a test
+  of the HANDLER's own binding check forges the instance state here instead of through the body.
+  """
+  def tamper!(ctx, task, variables) do
+    projection = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema)
+
+    {1, _} =
+      Repo.update_all(
+        from(p in InstanceProjection, where: p.instance_id == ^task.instance_id),
+        [set: [variables: Map.merge(projection.variables, variables)]],
+        prefix: ctx.schema
+      )
+
+    :ok
+  end
+
+  @doc """
+  Completes `task` as `user` (default: the TENANT_ADMIN holder) with the OIDC credential. `output:`
+  is the completion body; `variables:` forges instance variables first (`tamper!/3`).
+  """
   def complete(ctx, task, opts \\ []) do
     user = Keyword.get(opts, :user, ctx.holder)
     output = Keyword.get(opts, :output, %{})
+    if forged = Keyword.get(opts, :variables), do: tamper!(ctx, task, forged)
     credential = Keyword.get(opts, :credential, :oidc)
 
     Engine.complete_task(

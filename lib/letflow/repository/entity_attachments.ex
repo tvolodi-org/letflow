@@ -484,7 +484,20 @@ defmodule Letflow.Repository.EntityAttachments do
     end
   end
 
+  # New cursors carry mint time first and created_at only as the seek key.
+  # The legacy two-slot form remains valid for cursors already in flight.
   defp decode_seek(%Pagination.Cursor{inner: inner}) do
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [id, created_at]} -> {:ok, {created_at, id}}
+      {:error, :invalid_cursor} -> decode_legacy_seek(inner)
+    end
+  end
+
+  defp decode_legacy_seek(inner) do
     case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
       {:ok, [created_at, id]} -> {:ok, {created_at, id}}
       {:error, :invalid_cursor} = error -> error
@@ -499,10 +512,11 @@ defmodule Letflow.Repository.EntityAttachments do
   defp split_list_page(rows, _page_size), do: {rows, nil}
 
   defp build_list_next_cursor(%EntityAttachment{id: id, created_at: created_at}) do
+    mint_time_us = System.system_time(:microsecond)
     created_at_us = DateTime.to_unix(created_at, :microsecond)
 
     @list_cursor_prefix
-    |> Pagination.build_raw_cursor(created_at_us, id)
+    |> Pagination.build_raw_cursor_timestamp_key(mint_time_us, id, created_at_us)
     |> Pagination.encode_cursor()
   end
 end

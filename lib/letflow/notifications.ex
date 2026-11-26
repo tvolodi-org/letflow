@@ -15,7 +15,8 @@ defmodule Letflow.Notifications do
 
   Outcome rows: `sent` (no reason); `skipped` / `no_email` (no user row or an empty address, no
   adapter call); `skipped` / `adapter_noop` (the Noop adapter is configured, not called);
-  `failed` / `adapter_error` (an adapter error, raise, exit or timeout, or a template that does
+  `skipped` / `rate_limited` (the tenant's outbound send cap refused the send; nothing left the
+  platform); `failed` / `adapter_error` (an adapter error, raise, exit or timeout, or a template that does
   not render, e.g. an invalid `default_locale`, with no adapter call). A subject over 200
   codepoints after rendering is refused by the Smtp adapter (`:invalid_message`) and so logs
   `failed` / `adapter_error`; it is not truncated.
@@ -24,8 +25,25 @@ defmodule Letflow.Notifications do
   logs or inspects them: only fixed log lines (INV-4). Tenant data is reached with the
   tenant's `:prefix` only (INV-1).
 
-  ## E-mail copy of the bell (T-1571)
+  ## The notification step (T-2592, pilot gap G4)
 
+  `deliver_to_address/6` is the send path of a NOTIFICATION STEP: it reaches an
+  address the step resolved from a variable of the running instance, not a user
+  of the tenant. The tenant of the row it writes is DERIVED from the schema the
+  row is written into (decision 0003's addendum), and the send is bound by the
+  tenant's OUTBOUND SEND CAP -- per tenant and per channel, per hour and per
+  day. The row it writes holds no address, no subject and no body, exactly like
+  every other row of this log (INV-4).
+
+  The cap is RESERVED before the send, not counted after it
+  (`Letflow.Notifications.OutboundCap`): the slot is taken out of the tenant's
+  counter (committed on its own when the caller holds no transaction, see
+  `OutboundCap`), so a send is accounted for whether or not the
+  outcome row of this log can be written afterwards. Counting the log instead
+  made an unwritable log row an uncounted send -- a send that had already left
+  the platform and never tripped the ceiling.
+
+  ## E-mail copy of the bell (T-1571)
   The assignment mail is the e-mail copy of the bell entry and is gated: the tenant setting
   `notifications.email_copy` must be `true` (absent = off, no log row); the user must not have
   set the preference `notifications.email` to `"off"`; and at most 20 assignment mails per
@@ -47,7 +65,11 @@ defmodule Letflow.Notifications do
   alias Letflow.LoginDiscovery.Dispatch
   alias Letflow.LoginDiscovery.Notifier.Noop
   alias Letflow.NotificationTemplates
+  alias Letflow.Notifications.Address
   alias Letflow.Notifications.Delivery
+  alias Letflow.Notifications.File, as: NotificationFile
+  alias Letflow.Notifications.Files
+  alias Letflow.Notifications.OutboundCap
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -232,6 +254,256 @@ defmodule Letflow.Notifications do
     _kind, _reason -> warn_write_failed()
   end
 
+  @doc """
+  Sends ONE registered template to an ADDRESS -- the notification step of the
+  "Register a tenant" pilot (T-2592, gap G4).
+
+  The other send path (`deliver/7`) reaches a USER of the tenant and reads the
+  address from the user's own row. This one reaches an address the CALLER
+  resolved from a variable of the running instance, so it checks the address
+  itself (`Letflow.Notifications.Address`) and it is bound by the tenant's
+  OUTBOUND SEND CAP.
+
+  ## The tenant of the row is DERIVED
+
+  A row physically sits in ONE tenant's schema, so the tenant it claims to
+  belong to is DERIVED from that schema and never accepted as an
+  independently-trusted field from the caller (decision 0003's addendum: the
+  value written into a table's `tenant_id` column is derived by the writing
+  context module from the Postgres schema it is already writing into). The
+  caller passes the `:prefix` only; a prefix that names no tenant is a refusal
+  and NOTHING is sent.
+
+  ## The cap
+
+  The cap is RESERVED before the send (`Letflow.Notifications.OutboundCap`), not
+  counted after it: the tenant's own counter row is incremented (committed on
+  its own when the caller holds no transaction), so a send is accounted for whether or not this log's outcome row
+  can be written afterwards. Counting the log instead made an unwritable log row
+  an UNCOUNTED send -- a send that had already left the platform and never
+  tripped the ceiling (the flooding the cap exists to stop).
+
+  The counter holds no address (INV-4), so the cap is counted per tenant and per
+  CHANNEL, never per address and never per template. An ADDRESS send is the
+  outbound channel of the notification step; the tenant's own bell copy (a user
+  id) has its own per-recipient limit and is not part of this cap. The TEMPLATE
+  KEY does not multiply the cap -- every address send of the tenant counts,
+  whatever template it carried (the decided rule of the G2 authority record,
+  option A (c) item 7: a cap per tenant and channel, per hour and per day). A
+  send the cap refused costs nothing and must not keep the tenant blocked: the
+  reservation is taken only once the address has been accepted, so a refused
+  address takes no slot. The caps are SETTINGS
+  (`notifications.outbound_cap_per_hour`, `notifications.outbound_cap_per_day`),
+  not rules: an absent or malformed setting falls back to the platform default.
+
+  Over the cap the row records `skipped` / `rate_limited` and NOTHING is sent.
+  A cap that cannot be reserved at all (the database is unreachable) is treated
+  as a cap that is over: nothing is sent.
+
+  The row it writes holds no address, no subject and no body (INV-4): the
+  recipient of an address send is not a user, so `recipient_user_id` is empty.
+
+  Never raises. Returns the outcome of the attempt as `{status, reason}` -- the
+  same vocabulary the row carries -- so the caller (the notification step) can
+  record it as the step's result. A prefix that names no tenant is
+  `{:error, :invalid_schema_name}`: nothing was sent and no row was written.
+  """
+  @spec deliver_to_address(String.t(), term(), term(), map(), String.t(), keyword()) ::
+          {String.t(), String.t() | nil} | {:error, atom()}
+  def deliver_to_address(template_key, address, trigger_ref, values, prefix, opts \\ [])
+      when is_binary(template_key) and is_map(values) and is_binary(prefix) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      retries = Keyword.get(opts, :retries, 0)
+      tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
+      locale = locale_of(tenant)
+      {hour_cap, day_cap} = outbound_caps(tenant)
+
+      {status, reason} =
+        address_outcome(template_key, address, values, %{
+          prefix: prefix,
+          tenant_id: tenant_id,
+          locale: locale,
+          retries: retries,
+          hour_cap: hour_cap,
+          day_cap: day_cap
+        })
+
+      log(
+        %{
+          tenant_id: tenant_id,
+          template_key: template_key,
+          locale: locale_string(locale),
+          recipient_user_id: nil,
+          status: status,
+          reason: reason,
+          trigger_ref: trigger_ref
+        },
+        prefix
+      )
+
+      {status, reason}
+    else
+      {:error, _code} -> {:error, :invalid_schema_name}
+    end
+  rescue
+    _exception ->
+      warn_write_failed()
+      {"failed", "adapter_error"}
+  catch
+    _kind, _reason ->
+      warn_write_failed()
+      {"failed", "adapter_error"}
+  end
+
+  @doc """
+  The FILE CHANNEL of the notification step (T-2596, pilot gap G12): renders
+  the registered template and writes it into the tenant's own file area
+  (`Letflow.Notifications.Files`).
+
+  The mail channel leaves the platform; the file channel does not -- the bytes
+  stay in the tenant's own schema, so there is no address and no file-system
+  path (the pilot's spike, section 2.h). The rules that do not depend on the
+  channel are the same ones: the tenant comes from the `:prefix` (INV-1 (c)),
+  the send cap is RESERVED before anything is written, and the outcome uses
+  the same vocabulary, so the engine records one kind of step result.
+
+  The name of the file is generated by the SERVER; `declared_name` is only the
+  stem of it. It was refused at activation if it was path-like
+  (`Letflow.Definitions.NotifyCalls`), and it is sanitised again here, so a
+  name cannot become a path on either road.
+
+  Never raises. Returns the outcome as `{status, reason}` or
+  `{:error, :invalid_schema_name}` (a prefix that names no tenant: nothing was
+  written).
+  """
+  @spec deliver_to_file(String.t(), map(), term(), String.t(), keyword()) ::
+          {String.t(), String.t() | nil} | {:error, atom()}
+  def deliver_to_file(template_key, values, trigger_ref, prefix, opts \\ [])
+      when is_binary(template_key) and is_map(values) and is_binary(prefix) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
+      locale = locale_of(tenant)
+      {hour_cap, day_cap} = outbound_caps(tenant)
+
+      file_outcome(template_key, values, %{
+        prefix: prefix,
+        tenant_id: tenant_id,
+        locale: locale,
+        hour_cap: hour_cap,
+        day_cap: day_cap,
+        trigger_ref: trigger_ref,
+        declared_name: Keyword.get(opts, :declared_name)
+      })
+    else
+      {:error, _code} -> {:error, :invalid_schema_name}
+    end
+  rescue
+    _exception -> {"failed", "adapter_error"}
+  catch
+    _kind, _reason -> {"failed", "adapter_error"}
+  end
+
+  # The file outcome. The cap is reserved FIRST (the file channel is a channel
+  # of the tenant's cap, counted on its own rows), then the template is
+  # rendered and the bytes are written into the area.
+  defp file_outcome(template_key, values, ctx) do
+    case OutboundCap.reserve(ctx.prefix, "file", ctx.hour_cap, ctx.day_cap) do
+      :reserved ->
+        with {:ok, %{subject: subject, body: body}} <-
+               NotificationTemplates.preview(
+                 ctx.prefix,
+                 template_key,
+                 ctx.locale,
+                 nil,
+                 nil,
+                 values
+               ) do
+          write_file(template_key, subject, body, ctx)
+        else
+          _error -> {"failed", "adapter_error"}
+        end
+
+      {:error, :rate_limited} ->
+        # Over the cap: NOTHING is written and the step says so.
+        {"skipped", "rate_limited"}
+
+      {:error, _cap_unavailable} ->
+        # The cap could not be read: nothing is written, and the step does not
+        # call it a rate limit -- it is a failed (retryable) step.
+        {"failed", "adapter_error"}
+    end
+  end
+
+  # The bytes of the file: the subject of the template, a blank line and the
+  # body. The size is bounded by the area itself (`Letflow.Notifications.Files`
+  # refuses a file over its cap).
+  defp write_file(template_key, subject, body, ctx) do
+    bytes = subject <> "\n\n" <> body <> "\n"
+
+    case Files.write(ctx.prefix, %{
+           template_key: template_key,
+           content_type: Files.content_type(),
+           bytes: bytes,
+           trigger_ref: ctx.trigger_ref,
+           declared_name: ctx.declared_name
+         }) do
+      {:ok, _row} -> {"sent", nil}
+      {:error, :file_too_large} -> {"failed", "adapter_error"}
+      {:error, _other} -> {"failed", "adapter_error"}
+    end
+  end
+
+  defp address_outcome(template_key, address, values, ctx) do
+    if Address.valid?(address) do
+      case OutboundCap.reserve(ctx.prefix, ctx.hour_cap, ctx.day_cap) do
+        :reserved ->
+          with {:ok, %{subject: subject, body: body}} <-
+                 NotificationTemplates.preview(
+                   ctx.prefix,
+                   template_key,
+                   ctx.locale,
+                   nil,
+                   nil,
+                   values
+                 ) do
+            send_message(%{to: address, subject: subject, body: body}, ctx.retries)
+          else
+            _error -> {"failed", "adapter_error"}
+          end
+
+        {:error, :rate_limited} ->
+          # Over the cap: the row says so and NOTHING leaves the platform. The
+          # reservation is taken BEFORE the send, so a send that cannot be
+          # accounted for never happens.
+          {"skipped", "rate_limited"}
+
+        {:error, _cap_unavailable} ->
+          # The cap could not be read: nothing is sent, and the row must not
+          # call that a rate limit. A failed (retryable) step it is.
+          {"failed", "adapter_error"}
+      end
+    else
+      # No address, or one a mail server would refuse: nothing is sent, and no
+      # slot of the cap is taken (the attempt never reached the adapter).
+      {"skipped", "no_email"}
+    end
+  end
+
+  # The caps are SETTINGS, not rules: an absent or malformed setting falls back
+  # to the platform default. A tenant cannot raise the cap above the default by
+  # writing a setting -- only lower it. The ceiling and the reading live with
+  # the settings that may not pass it (`Letflow.Identity.Tenant`), so the write
+  # side and this side share one number.
+  defp outbound_caps(tenant) do
+    settings =
+      case tenant do
+        %Tenant{settings: settings} when is_map(settings) -> settings
+        _other -> %{}
+      end
+
+    Tenant.outbound_caps(settings)
+  end
+
   defp outcome(template_key, values_fun, user_id, prefix, tenant, locale, retries) do
     case recipient(user_id, prefix) do
       {:ok, user} ->
@@ -402,11 +674,75 @@ defmodule Letflow.Notifications do
     |> Repo.all(prefix: prefix)
   end
 
+  @doc """
+  Whether the step that sends this template for this trigger reference already
+  did its work (pilot gap G7: "a retry of a step that already did its work
+  changes nothing").
+
+  The mail channel already SENT: a `notification_deliveries` row with the
+  status `sent`. The file channel already wrote its file: a
+  `notification_files` row for the same template and trigger. A delivery that
+  FAILED is NOT "already done" -- that step may be sent again.
+
+  The rows carry no address and no body (INV-4): the check is on the channel,
+  the template key, the trigger reference and the status only. The trigger
+  reference must be a UUID; a reference that is not one is answered `false`
+  (no row can carry it). A schema that has neither table (a tenant
+  provisioned before those migrations) answers `false` rather than raising
+  (INV-8).
+  """
+  @spec already_delivered?(String.t(), String.t(), String.t(), keyword()) :: boolean()
+  def already_delivered?(channel, template_key, trigger_ref, opts)
+      when is_binary(channel) and is_binary(template_key) and is_binary(trigger_ref) and
+             is_list(opts) do
+    prefix = Keyword.get(opts, :prefix)
+
+    case Ecto.UUID.cast(trigger_ref) do
+      {:ok, uuid} -> delivered?(channel, template_key, uuid, prefix)
+      :error -> false
+    end
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?("email", template_key, uuid, prefix) do
+    query =
+      from(d in Delivery,
+        where: d.template_key == ^template_key and d.trigger_ref == ^uuid and d.status == "sent",
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: prefix)
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?("file", template_key, uuid, prefix) do
+    query =
+      from(f in NotificationFile,
+        where: f.template_key == ^template_key and f.trigger_ref == ^uuid,
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: prefix)
+  rescue
+    _exception -> false
+  end
+
+  defp delivered?(_other, _template_key, _uuid, _prefix), do: false
+
+  # Total: the outcome row is a record of what happened, so a row that cannot
+  # be written must not change what the caller is told (a mail that went out is
+  # not a failed send).
   defp log(attrs, prefix) do
     case Repo.insert(Delivery.changeset(attrs), prefix: prefix) do
       {:ok, _row} -> :ok
       {:error, _changeset} -> warn_write_failed()
     end
+  rescue
+    _exception -> warn_write_failed()
+  catch
+    _kind, _reason -> warn_write_failed()
   end
 
   defp warn_write_failed do

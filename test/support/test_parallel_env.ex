@@ -26,6 +26,11 @@ defmodule Letflow.Test.TestParallelEnv do
   # Every environment variable that changes what scripts/test_parallel.sh does, except the
   # DB connection coordinates (LETFLOW_DB_*), which tests set themselves or which are
   # irrelevant to partition selection.
+  #
+  # TEST_TAIL_OUTPUT_TIMEOUT_S is the one knob here that the SCRIPT does not read: it is
+  # read by `mix letflow.check.test` (the isolated tails runner, T-2692), which runs in
+  # this same BEAM. It is listed here so a test that drives that task scrubs an ambient
+  # value before applying its own.
   @script_knobs ~w(
     TEST_PARALLEL_N
     TEST_PARALLEL_SHARD
@@ -39,11 +44,15 @@ defmodule Letflow.Test.TestParallelEnv do
     TEST_PARALLEL_PARTITION_KILL_GRACE_S
     TEST_PARALLEL_MAX_CONCURRENT_CREATES
     TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS
+    TEST_PARALLEL_FILE_TIMEOUT_S
+    TEST_PARALLEL_OUTPUT_TIMEOUT_S
+    TEST_PARALLEL_CREATE_TIMEOUT_S
     TEST_PARALLEL_SAMPLE_CONNECTIONS
     TEST_PARALLEL_TEMPLATE_READY_DIR
     TEST_PARALLEL_MANIFEST
     TEST_PARALLEL_SKIP_HEAVY
     TEST_PARALLEL_PLAN
+    TEST_TAIL_OUTPUT_TIMEOUT_S
     TEST_POOL_SIZE
     TEST_MIN_POOL_SIZE
     TEST_MAX_CONNECTIONS
@@ -56,7 +65,7 @@ defmodule Letflow.Test.TestParallelEnv do
   # The script sets this per child command itself; an ambient value (a shard job's own
   # `mix test` partition) must not leak into a script run under test. Scrubbed for CHILD
   # processes only: the BEAM running the suite already configured its Repo from it.
-  @child_only ~w(MIX_TEST_PARTITION)
+  @child_only ~w(MIX_TEST_PARTITION TEST_PARALLEL_FILE_MARKER_DIR)
 
   @doc "Names scrubbed from a spawned child's environment."
   @spec child_names() :: [String.t()]

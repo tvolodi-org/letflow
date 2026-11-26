@@ -461,11 +461,11 @@ defmodule Letflow.Api.PermissionMatrixTest do
       end
     end
 
-    test "A8-PM-1: the golden holds the six assets atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
+    test "A8-PM-1: the golden holds the seven assets atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
       golden = File.read!("priv/permission_matrix/effective.golden")
 
       for atom <-
-            ~w(AssetsPost AssetsReverse AssetsRead AssetsReconcile AssetsCountOrder AssetsCountRecord) do
+            ~w(AssetsPost AssetsReverse AssetsRead AssetsReconcile AssetsCountOrder AssetsCountRecord AssetsApprove) do
         rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
 
         allowed =

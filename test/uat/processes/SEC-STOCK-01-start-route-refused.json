@@ -1,0 +1,154 @@
+{
+  "id": "SEC-STOCK-01",
+  "bp_entry": "BP-STOCK-37",
+  "title": "Four-eyes cannot be bypassed by starting a stock posting process directly (start route, scheduled start)",
+  "description": "SECURITY, read-and-refuse only. A tenant administrator tries to start every stock write process (the posting processes of receipt, issue, write-off, transfer, hand-over, return, the reversal, the opening and quick count with their four-eyes approval, the count posting) through the public start route with start values chosen by the caller (a document id, a posting with lines, a mark). Each start is answered exactly like a start of a process that does not exist (404, same detail), by name and by id, also when the body asks for a module start; the storekeeper, who may not start processes at all, is refused 403. The scheduled start path is closed on this tenant because scheduled jobs are switched off (every call is 404). Nothing is started: the balance of the item at the place is unchanged at the end. Nothing is created, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": ["item", "place", "org_unit", "responsible"],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper"},
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200},
+      "save": {"balance_before": {"pick": "$.rows[0].quantity", "default": "0"}}
+    },
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "uat-sec-no-such-process-${run_id}", "initial_variables": {}}},
+      "expect": {"status": 404},
+      "save": {"nf_detail": "$.detail", "nf_title": "$.title"}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/definitions/active/stock_receipt"},
+      "expect": {"status": 200, "json": {"name": "stock_receipt", "owner_module": "stock", "status": "ACTIVE"}},
+      "save": {"receipt_def_id": "$.id"}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_receipt",
+                      "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a1", "document_type": "stock_receipt",
+                                            "version_no": 1, "org_unit_id": "${org_unit}", "mark": "posted",
+                                            "posting": {"lines": [{"sku": "${item}", "location": "${place}", "org_unit": "${org_unit}",
+                                                                   "responsible": "${responsible}", "quantity": "5"}]}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_id": "${receipt_def_id}",
+                      "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a1", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_receipt", "module_start": true, "initial_variables": {"module_start": true}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_issue", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a2", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_writeoff", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a3", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_transfer", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a4", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_handover", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a5", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_return", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a6", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_reversal",
+                      "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a7", "reason_code": "other",
+                                            "posting": {"reverses_entry_id": "00000000-0000-4000-8000-0000000000e1"}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_opening", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a8", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_quick_count", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a9", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_count_posting", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000aa", "posting": {"lines": []}}}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/instances",
+             "body": {"definition_name": "stock_receipt", "initial_variables": {"document_id": "00000000-0000-4000-8000-0000000000a1"}}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {"assert_only": {"path": "/api/v1/scheduled-jobs"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}"}}
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_before}", "default": "0"}}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

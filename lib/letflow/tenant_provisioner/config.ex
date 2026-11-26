@@ -17,6 +17,8 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_DEMO_ALARM` | demo count at which a create logs one warning (0..100000); name as in decision 0072 | 25 |
   | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
   | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | comma-separated module ids installed (with their dependencies) on create; `none` = no install (≤ 20 ids) | org, locations, catalog_items, stock |
+  | `LETFLOW_PROVISIONER_CREATE_VIA_PROCESS` | `true` runs a create (route 3 and the sign-up) through the `platform.register_tenant` process; anything else but `false` is invalid (T-2728) | `false`: the old synchronous path |
+  | `LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS` | seconds the route holds a process create before it answers 202 (0..55) | 30 |
   | `LETFLOW_PUBLIC_BASE_URL` | the `server_url` of the create answer (the REQ-441 variable) | create answers 500 |
 
   The write and read hashes must differ (otherwise the write class would silently win).
@@ -42,6 +44,9 @@ defmodule Letflow.TenantProvisioner.Config do
   @default_sweep_interval_minutes 60
   @url_var "LETFLOW_PUBLIC_BASE_URL"
   @modules_var "LETFLOW_PROVISIONER_DEFAULT_MODULES"
+  @via_process_var "LETFLOW_PROVISIONER_CREATE_VIA_PROCESS"
+  @wait_var "LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS"
+  @default_wait_seconds 30
   @default_modules ["org", "locations", "catalog_items", "stock"]
 
   @type parsed :: %{
@@ -63,6 +68,8 @@ defmodule Letflow.TenantProvisioner.Config do
          {:ok, domain_budget} <- parse_int(env, @domain_budget_var, 0..100_000),
          {:ok, interval} <- parse_int(env, @interval_var, 1..10_080),
          {:ok, modules} <- parse_modules(env),
+         {:ok, via_process} <- parse_via_process(env),
+         {:ok, wait} <- parse_int(env, @wait_var, 0..55),
          {:ok, url} <- parse_url(env, config_env) do
       provisioner =
         Enum.reject(
@@ -75,7 +82,9 @@ defmodule Letflow.TenantProvisioner.Config do
             source_daily_budget: source_budget,
             email_domain_daily_budget: domain_budget,
             sweep_interval_minutes: interval,
-            default_modules: modules
+            default_modules: modules,
+            create_via_process: via_process,
+            create_wait_seconds: wait
           ],
           fn {_key, value} -> is_nil(value) end
         )
@@ -130,7 +139,7 @@ defmodule Letflow.TenantProvisioner.Config do
     end
   end
 
-  @doc "Guarded runtime company-host suffixes shared by provisioning, CORS and mail."
+  @doc "Guarded runtime company-host suffixes shared by provisioning and login-directory mail; since T-2621 they grant no CORS allowance (the CORS decision is taken per host, see `Letflow.Plugs.Cors`)."
   @spec allowed_hostname_suffixes() :: [String.t()]
   def allowed_hostname_suffixes do
     config = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
@@ -220,6 +229,27 @@ defmodule Letflow.TenantProvisioner.Config do
   @doc "T-1580 / decision 0072 D8: module ids installed on create (default org, locations, catalog_items, stock)."
   @spec default_modules() :: [String.t()]
   def default_modules, do: setting(:default_modules, @default_modules)
+
+  @doc """
+  T-2728 (contract amendment, `docs/platform-register-tenant-v2.md` section 9.1): whether a create
+  runs through the `platform.register_tenant` process. Default `false`: the old synchronous path.
+  Switching it on outside QA is the owner's step, never a task's.
+  """
+  @spec create_via_process?() :: boolean()
+  def create_via_process?, do: setting(:create_via_process, false) == true
+
+  @doc "T-2728: seconds a process create holds the request before it answers 202 (0..55, default 30)."
+  @spec create_wait_seconds() :: non_neg_integer()
+  def create_wait_seconds, do: setting(:create_wait_seconds, @default_wait_seconds)
+
+  defp parse_via_process(env) do
+    case blank_to_nil(Map.get(env, @via_process_var)) do
+      nil -> {:ok, nil}
+      "true" -> {:ok, true}
+      "false" -> {:ok, false}
+      _other -> {:error, @via_process_var}
+    end
+  end
 
   # Format-checked ids only (INV-7); membership in the Catalog is checked at install time.
   defp parse_modules(env) do

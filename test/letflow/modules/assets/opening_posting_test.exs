@@ -208,8 +208,8 @@ defmodule Letflow.Modules.Assets.OpeningPostingTest do
             DateTime.utc_now() |> DateTime.add(-48 * 3600) |> DateTime.to_iso8601()
         })
 
-      body = Jason.encode!(%{"output_variables" => %{"posting" => forged}})
-      assert complete(task, ctx.tok_u2, body).status == 200
+      :ok = D.tamper!(ctx, task, %{"posting" => forged})
+      assert complete(task, ctx.tok_u2).status == 200
       [entry] = D.movements(ctx, doc["id"])
       assert entry["event_time"] == entry["posting_time"]
       assert D.get!(ctx, doc["id"])["posting_check"] == "ok"

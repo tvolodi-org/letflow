@@ -1,0 +1,222 @@
+{
+  "id": "SEC-STOCK-08",
+  "bp_entry": "BP-STOCK-40",
+  "title": "Negative balance rule REFUSED: an issue of more than the balance is not posted",
+  "description": "SECURITY / business rule, on the FOREIGN rehearsal tenant sss-rehearsal2, whose stock ledger setting refuses negative balances (read at the start: the posting rule answers refused; the walk stops there if the setting is different). The storekeeper issues one unit more than the balance of the item at the place; the administrator completes the Post task: refused 409 insufficient_stock, the document stays issued, nothing is posted and the balance is unchanged. The cleanup cancels the issued document (an issue may be cancelled while its post task waits).",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/posting-rules"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "negative_balance": "refused"
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "balance_before": "$.rows[0].quantity",
+        "uom": "$.rows[0].unit_ref"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} SEC-STOCK-08 issue of one unit more than the balance",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${balance_before + 1}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft",
+          "kind": "issue"
+        }
+      },
+      "save": {
+        "doc": "$.id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "insufficient_stock"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued",
+          "entry_id": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "storekeeper",
+      "requires": [
+        "doc"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-08 cleanup"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "storekeeper",
+      "requires": [
+        "doc"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/stock/documents/${doc}"
+      },
+      "expect": {
+        "status": [
+          204,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "storekeeper",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "id": "BP-DESIGNER-26",
+  "bp_entry": "BP-DESIGNER-26",
+  "title": "SECURITY: an unknown definition id answers 404 on read, activate and delete and changes nothing",
+  "description": "The administrator reads, activates and deletes a definition id that does not exist in the tenant (the all-zero id): each is a 404 and nothing changes. A foreign tenant's id is indistinguishable from an unknown one (INV-5); the two-token half is covered by the Elixir tests. The public address (unknown kind and handle, 404) is not played here: the static check knows no public route.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/00000000-0000-0000-0000-000000000000"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/00000000-0000-0000-0000-000000000000/activate"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/00000000-0000-0000-0000-000000000000"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

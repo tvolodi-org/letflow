@@ -115,6 +115,51 @@ defmodule Letflow.Modules.Assets.KindChangeMasterPostingTest do
     assert {[["kind_change_in", 1], ["kind_change_out", 1]], 2} = snapshot(ctx, id)
   end
 
+  test "IB-K1 (T-2431) a changed stock_posting (valid masters, other quantity) is refused", ctx do
+    m = ctx.ka
+    receive_stock!(ctx, m, "25")
+    id = issue!(ctx, m)["id"]
+    task = D.pending_task(ctx, id, "post")
+    vars = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema).variables
+    stock_posting = vars["stock_posting"]
+    lines = List.update_at(stock_posting["lines"], 0, &Map.put(&1, "quantity", "24"))
+
+    # what a completer could do to the instance state: the start event keeps the issued values
+    {1, _} =
+      Repo.update_all(
+        from(p in InstanceProjection, where: p.instance_id == ^task.instance_id),
+        [
+          set: [variables: Map.put(vars, "stock_posting", Map.put(stock_posting, "lines", lines))]
+        ],
+        prefix: ctx.schema
+      )
+
+    holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
+
+    complete = fn ->
+      Engine.complete_task(
+        task.id,
+        %{output_variables: %{}, actor_id: holder.id, idempotency_key: Ecto.UUID.generate()},
+        prefix: ctx.schema,
+        credential: :oidc
+      )
+    end
+
+    assert {:error, {:entity_write_refused, 1, :validation_failed}} = complete.()
+    assert {[], 0} = snapshot(ctx, id)
+    assert D.pending_task(ctx, id, "post") != nil
+
+    {1, _} =
+      Repo.update_all(
+        from(p in InstanceProjection, where: p.instance_id == ^task.instance_id),
+        [set: [variables: vars]],
+        prefix: ctx.schema
+      )
+
+    assert {:ok, _} = complete.()
+    assert {[["kind_change_in", 1], ["kind_change_out", 1]], 2} = snapshot(ctx, id)
+  end
+
   test "MK-2 an unknown uuid as sku of the stock posting is refused, both sides roll back", ctx do
     m = ctx.ka
     receive_stock!(ctx, m, "25")
@@ -127,14 +172,14 @@ defmodule Letflow.Modules.Assets.KindChangeMasterPostingTest do
     lines =
       List.update_at(stock_posting["lines"], 0, &Map.put(&1, "sku", Ecto.UUID.generate()))
 
-    output = %{"stock_posting" => Map.put(stock_posting, "lines", lines)}
+    :ok = D.tamper!(ctx, task, %{"stock_posting" => Map.put(stock_posting, "lines", lines)})
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
     assert {:error, _} =
              Engine.complete_task(
                task.id,
                %{
-                 output_variables: output,
+                 output_variables: %{},
                  actor_id: holder.id,
                  idempotency_key: Ecto.UUID.generate()
                },
@@ -144,5 +189,32 @@ defmodule Letflow.Modules.Assets.KindChangeMasterPostingTest do
 
     assert {[], 0} = snapshot(ctx, id)
     assert D.pending_task(ctx, id, "post") != nil
+  end
+
+  test "MK-3 (T-2430) the body cannot set stock_posting or the assets posting: 422, both sides untouched",
+       ctx do
+    m = ctx.ka
+    receive_stock!(ctx, m, "25")
+    id = issue!(ctx, m)["id"]
+    task = D.pending_task(ctx, id, "post")
+    vars = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema).variables
+    lines = List.update_at(vars["stock_posting"]["lines"], 0, &Map.put(&1, "quantity", "24"))
+
+    assert D.task_route(task, ctx.tok_a, "claim", "{}").status == 200
+
+    for body <- [
+          %{"stock_posting" => Map.put(vars["stock_posting"], "lines", lines)},
+          %{"posting" => vars["posting"]},
+          %{"document_id" => Ecto.UUID.generate()}
+        ] do
+      conn = D.task_route(task, ctx.tok_a, "complete", Jason.encode!(body))
+      assert conn.status == 422, inspect({body, conn.status, conn.resp_body})
+      assert Jason.decode!(conn.resp_body)["code"] == "output_refused"
+      assert {[], 0} = snapshot(ctx, id)
+    end
+
+    assert Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema).variables == vars
+    assert D.task_route(task, ctx.tok_a, "complete", "{}").status == 200
+    assert {[["kind_change_in", 1], ["kind_change_out", 1]], 2} = snapshot(ctx, id)
   end
 end

@@ -1,7 +1,9 @@
 /** NodeEditPanel — T-1563. The properties of the selected step (or connection) in edit mode: label, the flat attributes of
  *  its type, the script binding as ONE unit, and its connections with Edit / Delete connection buttons (the keyboard path
  *  to an edge). Structured attributes (form, module writes, interface, endpoint) are not edited here and are kept intact.
- *  Every change is a graphEdit function applied through `onApply`; this file builds no graph itself. */
+ *  T-2599 (pilot gap G5a) adds the third route kind of a step: a PLATFORM CALL — the function picker and the typed
+ *  var/const argument mapping. Every change is a graphEdit function applied through `onApply`; this file builds no graph
+ *  itself. */
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { X } from 'lucide-react'
@@ -14,18 +16,29 @@ import {
   deleteNodes,
   hasServiceBinding,
   readAttrs,
+  removeNotifyStep,
+  removePlatformCall,
   replaceServiceWithScript,
   scriptBindingHint,
   setEdge,
   setNodeAttr,
   setNodeLabel,
+  setNotifyStep,
+  setPlatformCall,
   setScriptBinding,
   type EditResult,
 } from '@/utils/canvas/graphEdit'
+import { emptyPlatformCall, parsePlatformCall, withDerivedMapping } from '@/utils/canvas/platformCall'
+import { emptyNotifyStep, parseNotifyStep } from '@/utils/canvas/notifyStep'
+import { usePlatformFunctions } from '@/hooks/usePlatformFunctions'
+import { useNotificationTemplateCatalogue } from '@/hooks/useNotificationTemplateCatalogue'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { Checkbox } from '@/components/ui/Checkbox'
+import { stepCaption } from './nodeSummary'
+import { PlatformCallEditor, type PlatformCatalogueState } from './PlatformCallEditor'
+import { NotifyStepEditor, type NotifyCatalogueState } from './NotifyStepEditor'
 import { useDiagramText } from './useDiagramText'
 
 export type ApplyEdit = (result: EditResult, announce?: string, coalesceKey?: string) => void
@@ -48,7 +61,7 @@ export function useEditText() {
 }
 
 export function nodeName(n: GraphNode, typeName: (t: string) => string): string {
-  return n.label ?? typeName(n.node_type)
+  return n.label ?? stepCaption(n.node_type, readAttrs(n)) ?? typeName(n.node_type)
 }
 
 interface PanelProps {
@@ -58,14 +71,34 @@ interface PanelProps {
   onSelectEdge: (id: string) => void
   /** Violation texts anchored to the selected item. */
   problems: string[]
+  /** The tenant the catalogue read is scoped to (the page resolves it from the session). */
+  tenantId?: string | null
 }
 
-export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, problems }: PanelProps & { nodeId: string }) {
+export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, problems, tenantId = null }: PanelProps & { nodeId: string }) {
   const e = useEditText()
   const t = useDiagramText()
   const node = graph.nodes.find((n) => n.id === nodeId)
   const [target, setTarget] = useState('')
   useEffect(() => setTarget(''), [nodeId])
+  // T-2599: the COMPILED platform function catalogue the picker offers. The read is lazy — it happens when a
+  // SERVICE step's panel is open, not when the page opens.
+  const catalogueQuery = usePlatformFunctions(tenantId, node?.node_type === 'SERVICE_TASK')
+  const catalogue: PlatformCatalogueState = {
+    entries: catalogueQuery.data?.items ?? [],
+    loading: catalogueQuery.isPending,
+    error: catalogueQuery.error ?? null,
+    onRetry: () => void catalogueQuery.refetch(),
+  }
+  // T-2600: the COMPILED notification template catalogue the template picker reads. The read is lazy, like the
+  // platform one: it happens when a SERVICE step's panel is open, not when the page opens.
+  const templateQuery = useNotificationTemplateCatalogue(tenantId, node?.node_type === 'SERVICE_TASK')
+  const templates: NotifyCatalogueState = {
+    entries: templateQuery.data?.items ?? [],
+    loading: templateQuery.isPending,
+    error: templateQuery.error ?? null,
+    onRetry: () => void templateQuery.refetch(),
+  }
   if (!node) return null
   const attrs = readAttrs(node)
   const editable = attributesEditable(node)
@@ -83,6 +116,12 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
   const scriptVersion = attrs.script_version
   const hint = scriptBindingHint(scriptKey, scriptVersion)
   const bound = node.node_type === 'SERVICE_TASK' && hasServiceBinding(node)
+  // T-2599: the step's platform call, with its mapping sides derived against the catalogue entry.
+  const rawCall = parsePlatformCall(attrs.platform_call)
+  const platformEntry = rawCall ? catalogue.entries.find((x) => x.name === rawCall.function) ?? null : null
+  const platformCall = rawCall && platformEntry ? withDerivedMapping(rawCall, platformEntry) : rawCall
+  // T-2600: the step's notification (the channel, the template, the recipient and the values).
+  const notifyStep = parseNotifyStep(attrs.notify)
 
   const edgeRow = (edge: GraphEdge, arrow: string) => (
     <li key={edge.id} className="lf-pd-edit__conn" data-testid="edit-connection-row">
@@ -143,47 +182,125 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
       )}
       {editable && node.node_type === 'SERVICE_TASK' && (
         <>
-          {bound && (
-            <div data-testid="edit-service-bound">
-              <p className="lf-hint">
-                {e('service.bound')}: <span className="lf-pd__mono">{text('service_id') || summaryEndpoint(text('endpoint'))}</span>
-              </p>
+          {notifyStep ? (
+            // T-2600: the step sends a notification — the channel, the template, the recipient and the values.
+            <div data-testid="edit-notify-step">
+              <NotifyStepEditor
+                key={node.id}
+                step={notifyStep}
+                catalogue={templates}
+                onChange={(next) => onApply(setNotifyStep(graph, node.id, next), undefined, `notify:${node.id}`)}
+              />
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => onApply(replaceServiceWithScript(graph, node.id, 'new_script'), e('announce.scriptReplaced'))}
-                data-testid="edit-use-script"
+                onClick={() => onApply(removeNotifyStep(graph, node.id), e('announce.notifyStepRemoved'))}
+                data-testid="edit-use-script-from-notify"
               >
-                {e('service.useScript')}
+                {e('notify.useScript')}
               </Button>
             </div>
-          )}
-          {!bound && (
+          ) : (
             <>
-              <Field
-                label={e('field.scriptKey')}
-                error={hint === 'bad_key' ? e('hint.badKey') : undefined}
-                hint={e('hint.scriptKey')}
+          {platformCall ? (
+            // T-2599: the step calls a platform function — the picker and the typed argument mapping.
+            <div data-testid="edit-platform-call">
+              <PlatformCallEditor
+                key={node.id}
+                call={platformCall}
+                catalogue={catalogue}
+                onChange={(next) => onApply(setPlatformCall(graph, node.id, next), undefined, `platform:${node.id}`)}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onApply(removePlatformCall(graph, node.id), e('announce.platformCallRemoved'))}
+                data-testid="edit-use-script-from-platform"
               >
-                <input
-                  value={scriptKey}
-                  onChange={(ev) => onApply(setScriptBinding(graph, node.id, { key: ev.target.value }), undefined, `script:${node.id}`)}
-                  data-testid="edit-field-script-key"
-                />
-              </Field>
-              <Field label={e('field.scriptVersion')} error={hint === 'bad_version' ? e('hint.badVersion') : undefined}>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  disabled={scriptKey === ''}
-                  value={typeof scriptVersion === 'number' ? scriptVersion : ''}
-                  onChange={(ev) =>
-                    onApply(setScriptBinding(graph, node.id, { key: scriptKey, version: ev.target.value === '' ? NaN : Number(ev.target.value) }), undefined, `scriptv:${node.id}`)
-                  }
-                  data-testid="edit-field-script-version"
-                />
-              </Field>
+                {e('platform.useScript')}
+              </Button>
+            </div>
+          ) : (
+            <>
+              {bound && (
+                <div data-testid="edit-service-bound">
+                  <p className="lf-hint">
+                    {e('service.bound')}: <span className="lf-pd__mono">{text('service_id') || summaryEndpoint(text('endpoint'))}</span>
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onApply(replaceServiceWithScript(graph, node.id, 'new_script'), e('announce.scriptReplaced'))}
+                    data-testid="edit-use-script"
+                  >
+                    {e('service.useScript')}
+                  </Button>
+                </div>
+              )}
+              {!bound && (
+                <>
+                  <Field
+                    label={e('field.scriptKey')}
+                    error={hint === 'bad_key' ? e('hint.badKey') : undefined}
+                    hint={e('hint.scriptKey')}
+                  >
+                    <input
+                      value={scriptKey}
+                      onChange={(ev) => onApply(setScriptBinding(graph, node.id, { key: ev.target.value }), undefined, `script:${node.id}`)}
+                      data-testid="edit-field-script-key"
+                    />
+                  </Field>
+                  <Field label={e('field.scriptVersion')} error={hint === 'bad_version' ? e('hint.badVersion') : undefined}>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      disabled={scriptKey === ''}
+                      value={typeof scriptVersion === 'number' ? scriptVersion : ''}
+                      onChange={(ev) =>
+                        onApply(setScriptBinding(graph, node.id, { key: scriptKey, version: ev.target.value === '' ? NaN : Number(ev.target.value) }), undefined, `scriptv:${node.id}`)
+                      }
+                      data-testid="edit-field-script-version"
+                    />
+                  </Field>
+                </>
+              )}
+              {catalogue.entries.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const first = catalogue.entries[0]
+                    onApply(
+                      setPlatformCall(graph, node.id, emptyPlatformCall(first.name)),
+                      e('announce.platformSelected', { name: first.name }),
+                      `platform:${node.id}`,
+                    )
+                  }}
+                  data-testid="edit-use-platform-function"
+                >
+                  {e('platform.useFunction')}
+                </Button>
+              )}
+              {templates.entries.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const first = templates.entries[0]
+                    onApply(
+                      setNotifyStep(graph, node.id, { ...emptyNotifyStep(), templateKey: first.template_key }),
+                      e('announce.notifySelected', { name: first.template_key }),
+                      `notify:${node.id}`,
+                    )
+                  }}
+                  data-testid="edit-use-notification"
+                >
+                  {e('notify.useNotification')}
+                </Button>
+              )}
+            </>
+          )}
             </>
           )}
         </>

@@ -59,7 +59,7 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
 
   defp assert_conflict(ctx, id, task, output) do
     assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
-             P.complete(ctx, task, output: output)
+             P.complete(ctx, task, variables: output)
 
     assert_untouched(ctx, id, task)
   end
@@ -77,6 +77,13 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
 
     _ = ctx
     Letflow.Router.call(conn, Letflow.Router.init([]))
+  end
+
+  # T-2430: the body can no longer carry a write target (422 `output_refused`, `write_targets_test.exs`);
+  # the handler's own binding check is reached with the instance variables forged first.
+  defp forged_route(ctx, task, token, vars) do
+    :ok = P.tamper!(ctx, task, vars)
+    complete_route(ctx, task, token, %{})
   end
 
   defp strip_trace(body) do
@@ -182,7 +189,7 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
 
     test "VB-CHG-10 over the route: 409 record_version_conflict, nothing written", ctx do
       out = %{"posting" => with_line(ctx.posting, &Map.put(&1, "quantity", "3"))}
-      conn = complete_route(ctx, ctx.task, ctx.tok_a, out)
+      conn = forged_route(ctx, ctx.task, ctx.tok_a, out)
       assert conn.status == 409
       assert conn.resp_body =~ "record_version_conflict"
       assert_untouched(ctx, ctx.id, ctx.task)
@@ -250,7 +257,8 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
             actor_id: ctx.holder.id,
             idempotency_key: "vb-#{Ecto.UUID.generate()}"
           },
-          prefix: ctx.schema
+          prefix: ctx.schema,
+          module_start: true
         )
 
       generic =
@@ -278,7 +286,7 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
       p = Map.put(posting(ctx, task), "document_id", unknown)
 
       conn =
-        complete_route(ctx, task, ctx.tok_a, %{"document_id" => unknown, "posting" => p})
+        forged_route(ctx, task, ctx.tok_a, %{"document_id" => unknown, "posting" => p})
 
       assert conn.status == 422
       assert Jason.decode!(conn.resp_body)["error"] == "validation_failed"
@@ -385,7 +393,7 @@ defmodule Letflow.Modules.Stock.VersionBindingTest do
     p = Map.put(posting(ctx, task), "document_id", issued_b["id"])
 
     conn =
-      complete_route(ctx, task, ctx.tok_a, %{"document_id" => issued_b["id"], "posting" => p})
+      forged_route(ctx, task, ctx.tok_a, %{"document_id" => issued_b["id"], "posting" => p})
 
     assert conn.status == 422
     refute conn.resp_body =~ "record_version_conflict"

@@ -1,0 +1,328 @@
+[
+  {
+    "id": "BP-EXAM-01",
+    "area": "exam",
+    "title": "Write the question bank",
+    "description": "A tenant administrator (the exam author) keeps the question bank: categories (a tree), tags, questions with their answer options, and the links between them. In the question bank screen they list questions, open the editor, save a new or changed question, and delete one. A question may be a new version of an older one (lineage). The system refuses a category that is its own ancestor, a parent that does not exist, a second child on one question version, a version number that does not rise, and the deletion of a category or question that still has children.",
+    "actors": [
+      {"role": "TENANT_ADMIN", "permission": "ExamAuthoringWrite"}
+    ],
+    "preconditions": ["module exam installed in the tenant", "the entity definitions of the exam pack are active"],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["QuestionBankPage", "BilimBagaAdminPage", "BilimBagaEntityRoute"],
+        "functions": [],
+        "route": null,
+        "code_refs": ["web/src/modules/exam/examRoutes.tsx:41", "web/src/modules/exam/examRoutes.tsx:60"],
+        "result": "the author sees the list of questions, or the list of another authoring type (categories, tags, answer options); the write actions show only to a holder of the authoring permission"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["QuestionEditorPage"],
+        "functions": ["Letflow.Modules.Exam.AuthoringRules.check_write"],
+        "route": ["POST /api/v1/modules/exam/authoring/:entity_type", "PUT /api/v1/modules/exam/authoring/:entity_type/:record_id"],
+        "code_refs": ["lib/letflow/modules/exam/router.ex:1214", "lib/letflow/modules/exam/router.ex:1247", "lib/letflow/modules/exam/authoring_rules.ex:65"],
+        "result": "a question, answer option, category or tag record is created or replaced as a whole; the answer carries the record without the fields the caller may not see; a tree or lineage rule that fails is 422 with the reason (parent_cycle, parent_not_found, lineage_branch, version_not_increasing, lineage_active_conflict)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["QuestionBankPage"],
+        "functions": ["Letflow.Modules.Exam.AuthoringRules.check_delete"],
+        "route": "DELETE /api/v1/modules/exam/authoring/:entity_type/:record_id",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:1290", "lib/letflow/modules/exam/authoring_rules.ex:99"],
+        "result": "the record is removed (soft delete); a category or question that still has a live child is 409 (category_has_children, question_has_children)"
+      }
+    ],
+    "inputs": ["entity type (question, answer_option, category, tag, question_tag)", "field values of the record", "optional idempotency key", "optional expected last event number on change"],
+    "outputs": ["record id", "event number of the write"],
+    "refusals": [
+      "a role without ExamAuthoringWrite (CANDIDATE, PROCESS_OPERATOR, TASK_WORKER) is refused with 403, nothing written",
+      "an entity type that is not one of the ten authoring types is the same 404 on all three routes",
+      "a tenant administrator of another tenant gets a 404 for this tenant's record id",
+      "a body naming a field the caller's field restrictions hide is refused",
+      "a stale expected_last_event_global_seq is 409"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-02",
+    "area": "exam",
+    "title": "Build an exam",
+    "description": "A tenant administrator assembles an exam: title, pass mark, number of attempts, time limit, availability window, the policy for a candidate leaving the exam tab, the sections, the question rules (how many questions of which category or tag) and the manually pinned questions. They also assign the exam to candidates. The builder screens are shown only to a holder of the authoring permission. Every save is an authoring write of BP-EXAM-01 on the exam types.",
+    "actors": [
+      {"role": "TENANT_ADMIN", "permission": "ExamAuthoringWrite"}
+    ],
+    "preconditions": ["BP-EXAM-01 has produced the questions the exam draws on", "module exam installed"],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["ExamBuilderListPage", "ExamBuilderPage"],
+        "functions": [],
+        "route": null,
+        "code_refs": ["web/src/modules/exam/examRoutes.tsx:63", "web/src/modules/exam/examRoutes.tsx:64"],
+        "result": "the list of exams and one exam with its sections, question rules and pinned questions; a user without the authoring permission gets the shell's forbidden page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["ExamBuilderPage"],
+        "functions": ["Letflow.Modules.Exam.Authoring.create", "Letflow.Modules.Exam.Authoring.update"],
+        "route": ["POST /api/v1/modules/exam/authoring/:entity_type", "PUT /api/v1/modules/exam/authoring/:entity_type/:record_id"],
+        "code_refs": ["lib/letflow/modules/exam/authoring.ex:87", "lib/letflow/modules/exam/authoring.ex:99", "lib/letflow/modules/exam/router.ex:1214"],
+        "result": "exam, exam_section, exam_question_rule, exam_question_rule_tag and exam_manual_question records are written; an exam edited while sessions are live does not change a session already started (the session keeps its own snapshot)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": ["Letflow.Modules.Exam.Authoring.create_assignment"],
+        "route": null,
+        "code_refs": ["lib/letflow/modules/exam/authoring.ex:131"],
+        "result": "an exam_assignment record says which candidate may sit which exam; today only the mix seed task writes it, no route and no screen (see orphans-exam.md)"
+      }
+    ],
+    "inputs": ["exam fields", "section, rule and pinned-question fields", "candidate ids to assign"],
+    "outputs": ["exam id", "the exam in status draft or active"],
+    "refusals": ["same as BP-EXAM-01: 403 without the permission, uniform 404 for an unknown type or another tenant's record"],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-03",
+    "area": "exam",
+    "title": "Find and start an exam",
+    "description": "A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. The system checks in this order: the exam exists and is active, the candidate is assigned, the exam is not archived, the availability window is open, the attempts are not used up, no session of theirs is open. It then draws the questions (with a fresh seed) and fixes them in the session. If a session is already open the answer names it so the screen can continue it.",
+    "actors": [
+      {"role": "CANDIDATE", "permission": "ExamSessionStart"}
+    ],
+    "preconditions": ["an active exam assigned to the candidate, inside its availability window, with attempts left (BP-EXAM-02)"],
+    "tasks": [
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamListPage"],
+        "functions": [],
+        "route": "GET /api/v1/modules/exam/exam-sessions/available",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:469", "lib/letflow/modules/exam/session.ex:230", "web/src/modules/exam/examRoutes.tsx:49"],
+        "result": "a page of the exams the candidate may start now (page size and cursor are validated: 400 on a bad value)"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionPage"],
+        "functions": ["Letflow.Modules.Exam.Session.create"],
+        "route": "POST /api/v1/modules/exam/exam-sessions",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:308", "lib/letflow/modules/exam/session.ex:392", "web/src/modules/exam/examRoutes.tsx:52"],
+        "result": "201 with the session and its questions, without the answer key; the candidate is the caller's own id, never a value from the body"
+      }
+    ],
+    "inputs": ["exam_id"],
+    "outputs": ["session_id", "expires_at", "question set"],
+    "refusals": [
+      "not assigned: 403; archived: 403",
+      "exam not active, outside the availability window, attempts exhausted: 422",
+      "a session of the same candidate is already open: 409 with the id of that session",
+      "a pinned question that is missing or not active: 422 with a constant text; the exam content or snapshot failing: 503 with a constant text",
+      "an exam_id that is not a UUID is answered like an exam that is not active (422)"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-04",
+    "area": "exam",
+    "title": "Sit the exam and submit",
+    "description": "The candidate answers the questions. Each answer is saved at once (single, multiple, true/false, likert, short text) with the time spent; the screen reports tab switches, loss of focus and leaving full screen. The server alone judges the deadline and what a signal does (warn or submit) from the exam's own policy. The candidate submits; the system scores the objective questions, and a session with a short-text answer waits for the examiner (BP-EXAM-05). A session past its deadline is closed by the system.",
+    "actors": [
+      {"role": "CANDIDATE", "permission": "ExamSessionSave, ExamSessionSubmit, ExamSessionReportEvent, ExamSessionRead"}
+    ],
+    "preconditions": ["an open session (BP-EXAM-03)"],
+    "tasks": [
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionPage"],
+        "functions": ["Letflow.Modules.Exam.Session.get_session_state_for_user"],
+        "route": "GET /api/v1/modules/exam/exam-sessions/:id",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:422", "lib/letflow/modules/exam/session.ex:590"],
+        "result": "the session state with the questions and the answers saved so far; never is_correct, likert weights or the explanation"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionPage"],
+        "functions": ["Letflow.Modules.Exam.Session.autosave_answer"],
+        "route": "PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:758", "lib/letflow/modules/exam/session.ex:754"],
+        "result": "the answer is stored; the answer carries the seconds remaining"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionPage"],
+        "functions": ["Letflow.Modules.Exam.AntiCheat.record_signal"],
+        "route": "POST /api/v1/modules/exam/exam-sessions/:id/events",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:1103", "lib/letflow/modules/exam/anti_cheat.ex:127"],
+        "result": "one signal event is recorded unless it falls inside the debounce window; the answer says the action taken (from the exam's on_tab_switch policy), the event count, whether to warn, and the submission when the policy submits"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionPage"],
+        "functions": ["Letflow.Modules.Exam.Session.submit", "Letflow.Modules.Exam.Scoring.score_session"],
+        "route": "POST /api/v1/modules/exam/exam-sessions/:id/submit",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:828", "lib/letflow/modules/exam/session.ex:804", "lib/letflow/modules/exam/scoring.ex:181"],
+        "result": "the session is scored and closed with score and pass/fail, or marked grading pending when a short-text answer needs the examiner; a second submit returns the same outcome"
+      }
+    ],
+    "inputs": ["session_id", "answers (selected option ids or text) with time spent", "signal type (tab_switch, blur, fullscreen_exit)"],
+    "outputs": ["session status", "score percent", "passed flag"],
+    "refusals": [
+      "a session id that is not the caller's own, does not exist, or is not a UUID: the same 404 body",
+      "answer after the deadline or on a closed session: refused; a question that is not in the session: 400; an option that is not the question's: 400; a wrong answer shape: 400",
+      "a signal type other than the three: 400; a signal on a closed session or after the deadline: refused",
+      "a body with a candidate id, a score or an action_taken is not read (there is no such parameter)"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-05",
+    "area": "exam",
+    "title": "Grade short-text answers",
+    "description": "An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one exam, in a chosen language), opens one answer, and gives a score between zero and the maximum of the question. When the last waiting answer of a session is marked the system finalises the session (score, pass/fail). An answer is marked once.",
+    "actors": [
+      {"role": "TENANT_ADMIN", "permission": "ExamGradingRead, ExamGradingWrite"}
+    ],
+    "preconditions": ["a session submitted with a short-text answer and status grading pending (BP-EXAM-04)"],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["ExamGradingListPage"],
+        "functions": ["Letflow.Modules.Exam.Grading.list_queue"],
+        "route": "GET /api/v1/modules/exam/grading-queue",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:606", "lib/letflow/modules/exam/grading.ex:55", "web/src/modules/exam/examRoutes.tsx:55"],
+        "result": "a page of waiting answers of this tenant only, filter by exam_id"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["ExamGradingAnswerPage"],
+        "functions": ["Letflow.Modules.Exam.Grading.get_answer"],
+        "route": "GET /api/v1/modules/exam/grading-queue/:session_id/:question_id",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:644", "lib/letflow/modules/exam/grading.ex:84", "web/src/modules/exam/examRoutes.tsx:56"],
+        "result": "the question stem and the candidate's answer"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": ["ExamGradingAnswerPage"],
+        "functions": ["Letflow.Modules.Exam.Session.grade_answer"],
+        "route": "POST /api/v1/modules/exam/grading-queue/:session_id/:question_id/grade",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:666", "lib/letflow/modules/exam/session.ex:1810"],
+        "result": "the mark is stored with the caller as grader; when it is the last waiting answer the session becomes final and the answer says its status"
+      }
+    ],
+    "inputs": ["session_id", "question_id", "score"],
+    "outputs": ["graded answer", "session status"],
+    "refusals": [
+      "a role other than the administrator (CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER, AGENT_RUNNER, TENANT_AUDITOR): 403 with one identical body; no token: 401",
+      "any key but score in the body, a score below zero or not a number: 422; above the question's maximum: 422",
+      "a session or question that is missing, malformed, of another tenant, already graded (on the read) or not short text: the same 404",
+      "an answer already graded, on the grade route: 409"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-06",
+    "area": "exam",
+    "title": "See my results and get the certificate",
+    "description": "The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the session is passed and the exam issues certificates, asks for the certificate and downloads it as a PDF. The first request issues it; every later request returns the same one.",
+    "actors": [
+      {"role": "CANDIDATE", "permission": "ExamSessionRead, ExamCertificateIssue"}
+    ],
+    "preconditions": ["a finished (and, for the certificate, passed) session of the candidate (BP-EXAM-04, BP-EXAM-05)"],
+    "tasks": [
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamMyResultsPage", "ExamSessionResultPage"],
+        "functions": ["Letflow.Modules.Exam.Session.list_own_sessions"],
+        "route": "GET /api/v1/modules/exam/exam-sessions/mine",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:543", "lib/letflow/modules/exam/session.ex:282", "web/src/modules/exam/examRoutes.tsx:53", "web/src/modules/exam/examRoutes.tsx:54"],
+        "result": "only the caller's own sessions, with the exam title, score, passed flag and certificate id"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionResultPage"],
+        "functions": ["Letflow.Modules.Exam.Certificate.issue_or_get_for_user"],
+        "route": "POST /api/v1/modules/exam/exam-sessions/:id/certificate",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:863", "lib/letflow/modules/exam/certificate.ex:280"],
+        "result": "200 on first issue, with a one-time public_handle; 200 with the same certificate, without public_handle, afterwards"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": ["ExamSessionResultPage"],
+        "functions": ["Letflow.Modules.Exam.CertificateDocument.render"],
+        "route": "GET /api/v1/modules/exam/exam-sessions/:id/certificate/download",
+        "code_refs": ["lib/letflow/modules/exam/router.ex:987", "lib/letflow/modules/exam/certificate_document.ex:1"],
+        "result": "the certificate as application/pdf with a public verification address"
+      }
+    ],
+    "inputs": ["session_id", "optional exam_id filter and page cursor on the list"],
+    "outputs": ["certificate id", "PDF"],
+    "refusals": [
+      "a session that is not the caller's, missing or not a UUID: the same 404",
+      "grading still pending, session not submitted, exam without certificates, session not passed: 409 with a distinct text each"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-EXAM-07",
+    "area": "exam",
+    "title": "Security: roles and crafted input are refused",
+    "description": "The permission matrix of the exam module and the crafted-input refusals, at API level: the candidate cannot write the question bank, read the grading queue or mark an answer (403); the candidate's calls on a session id that is not theirs get the same 404 as a missing one; an administrator naming an unknown authoring type gets 404; a grading body with a grader identity is refused 422 before any lookup. Permission matrix: ExamSessionStart, ExamSessionRead, ExamSessionSave, ExamSessionSubmit, ExamSessionReportEvent, ExamCertificateIssue are granted to CANDIDATE by the module manifest; ExamAuthoringWrite, ExamGradingRead and ExamGradingWrite have no role grant and are held only through the core rules (PLATFORM_ADMIN, TENANT_ADMIN). The runner script covers a part (status automated for those steps); the rest is listed below as planned.",
+    "actors": [
+      {"role": "CANDIDATE", "permission": "ExamSession* (six atoms)"},
+      {"role": "TENANT_ADMIN", "permission": "ExamAuthoringWrite, ExamGradingRead, ExamGradingWrite"}
+    ],
+    "preconditions": ["tenant bilimbaga with the exam module installed", "a candidate login and a tenant administrator login"],
+    "tasks": [
+      {
+        "actor": "CANDIDATE",
+        "forms": [],
+        "functions": ["Letflow.Modules.Exam.AuthoringRules.check_write"],
+        "route": ["POST /api/v1/modules/exam/authoring/:entity_type", "DELETE /api/v1/modules/exam/authoring/:entity_type/:record_id", "GET /api/v1/modules/exam/grading-queue", "POST /api/v1/modules/exam/grading-queue/:session_id/:question_id/grade"],
+        "code_refs": ["lib/letflow/modules/exam/router.ex:262", "lib/letflow/modules/exam/router.ex:270", "lib/letflow/modules/exam/router.ex:279", "lib/letflow/modules/exam/router.ex:291", "lib/letflow/modules/exam/exam.ex:62"],
+        "result": "403 on every one; the matrix (candidate: six session permissions only) is proven by test/letflow/modules/exam/exam_authoring_test.exs (T-4), grading_queue_test.exs and grading_mark_test.exs (G-perm-1, all denied roles one 403 body, no token 401). [automated: scenario steps s2-s5]"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": [],
+        "functions": [],
+        "route": ["GET /api/v1/modules/exam/exam-sessions/:id", "PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id", "POST /api/v1/modules/exam/exam-sessions/:id/submit", "POST /api/v1/modules/exam/exam-sessions/:id/events", "POST /api/v1/modules/exam/exam-sessions/:id/certificate", "GET /api/v1/modules/exam/exam-sessions/:id/certificate/download"],
+        "code_refs": ["lib/letflow/modules/exam/router.ex:200", "lib/letflow/modules/exam/router.ex:212", "lib/letflow/modules/exam/router.ex:218", "lib/letflow/modules/exam/router.ex:224", "lib/letflow/modules/exam/router.ex:237", "lib/letflow/modules/exam/router.ex:252"],
+        "result": "another candidate's session (same tenant), another tenant's session and a missing id all give one identical 404: the owner check folds session_not_found and not_owner into Response.not_found; the prefix scoping hides other tenants. [automated for a missing id: steps s6-s9; own-vs-other candidate and cross-tenant (a token of tenant A against tenant B's ids): planned, needs a second candidate login and a two-tenant runner; proven today by exam_sessions_test.exs and exam_snapshot_router_test.exs]"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": ["Letflow.Modules.Exam.Authoring.access"],
+        "route": ["POST /api/v1/modules/exam/authoring/:entity_type", "POST /api/v1/modules/exam/grading-queue/:session_id/:question_id/grade"],
+        "code_refs": ["lib/letflow/modules/exam/authoring.ex:61", "lib/letflow/modules/exam/router.ex:690"],
+        "result": "an authoring type that does not exist is 404 (T-6 in exam_authoring_test.exs); a grade body with any key but score is 422 before the lookup (reject_unknown_grade_keys). [automated: steps s10-s12]"
+      },
+      {
+        "actor": "CANDIDATE",
+        "forms": [],
+        "functions": ["Letflow.Modules.Exam.AntiCheat.record_signal", "Letflow.Modules.Exam.Session.autosave_answer"],
+        "route": ["POST /api/v1/modules/exam/exam-sessions/:id/events", "PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id"],
+        "code_refs": ["lib/letflow/modules/exam/anti_cheat.ex:127", "lib/letflow/modules/exam/session.ex:754"],
+        "result": "crafted input: a signal type outside the three is 400, an answer or signal after the stored deadline is refused (the server compares its own clock to the session's stored expiry), a question or option not in the session is 400; planned as a runner scenario: needs an open session and a short exam, which only a seeded exam can give"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "no token or an invalid token: 401 (planned as a runner step: the runner has no no-credential actor yet)",
+      "unknown host: not answered by the tenant (planned: host lookup belongs to the tenant-admin / platform area)",
+      "upload types and limits, voice input, webhook input and the old shared-access address: the exam router has no such route (grep of lib/letflow/modules/exam/router.ex for upload, multipart, webhook, shared: no match); nothing to test here",
+      "separation of duties: the examiner role is held by the tenant administrator only, and the grader id is the caller's, never from the body (automated, step s11)"
+    ],
+    "scenario": "test/uat/processes/BP-EXAM-07-security-roles-and-crafted-input.json",
+    "status": "partial"
+  }
+]

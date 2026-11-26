@@ -5,7 +5,7 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   C19 and T-1570 (D-097, owner-approved): the STOREKEEPER reads and posts assets only where the
   tenant switched it on (a per-tenant overlay, `Letflow.Api.TenantGrants`; the manifest `role_grants`
   stays empty, so the baseline matrix of 0055 D7 / 0081 D3 is unchanged: SA-1). The tenant administrator
-  holds all five asset permissions. A tenant that installs `assets` now gets read and post (G1);
+  holds all six asset permissions. A tenant that installs `assets` now gets read and post (G1);
   a tenant without the key stays off (G3). Everything goes through the full `Letflow.Router` with real
   OIDC bearer tokens on committed tenants (Sandbox `:auto`).
   """
@@ -29,9 +29,16 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   @l1 "33333333-3333-4333-8333-333333333333"
   @r1 "55555555-5555-4555-8555-555555555555"
 
-  @all [:AssetsRead, :AssetsPost, :AssetsReverse, :AssetsReconcile, :AssetsCardWrite]
+  @all [
+    :AssetsRead,
+    :AssetsPost,
+    :AssetsReverse,
+    :AssetsReconcile,
+    :AssetsCardWrite,
+    :AssetsApprove
+  ]
 
-  test "SA-1 the baseline matrix: storekeeper holds no asset atom; the administrators hold all five" do
+  test "SA-1 the baseline matrix: storekeeper holds no asset atom; the administrators hold all six" do
     for p <- @all, do: refute(Authorization.role_allows?(:STOREKEEPER, p), inspect(p))
 
     for role <- [:TENANT_ADMIN, :PLATFORM_ADMIN], p <- @all do
@@ -94,7 +101,7 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
     seed!(ctx.a.schema_name)
     admin = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "admin-a")
 
-    for path <- ["/balances", "/movements", "/documents"] do
+    for path <- ["/balances", "/movements", "/documents", "/approval-access"] do
       conn = S.get(path, admin)
       assert conn.status == 200, "#{path}: #{conn.status} #{conn.resp_body}"
     end
@@ -134,7 +141,8 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
     for {method, path} <- [
           {:get, "/reconcile"},
           {:post, "/cards"},
-          {:post, "/documents/#{S.uuid()}/reverse"}
+          {:post, "/documents/#{S.uuid()}/reverse"},
+          {:get, "/approval-access"}
         ] do
       conn = call(method, path, ctx.sk_a)
       assert conn.status == 403, "#{method} #{path}: #{conn.status} #{conn.resp_body}"
@@ -267,7 +275,9 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   test "G11 /me/access (and so the sidebar) follows the grant", ctx do
     on = S.json(api(:get, "/me/access", ctx.sk_a))["permissions"]
     assert "AssetsRead" in on and "AssetsPost" in on
-    for p <- ["AssetsReverse", "AssetsReconcile", "AssetsCardWrite"], do: refute(p in on, p)
+
+    for p <- ["AssetsReverse", "AssetsReconcile", "AssetsCardWrite", "AssetsApprove"],
+        do: refute(p in on, p)
 
     off!(ctx.a.schema_name)
     offp = S.json(api(:get, "/me/access", ctx.sk_a))["permissions"]

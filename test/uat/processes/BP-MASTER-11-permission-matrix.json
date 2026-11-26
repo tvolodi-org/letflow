@@ -1,0 +1,320 @@
+{
+  "id": "BP-MASTER-11",
+  "bp_entry": "BP-MASTER-11",
+  "title": "Permission matrix of the master data routes: the storekeeper may not write",
+  "description": "The storekeeper (STOREKEEPER) calls every kind of write route of org, locations, catalog lots and codes and is refused with 403 each time; nothing is written. The two reads the role holds (scan lookup, label print) are not refused: an unknown value is the 404 of an unknown code, an empty label list is a 422 of the body (the permission passed). Needs the four modules installed (on a tenant without a module its routes answer 404).",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/legal-entities",
+        "body": {
+          "code": "X",
+          "name": "X",
+          "bin": "123456789012",
+          "idempotency_key": "uat-${run_id}-11s1"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/sites",
+        "body": {
+          "code": "X",
+          "name": "X",
+          "idempotency_key": "uat-${run_id}-11s2"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/units",
+        "body": {
+          "code": "X",
+          "name": "X",
+          "idempotency_key": "uat-${run_id}-11s3"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/org/units/00000000-0000-0000-0000-000000000000",
+        "body": {
+          "name": "X",
+          "idempotency_key": "uat-${run_id}-11s4"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/units/00000000-0000-0000-0000-000000000000/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-11s5"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/positions",
+        "body": {
+          "code": "X",
+          "name": "X",
+          "idempotency_key": "uat-${run_id}-11s6"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/employees",
+        "body": {
+          "code": "X",
+          "full_name": "X",
+          "idempotency_key": "uat-${run_id}-11s7"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/employees/00000000-0000-0000-0000-000000000000/transfer",
+        "body": {
+          "org_unit_id": "00000000-0000-0000-0000-000000000000",
+          "position_id": "00000000-0000-0000-0000-000000000000",
+          "idempotency_key": "uat-${run_id}-11s8"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "code": "X",
+          "name": "X",
+          "node_kind": "zone",
+          "idempotency_key": "uat-${run_id}-11s9"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/00000000-0000-0000-0000-000000000000/move",
+        "body": {
+          "parent_id": null,
+          "idempotency_key": "uat-${run_id}-11s10"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/links",
+        "body": {
+          "org_unit_id": "00000000-0000-0000-0000-000000000000",
+          "location_id": "00000000-0000-0000-0000-000000000000",
+          "idempotency_key": "uat-${run_id}-11s11"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/links/retire",
+        "body": {
+          "org_unit_id": "00000000-0000-0000-0000-000000000000",
+          "location_id": "00000000-0000-0000-0000-000000000000",
+          "idempotency_key": "uat-${run_id}-11s12"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/catalog_items/lots",
+        "body": {
+          "item_id": "00000000-0000-0000-0000-000000000000",
+          "code": "X",
+          "idempotency_key": "uat-${run_id}-11s13"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/catalog_items/lots/00000000-0000-0000-0000-000000000000/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-11s14"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "entries": [
+            {
+              "value": "X",
+              "kind": "barcode"
+            }
+          ],
+          "idempotency_key": "uat-${run_id}-11s15"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/00000000-0000-0000-0000-000000000000/assign",
+        "body": {
+          "target_type": "location_node",
+          "target_id": "00000000-0000-0000-0000-000000000000",
+          "idempotency_key": "uat-${run_id}-11s16"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/00000000-0000-0000-0000-000000000000/value",
+        "body": {
+          "value": "X",
+          "idempotency_key": "uat-${run_id}-11s17"
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/resolve",
+        "body": {
+          "value": "UAT-unknown-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/labels",
+        "body": {
+          "code_ids": []
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "field_invalid"
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  }
+}

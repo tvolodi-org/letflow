@@ -1,0 +1,475 @@
+{
+  "id": "BP-PLATFORM-04-script-policy",
+  "bp_entry": "BP-PLATFORM-04",
+  "title": "Set a tenant's script policy: the platform kill switch and the solo-audit flag on the fixture tenant, answers carry the platform-owned fields only",
+  "description": "The platform administrator resets the fixture's platform kill switch to off, reads the policy (only the platform-owned and the tenant latch fields, never a reason or a user id of the tenant's administrator), switches the platform kill switch on (the effective kill switch is on and the tenant latch is untouched), repeats it (a no-op), is refused a non-boolean value and an empty reason (422 invalid_state, invalid_reason), allows and withdraws the solo-audit flag, and is refused on an unknown slug (404). A company administrator may neither read nor set the policy. The cleanup puts the kill switch off and the solo flag to not allowed. The two PUT routes need an interactive sign-in: the password-grant token of the platform administrator is accepted on QA (scripts/uat/README.md section 6); a call with an API token answers 403 api_token_not_allowed (covered by test/letflow/routers/tenants_script_policy_test.exs, the runner has no API-token actor). The platform fixture tenant uat-tmp-fixture (looked up, or created with --allow-create, by the first four steps f1..f4 of this file) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the fixture tenant by its fixed slug (404 is an answer, not a failure).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_slug": "uat-tmp-fixture",
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "platform-admin",
+      "says": "Create it only when absent (the run must be started with --allow-create; without the flag the step is skipped with that reason).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-fixture",
+          "display_name": "UAT platform fixture (never purged)"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_created": "yes"
+      },
+      "skip_if": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "f3",
+      "actor": "platform-admin",
+      "says": "Wait until the tenant exists (the registration process creates it in the background).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_id": "$.id"
+      },
+      "poll": {
+        "within_s": 90,
+        "interval_s": 3
+      },
+      "requires": [
+        "fixture_created"
+      ]
+    },
+    {
+      "id": "f4",
+      "actor": "platform-admin",
+      "says": "Known state: active. Reactivating an active tenant is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "Reset: the platform kill switch is set off.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": false,
+          "reason": "UAT reset ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "Read the policy: platform-owned parts only, no reason or user of the tenant administrator.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": false,
+          "$.tenant.on": false,
+          "$.solo_audited.allowed": {
+            "exists": true
+          },
+          "$.tenant.reason": {
+            "absent": true
+          },
+          "$.tenant.user_id": {
+            "absent": true
+          },
+          "$.platform.user_id": {
+            "absent": true
+          }
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "Switch the platform kill switch on: the effective kill switch is on, the reason is kept, the tenant latch is untouched.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": true,
+          "reason": "UAT kill switch ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": true,
+          "$.kill_switch_on": true,
+          "$.platform.reason": "UAT kill switch ${run_id}",
+          "$.tenant.on": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "The read shows the switch on.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": true,
+          "$.kill_switch_on": true
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "The same switch-on again is a no-op: 200, still on.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": true,
+          "reason": "UAT kill switch ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": true
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "A value that is not a boolean is refused: 422 invalid_state, nothing written.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": "yes",
+          "reason": "UAT bad value ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.detail": "invalid_state"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "An empty reason is refused: 422 invalid_reason, nothing written.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": false,
+          "reason": " "
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.detail": "invalid_reason"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "The refusals changed nothing: the switch is still on.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": true
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s9",
+      "actor": "platform-admin",
+      "says": "Allow the solo-audit mode for the tenant: 200, allowed true.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/solo-audited",
+        "body": {
+          "allowed": true,
+          "reason": "UAT solo audit ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.solo_audited.allowed": true
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s10",
+      "actor": "platform-admin",
+      "says": "A value that is not a boolean is refused: 422 invalid_state.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/solo-audited",
+        "body": {
+          "allowed": "yes",
+          "reason": "UAT bad value ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.detail": "invalid_state"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s11",
+      "actor": "platform-admin",
+      "says": "An unknown slug: 404 on the read.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/script-policy"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "says": "An unknown slug: 404 on the kill switch.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-no-such-tenant/script-policy/kill-switch",
+        "body": {
+          "on": false,
+          "reason": "UAT unknown ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "says": "A company administrator may not read the platform policy of the fixture (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "says": "A company administrator may not flip the platform kill switch (403 or the uniform 404).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": true,
+          "reason": "UAT refused ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "says": "A company administrator may not allow the solo-audit mode (403 or the uniform 404).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/solo-audited",
+        "body": {
+          "allowed": true,
+          "reason": "UAT refused ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "platform-admin",
+      "says": "Cleanup: the platform kill switch off.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/kill-switch",
+        "body": {
+          "on": false,
+          "reason": "UAT cleanup ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.platform.on": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "platform-admin",
+      "says": "Cleanup: the solo-audit flag withdrawn.",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/script-policy/solo-audited",
+        "body": {
+          "allowed": false,
+          "reason": "UAT cleanup ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.solo_audited.allowed": false
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ]
+}

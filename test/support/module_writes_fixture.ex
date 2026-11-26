@@ -23,6 +23,7 @@ defmodule Letflow.ModuleWritesFixture do
   alias Letflow.Modules.TenantModule
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Modules.Installs
+  alias Letflow.OutboundDestinations
   alias Letflow.Repo
   alias Letflow.TenantProvisioning.ColumnPromotion
 
@@ -52,7 +53,12 @@ defmodule Letflow.ModuleWritesFixture do
   @spec graph([map()], [map()] | nil) :: map()
   def graph(module_lines, entity_lines \\ nil) do
     attributes =
-      %{"role" => "REVIEWER", "module_writes" => module_lines}
+      %{
+        "role" => "REVIEWER",
+        "module_writes" => module_lines,
+        # T-2430: the person supplies `label` (the var `line/0` reads) when completing `ht`.
+        "completer_inputs" => ["label"]
+      }
       |> then(fn attrs ->
         if entity_lines, do: Map.put(attrs, "entity_writes", entity_lines), else: attrs
       end)
@@ -73,6 +79,8 @@ defmodule Letflow.ModuleWritesFixture do
   @doc "Installs the `fixture_ledger` module in `schema`."
   @spec install_ledger!(String.t()) :: struct()
   def install_ledger!(schema) do
+    allow_module_host!(schema)
+
     {:ok, tenant_module} =
       Installs.install("fixture_ledger", Ecto.UUID.generate(),
         prefix: schema,
@@ -80,6 +88,21 @@ defmodule Letflow.ModuleWritesFixture do
       )
 
     tenant_module
+  end
+
+  # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST. The packs of
+  # these two fixture modules ship definitions with an inline HTTP step, and a
+  # definition that reaches outside is refused at the activation while the
+  # door is closed -- so the door is opened for the tenant that installs the
+  # module, before the install. The host is a fake one the tests never call;
+  # the list is the guardrail's own (the refusal is proved in
+  # `test/letflow/outbound_destination_allow_list_test.exs`).
+  @spec allow_module_host!(String.t()) :: :ok
+  def allow_module_host!(schema) do
+    {:ok, _channel} = OutboundDestinations.add(schema, nil, "http", nil)
+    {:ok, _destination} = OutboundDestinations.add(schema, nil, "http", "example.test")
+
+    :ok
   end
 
   @doc """
@@ -157,6 +180,8 @@ defmodule Letflow.ModuleWritesFixture do
   def rogue_case!(slug_prefix, handler) do
     base = tenant_with_cleanup!(slug_prefix)
 
+    allow_module_host!(base.schema)
+
     {:ok, _tenant_module} =
       Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),
         prefix: base.schema,
@@ -201,6 +226,8 @@ defmodule Letflow.ModuleWritesFixture do
   def rogue_service_case!(slug_prefix, handler) do
     base = tenant_with_cleanup!(slug_prefix)
 
+    allow_module_host!(base.schema)
+
     {:ok, _tenant_module} =
       Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),
         prefix: base.schema,
@@ -221,7 +248,7 @@ defmodule Letflow.ModuleWritesFixture do
   def subprocess_service_case!(slug_prefix) do
     base = tenant!(slug_prefix)
     schema = base.schema
-    _child_def = activate_installed!(schema, base.user, "fxl_svc_child")
+    child_def = activate_installed!(schema, base.user, "fxl_svc_child")
 
     parent_graph = %{
       "nodes" => [
@@ -251,6 +278,25 @@ defmodule Letflow.ModuleWritesFixture do
         },
         prefix: schema
       )
+
+    # T-2444: a module-writes child starts only under a parent of the SAME module. The owner stamp
+    # is immutable (trigger), so it is copied in with the user triggers off, as `CrossPostFixture` does.
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" DISABLE TRIGGER USER))
+
+    from(d in ProcessDefinition, where: d.id == ^parent_row.id)
+    |> Repo.update_all(
+      [
+        set: [
+          owner_module: child_def.owner_module,
+          owner_module_version: child_def.owner_module_version,
+          owner_manifest_hash: child_def.owner_manifest_hash,
+          owner_body_hash: child_def.owner_body_hash
+        ]
+      ],
+      prefix: schema
+    )
+
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" ENABLE TRIGGER USER))
 
     {:ok, %{definition: parent}} = Definitions.activate(parent_row.id, prefix: schema)
 

@@ -1,0 +1,45 @@
+{
+  "id": "SEC-ASSETS-01",
+  "bp_entry": "BP-ASSETS-15",
+  "title": "Assets approval permission is refused to the storekeeper",
+  "description": "SECURITY. The storekeeper may hold AssetsRead and AssetsPost through the tenant grant, but never AssetsApprove. The read-only approval-access probe therefore refuses the storekeeper with 403 and answers the tenant administrator with can_approve true. The ExUnit route test assets_approve_tasks_test.exs proves the same permission guard on every real packed post, reverse and approve task. These runner steps write nothing, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/assets/approval-access"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/assets/approval-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "can_approve": true
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

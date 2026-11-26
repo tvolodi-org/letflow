@@ -44,6 +44,26 @@ defmodule Letflow.Routers.Instances do
   explicit-`null` key through, so an explicit JSON `null` and an absent key
   are indistinguishable to `Engine.create/2`'s own XOR check either way.
 
+  ## `POST /instances` — module-only definitions (T-2444)
+
+  A definition any node of which carries `module_writes` (the stock, assets and maintenance write
+  definitions) is not startable here: the route answers the 404 of an unknown definition, by id and by
+  name, and starts nothing. Their write targets are read from the start variables, so a caller who chose
+  the variables chose what the handler posts (and could post a four-eyes document alone). The module's
+  own code starts them (`Engine.create/2` with `module_start: true`, never set from this route's body).
+  A tenant-made parent whose SUB_PROCESS node names one gets the same 404, and no parent or child
+  instance is started (T-2515). See `Letflow.Engine.WriteTargets`.
+
+  ## `POST /instances` — a SUB_PROCESS child that cannot be started (G-13, T-2633)
+
+  A parent whose SUB_PROCESS node names a child definition that does not exist, or names none at
+  all, gets the same 404 a DIRECT start of that definition gets; a child definition that needs
+  reactivation gets the same 409. Before T-2633 only the module-only child of T-2515 was mapped
+  and every other cause answered the detail-free 500 — a caller's own mistake answered as a
+  server fault (INV-8). The security probe that keeps this honest is
+  `test/letflow/security_probe/g13_route_no_5xx_test.exs`; the class table is
+  `docs/security-probes/G-13.md`.
+
   ## `POST /instances` — `scope_node_id` (REQ-531, decision 0051 T13)
 
   The optional body field `scope_node_id` names the scope node the instance is started under (set once,
@@ -362,6 +382,7 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Idempotency
   alias Letflow.Instances
+  alias Letflow.PlatformProcesses.RegistrationMask
   alias Letflow.PlatformTenant
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.Attachment
@@ -611,7 +632,24 @@ defmodule Letflow.Routers.Instances do
   ]
 
   defp handle_create(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2): the caller's auth_context reaches the ONE start function,
+    # which checks the definition's start permission (the catalogue permission of a
+    # `platform_call` step). A caller without it gets the answer for an unknown
+    # definition (INV-5).
+    #
+    # T-2591: the context carries the tenant's GRANT OVERLAY as well, so the start
+    # permission is decided with the SAME facts the route's own authorization read
+    # (`conn.assigns.role_overlay`, resolved by `Letflow.Plugs.Authorize`): a caller
+    # who holds the declared permission through a grant is not refused a start the
+    # route allowed.
+    auth_context =
+      Map.put(
+        conn.assigns.auth_context,
+        :role_overlay,
+        Map.get(conn.assigns, :role_overlay, %{})
+      )
+
+    opts = Keyword.put(conn.assigns.scoped_opts, :auth_context, auth_context)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
@@ -706,6 +744,30 @@ defmodule Letflow.Routers.Instances do
     do: Response.send_problem(conn, Error.idempotency_key_reuse())
 
   defp render_create(conn, {:error, :definition_not_found}), do: Response.not_found(conn)
+
+  # T-2515 + G-13 (T-2633, security probe): a parent whose SUB_PROCESS node names a child
+  # definition that cannot be started gets the SAME refusal a DIRECT start of that definition
+  # gets -- the 404 of an unknown definition (the module-only child of T-2515, a name that
+  # resolves to nothing, a node that names no definition at all). Before T-2633 only the
+  # module-only case was mapped; every other cause fell through to the catch-all below and
+  # answered the detail-free 500 -- a caller's own mistake answered as a server fault (INV-8).
+  defp render_create(
+         conn,
+         {:error,
+          {:activation_failed,
+           {:subprocess_interface_violation, {:definition_not_found, _reason}}}}
+       ),
+       do: Response.not_found(conn)
+
+  # G-13 (T-2633, security probe): a child definition that needs reactivation gets the same 409 a
+  # direct start of that definition gets, for the same reason as the row above.
+  defp render_create(
+         conn,
+         {:error,
+          {:activation_failed,
+           {:subprocess_interface_violation, {:definition_needs_reactivation, _name}}}}
+       ),
+       do: Response.definition_needs_reactivation(conn)
 
   defp render_create(conn, {:error, :definition_not_active}),
     do: Response.conflict(conn, "only an ACTIVE definition can be started")
@@ -836,7 +898,12 @@ defmodule Letflow.Routers.Instances do
       "instance_id" => result.instance_id,
       "status" => status_string(state.status),
       "tokens" => Enum.map(state.tokens, &token_map/1),
-      "variables" => Response.public_variables(state.variables, state.variable_labels, hidden)
+      "variables" =>
+        Response.public_variables(
+          state.variables,
+          RegistrationMask.put_labels(state.variable_labels, conn.assigns.scoped_opts[:prefix]),
+          hidden
+        )
     })
   end
 
@@ -955,7 +1022,7 @@ defmodule Letflow.Routers.Instances do
         else: HiddenLabels.load_hidden_labels(auth_context.user_id, prefix)
 
     case loaded do
-      {:ok, hidden} -> fun.(hidden)
+      {:ok, hidden} -> fun.(RegistrationMask.hide(hidden, auth_context, prefix))
       {:error, _reason} -> Response.internal_error(conn)
     end
   end
@@ -1001,7 +1068,7 @@ defmodule Letflow.Routers.Instances do
   end
 
   defp render_get_by_id(conn, {:ok, projection}, hidden),
-    do: Response.ok(conn, instance_map(projection, hidden))
+    do: Response.ok(conn, instance_map(projection, hidden, conn.assigns.scoped_opts[:prefix]))
 
   defp render_get_by_id(conn, result, _hidden), do: render_get_by_id(conn, result)
 
@@ -1010,7 +1077,7 @@ defmodule Letflow.Routers.Instances do
   defp render_get_by_id(conn, {:error, :invalid_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
-  defp instance_map(projection, hidden) do
+  defp instance_map(projection, hidden, prefix) do
     %{
       "instance_id" => projection.instance_id,
       "definition_id" => projection.definition_id,
@@ -1018,7 +1085,11 @@ defmodule Letflow.Routers.Instances do
       "scope_node_id" => projection.scope_node_id,
       "status" => status_string(projection.status),
       "variables" =>
-        Response.public_variables(projection.variables, projection.variable_labels, hidden),
+        Response.public_variables(
+          projection.variables,
+          RegistrationMask.put_labels(projection.variable_labels, prefix),
+          hidden
+        ),
       "started_at" => DateTime.to_iso8601(projection.started_at),
       "completed_at" => optional_iso8601(projection.completed_at),
       "cancelled_at" => optional_iso8601(projection.cancelled_at),
@@ -1110,7 +1181,11 @@ defmodule Letflow.Routers.Instances do
                 {%{}, %{}}
             end
 
-          render_page_result(result, conn, &history_item_map(&1, names, labels, hidden))
+          render_page_result(
+            result,
+            conn,
+            &history_item_map(&1, names, labels, hidden, opts[:prefix])
+          )
         end)
       end)
     else
@@ -1130,7 +1205,7 @@ defmodule Letflow.Routers.Instances do
 
   # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/3`, never
   # emitted verbatim, so engine-written `_sys` values and record ids cannot reach a client.
-  defp history_item_map(event, display_names, labels, hidden) do
+  defp history_item_map(event, display_names, labels, hidden, prefix) do
     %{
       "event_id" => event.event_id,
       "actor_id" => event.actor_id,
@@ -1139,7 +1214,12 @@ defmodule Letflow.Routers.Instances do
       "event_type" => event.event_type,
       "sequence_number" => event.sequence_number,
       "created_at" => DateTime.to_iso8601(event.created_at),
-      "payload" => Response.public_event_payload(event.event_type, event.payload, hidden)
+      "payload" =>
+        Response.public_event_payload(
+          event.event_type,
+          RegistrationMask.put_payload_labels(event.payload, prefix),
+          hidden
+        )
     }
   end
 
@@ -1157,7 +1237,8 @@ defmodule Letflow.Routers.Instances do
 
       # T-1693: same participation rule as history and get (GH #2932, INV-2/INV-5).
       with_participation(conn, id, opts, fn ->
-        Instances.timeline(id, params, opts) |> render_page_result(conn, &timeline_item_map/1)
+        Instances.timeline(id, params, opts)
+        |> render_timeline_result(conn, &timeline_item_map/1)
       end)
     else
       {:error, :invalid_instance_id} ->
@@ -1185,6 +1266,46 @@ defmodule Letflow.Routers.Instances do
       "description" => item.description
     }
   end
+
+  # ── the STEP LOG of the instance (pilot gap G6) ───────────────────────────
+
+  # One row per node visit: who ran it, when it started and ended, how it
+  # ended, how long it took, how many attempts and the failure kind of the
+  # last attempt. The row names the node and the function and NOTHING ELSE:
+  # no input, no output, no body, no URL (INV-4).
+  defp step_item_map(step) do
+    %{
+      "node_id" => step.node_id,
+      "node_type" => step.node_type,
+      "step" => step.step,
+      "actor_id" => step.actor_id,
+      "actor_display_name" => step.actor_display_name,
+      "started_at" => DateTime.to_iso8601(step.started_at),
+      "ended_at" => step.ended_at && DateTime.to_iso8601(step.ended_at),
+      "duration_ms" => step.duration_ms,
+      "result" => step.result,
+      "attempts" => step.attempts,
+      "last_failure_kind" => step.last_failure_kind
+    }
+  end
+
+  # The timeline answer carries the step log next to the event page. Every
+  # error answer is the shared one (a missing instance, a bad cursor, ...).
+  defp render_timeline_result(
+         {:ok, %{items: items, next_cursor: next_cursor, steps: steps}},
+         conn,
+         item_fn
+       ) do
+    Response.ok(conn, %{
+      "items" => Enum.map(items, item_fn),
+      "steps" => Enum.map(steps, &step_item_map/1),
+      "next_cursor" => next_cursor,
+      "count" => length(items)
+    })
+  end
+
+  defp render_timeline_result({:error, _reason} = error, conn, item_fn),
+    do: render_page_result(error, conn, item_fn)
 
   # ── Shared page-result rendering (list/history/timeline) ────────────────
 

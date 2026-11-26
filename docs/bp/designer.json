@@ -1,0 +1,2243 @@
+[
+  {
+    "id": "BP-DESIGNER-01",
+    "area": "designer",
+    "title": "Draft, check and change a process definition",
+    "description": "A process designer writes a new process (a graph of start, task and end nodes) as a draft, checks it, changes it and finds it again. Only a draft can be changed; a draft that is not wanted is deleted.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "DefinitionsWrite"
+      },
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "DefinitionsRead"
+      }
+    ],
+    "preconditions": [
+      "the tenant has the designer role holder",
+      "a unique process name and version"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "definitions",
+          "definitions/new"
+        ],
+        "functions": [],
+        "route": [],
+        "code_refs": [
+          "web/src/router.tsx:130",
+          "web/src/router.tsx:131"
+        ],
+        "result": "the editor opens an empty draft"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/definitions",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:256"
+        ],
+        "result": "a draft with a name, version and graph (201, status draft)"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/definitions/:id/validate",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:333"
+        ],
+        "result": "the graph is checked without saving; findings are listed (200 valid, 422 findings)"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "definitions/:id"
+        ],
+        "functions": [],
+        "route": [
+          "PUT /api/v1/definitions/:id",
+          "PATCH /api/v1/definitions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:284",
+          "lib/letflow/routers/definitions.ex:288",
+          "web/src/router.tsx:132"
+        ],
+        "result": "the draft is replaced (PUT) or partly changed (PATCH); a non-draft is refused with 409"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "definitions"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/definitions",
+          "GET /api/v1/definitions/search",
+          "GET /api/v1/definitions/delta",
+          "GET /api/v1/definitions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:322",
+          "lib/letflow/routers/definitions.ex:302",
+          "lib/letflow/routers/definitions.ex:310",
+          "lib/letflow/routers/definitions.ex:318",
+          "web/src/router.tsx:130"
+        ],
+        "result": "the draft is found in the list, by search, by delta and by id"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/definitions/:id",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:292"
+        ],
+        "result": "a draft is deleted for good (204); only a draft can be hard-deleted"
+      }
+    ],
+    "inputs": [
+      "name",
+      "version",
+      "graph"
+    ],
+    "outputs": [
+      "definition_id"
+    ],
+    "refusals": [
+      "a role without DefinitionsWrite gets 403",
+      "a change to a non-draft gets 409",
+      "an unknown or other-tenant id gets the same 404"
+    ],
+    "scenario": "test/uat/processes/BP-DESIGNER-01.json",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-02",
+    "area": "designer",
+    "title": "Activate, retire and archive a process definition",
+    "description": "A designer or administrator turns a draft into the active version. Activation checks the graph, the scripts it binds and the services it calls and records who activated it. An active version can be re-activated when its activator lost authority, deprecated, and archived; delete on an active one deprecates then archives. No runner scenario covers this process directly: BP-DESIGNER-01 only exercises activation and the deprecate-then-archive that its cleanup DELETE performs.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "DefinitionsWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DefinitionsWrite"
+      }
+    ],
+    "preconditions": [
+      "a draft that passes validation"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "definitions/:id"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/definitions/:id/activate",
+          "GET /api/v1/definitions/active/:name"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:266",
+          "lib/letflow/routers/definitions.ex:298",
+          "web/src/router.tsx:132"
+        ],
+        "result": "the draft becomes ACTIVE; an already ACTIVE version answers 200 unchanged, a deprecated or archived one 409; a bad graph or an unusable service 422"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/definitions/:id/reactivate",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:272"
+        ],
+        "result": "an active version flagged needs_reactivation is re-activated in place; the caller becomes the signed activator"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/definitions/:id/deprecate",
+          "POST /api/v1/definitions/:id/archive"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:276",
+          "lib/letflow/routers/definitions.ex:280"
+        ],
+        "result": "the version is deprecated (new instances refused, running ones continue) and then archived"
+      }
+    ],
+    "inputs": [
+      "definition_id"
+    ],
+    "outputs": [
+      "active_definition_id"
+    ],
+    "refusals": [
+      "a role without DefinitionsWrite gets 403",
+      "activating an already ACTIVE version is idempotent (200, nothing changes); activating a deprecated or archived one gets 409",
+      "a module-owned version cannot be changed (409)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-03",
+    "area": "designer",
+    "title": "Export, import and roll back a process definition",
+    "description": "A definition is exported as a file, imported into the same or another tenant as a new draft, and an administrator can roll the process back to an earlier version.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "DefinitionsWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DefinitionsRollback"
+      }
+    ],
+    "preconditions": [
+      "an exported definition file with a known bpm_export_schema_version"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "definitions/:id"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/definitions/:id/export",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:314",
+          "web/src/router.tsx:132"
+        ],
+        "result": "the export file of one definition"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/definitions/import",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:252"
+        ],
+        "result": "the file becomes a new draft; an unknown schema version gets 422"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "definitions/:id/rollback"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/definitions/:process_key/rollback",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:344",
+          "web/src/router.tsx:134"
+        ],
+        "result": "the process key points again at an earlier version"
+      }
+    ],
+    "inputs": [
+      "definition_id",
+      "export file"
+    ],
+    "outputs": [
+      "new draft id"
+    ],
+    "refusals": [
+      "rollback needs DefinitionsRollback (administrator only): 403 for the designer"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-04",
+    "area": "designer",
+    "title": "Promote a definition from one tenant to another with review",
+    "description": "An administrator plans a promotion of definitions from a source tenant, a second look (review) approves or rejects it, assertions run, and an approved promotion is applied. The auditor may read.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "PromotionsManage"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "PromotionsRead"
+      }
+    ],
+    "preconditions": [
+      "the administrator owns the source tenant (stored-tenant check, decision 0046 D3)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "promotions"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/promotions/plan",
+          "POST /api/v1/promotions"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/promotions.ex:224",
+          "lib/letflow/routers/promotions.ex:220",
+          "web/src/router.tsx:138"
+        ],
+        "result": "a promotion plan and a promotion record"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "definitions/:id/promotions/:reviewId"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/promotions/:id/context",
+          "POST /api/v1/promotions/:review_id/run-assertions",
+          "POST /api/v1/promotions/:id/approve",
+          "POST /api/v1/promotions/:id/reject"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/promotions.ex:239",
+          "lib/letflow/routers/promotions.ex:255",
+          "lib/letflow/routers/promotions.ex:243",
+          "lib/letflow/routers/promotions.ex:247",
+          "web/src/router.tsx:133"
+        ],
+        "result": "the context, assertions, approval or rejection"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/promotions/:id/apply",
+        "code_refs": [
+          "lib/letflow/routers/promotions.ex:251"
+        ],
+        "result": "an approved promotion is applied to the target"
+      },
+      {
+        "actor": "TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/promotions",
+          "GET /api/v1/promotions/:id",
+          "GET /api/v1/promotions/platform-events"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/promotions.ex:264",
+          "lib/letflow/routers/promotions.ex:235",
+          "lib/letflow/routers/promotions.ex:231"
+        ],
+        "result": "the list, one promotion and the platform events are read only"
+      }
+    ],
+    "inputs": [
+      "source tenant",
+      "definitions"
+    ],
+    "outputs": [
+      "promotion id"
+    ],
+    "refusals": [
+      "a non-administrator gets 403 on every write",
+      "a foreign tenant's promotion id gets 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-05",
+    "area": "designer",
+    "title": "Install, update and override a solution pack",
+    "description": "A pack of definitions, entity types and forms is exported, installed, reviewed for an update (what changes, conflicts with the tenant's own overrides) and applied; an administrator keeps tenant overrides of pack parts as versions that are activated or retired.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DefinitionsWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "SolutionOverridesManage"
+      }
+    ],
+    "preconditions": [
+      "a pack file"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "solution-packs"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/solution-packs/export",
+          "POST /api/v1/solution-packs/install"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/solution_packs.ex:196",
+          "lib/letflow/routers/solution_packs.ex:200",
+          "web/src/router.tsx:181"
+        ],
+        "result": "a pack is exported and installed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "solution-packs/:packId/update-review"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/solution-packs/:pack_id/update-review",
+          "POST /api/v1/solution-packs/:pack_id/update-apply"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/solution_packs.ex:213",
+          "lib/letflow/routers/solution_packs.ex:217",
+          "web/src/router.tsx:182"
+        ],
+        "result": "the update plan is read and applied; an override conflict also needs SolutionOverridesManage"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "solution-packs/:packId/overrides"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/solution-packs/:pack_id/overrides",
+          "POST /api/v1/solution-packs/:pack_id/overrides",
+          "POST /api/v1/solution-packs/:pack_id/overrides/:override_id/versions",
+          "POST /api/v1/solution-packs/:pack_id/overrides/:override_id/activate",
+          "POST /api/v1/solution-packs/:pack_id/overrides/:override_id/retire"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/solution_packs.ex:224",
+          "lib/letflow/routers/solution_packs.ex:228",
+          "lib/letflow/routers/solution_packs.ex:232",
+          "lib/letflow/routers/solution_packs.ex:241",
+          "lib/letflow/routers/solution_packs.ex:236",
+          "web/src/router.tsx:185"
+        ],
+        "result": "tenant overrides are listed, created, versioned, activated and retired"
+      }
+    ],
+    "inputs": [
+      "pack_id"
+    ],
+    "outputs": [
+      "install result"
+    ],
+    "refusals": [
+      "an override write without SolutionOverridesManage gets 403",
+      "a module-owned pack part cannot be changed"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-06",
+    "area": "designer",
+    "title": "Define an entity type (a record kind) and activate it",
+    "description": "A designer defines a record type with named, typed fields, activates it with a rationale, and reads definitions. An administrator may add tenant `x_` fields to a module-owned type and retire them.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "EntitiesDefinitionsWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesExtensionsManage"
+      }
+    ],
+    "preconditions": [
+      "the type name is not a module-managed one"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/definitions",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:323"
+        ],
+        "result": "a draft entity definition (201); a managed type name is refused"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/definitions/:name/activate",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:319"
+        ],
+        "result": "the definition is activated with a rationale"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/entities/definitions",
+          "GET /api/v1/entities/definitions/:id",
+          "GET /api/v1/entities/definitions/by-name/:name",
+          "GET /api/v1/entities/definitions/active/:name"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:346",
+          "lib/letflow/routers/entities.ex:342",
+          "lib/letflow/routers/entities.ex:338",
+          "lib/letflow/routers/entities.ex:334"
+        ],
+        "result": "definitions are read by id, by name, the active one and the list"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/entity-type-extensions",
+          "GET /api/v1/entity-type-extensions",
+          "DELETE /api/v1/entity-type-extensions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entity_type_extensions.ex:32",
+          "lib/letflow/routers/entity_type_extensions.ex:41",
+          "lib/letflow/routers/entity_type_extensions.ex:54"
+        ],
+        "result": "x_ extension fields are added, listed and retired on a module-owned type"
+      }
+    ],
+    "inputs": [
+      "name",
+      "fields"
+    ],
+    "outputs": [
+      "entity type"
+    ],
+    "refusals": [
+      "a type hidden from the caller gets 403 identical to an absent one",
+      "extensions: administrator only"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-07",
+    "area": "designer",
+    "title": "Create, change, find and attach to records",
+    "description": "A user with record write creates, updates and deletes records of an active type; reads them through the query and aggregate routes, the list screen and reports; attaches files and reads the history of a record.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsWrite"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "EntitiesQuery"
+      }
+    ],
+    "preconditions": [
+      "an active entity type"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/entities/records/:entity_type",
+          "PUT /api/v1/entities/records/:entity_type/:record_id",
+          "DELETE /api/v1/entities/records/:entity_type/:record_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:360",
+          "lib/letflow/routers/entities.ex:366",
+          "lib/letflow/routers/entities.ex:372"
+        ],
+        "result": "a record is created, updated, deleted"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "entities/:entityType"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/entities/query",
+          "POST /api/v1/entities/query/aggregate"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:420",
+          "lib/letflow/routers/entities.ex:433",
+          "web/src/router.tsx:196"
+        ],
+        "result": "records are queried and aggregated (restricted fields hidden)"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "reports",
+          "entities/:entityType/reports"
+        ],
+        "functions": [],
+        "route": [],
+        "code_refs": [
+          "web/src/router.tsx:199",
+          "web/src/router.tsx:208"
+        ],
+        "result": "reports are built over the entity type"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/entities/records/:entity_type/:record_id/attachments",
+          "GET /api/v1/entities/records/:entity_type/:record_id/attachments",
+          "GET /api/v1/entities/records/:entity_type/:record_id/attachments/:attachment_id",
+          "DELETE /api/v1/entities/records/:entity_type/:record_id/attachments/:attachment_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:447",
+          "lib/letflow/routers/entities.ex:457",
+          "lib/letflow/routers/entities.ex:467",
+          "lib/letflow/routers/entities.ex:490"
+        ],
+        "result": "files are attached, listed, read and removed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/entities/records/:entity_type/:record_id/history",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:480"
+        ],
+        "result": "the change history of one record"
+      }
+    ],
+    "inputs": [
+      "entity_type",
+      "field values"
+    ],
+    "outputs": [
+      "record_id"
+    ],
+    "refusals": [
+      "a role without record write gets 403",
+      "a record outside the caller's scope or another tenant: 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-08",
+    "area": "designer",
+    "title": "Import and export records, import field restrictions",
+    "description": "An administrator exports records of a type to a file (redacted unless unredacted export is allowed), imports records from a file (the storekeeper only opening lines) and loads field restrictions.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsExport"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRestrictionsManage"
+      }
+    ],
+    "preconditions": [
+      "a file in the import format"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/records/:entity_type/export",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:515"
+        ],
+        "result": "an export file of a record type"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/records/:entity_type/import",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:387"
+        ],
+        "result": "records are imported atomically from a file"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/restrictions/import",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:404"
+        ],
+        "result": "field restrictions are loaded"
+      }
+    ],
+    "inputs": [
+      "entity_type",
+      "file"
+    ],
+    "outputs": [
+      "import result"
+    ],
+    "refusals": [
+      "import of another type than opening lines without EntitiesRecordsImportAnyType: 403",
+      "a malformed file: nothing is written"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-09",
+    "area": "designer",
+    "title": "Save and share a list view of records",
+    "description": "A user opens saved views of a record type; an administrator creates, changes and deletes them.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesViewsManage"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "EntitiesQuery"
+      }
+    ],
+    "preconditions": [
+      "an active entity type"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [
+          "entities/:entityType"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/entity-views",
+          "GET /api/v1/entity-views/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entity_views.ex:41",
+          "lib/letflow/routers/entity_views.ex:45",
+          "web/src/router.tsx:196"
+        ],
+        "result": "views are listed and opened"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/entity-views",
+          "PUT /api/v1/entity-views/:id",
+          "DELETE /api/v1/entity-views/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entity_views.ex:49",
+          "lib/letflow/routers/entity_views.ex:53",
+          "lib/letflow/routers/entity_views.ex:63"
+        ],
+        "result": "a view is created, changed, deleted"
+      }
+    ],
+    "inputs": [
+      "entity_type",
+      "columns, filters"
+    ],
+    "outputs": [
+      "view id"
+    ],
+    "refusals": [
+      "a role without EntitiesViewsManage gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-10",
+    "area": "designer",
+    "title": "Derive field values before a record is saved (entity type hook)",
+    "description": "A script administrator binds a published script to an entity type to derive values before a record is written, tries it on sample input (dry run) and removes it. The script runs in a sandbox with a read fingerprint.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "ScriptsWrite"
+      }
+    ],
+    "preconditions": [
+      "a published entity_write script"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/entity-type-hooks",
+        "code_refs": [
+          "lib/letflow/routers/entity_type_hooks.ex:38"
+        ],
+        "result": "the bindings are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.EntityWrite"
+        ],
+        "route": [
+          "PUT /api/v1/entity-type-hooks/:entity_type",
+          "DELETE /api/v1/entity-type-hooks/:entity_type"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/entity_type_hooks.ex:43",
+          "lib/letflow/routers/entity_type_hooks.ex:56",
+          "lib/letflow/scripts/entity_write.ex:1"
+        ],
+        "result": "a script is bound to a type and removed"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entity-type-hooks/:entity_type/dry-run",
+        "code_refs": [
+          "lib/letflow/routers/entity_type_hooks.ex:63"
+        ],
+        "result": "a dry run on sample input"
+      }
+    ],
+    "inputs": [
+      "entity_type",
+      "script key"
+    ],
+    "outputs": [
+      "binding"
+    ],
+    "refusals": [
+      "binding needs ScriptsPublish: the designer gets 403",
+      "a script failure fails the record write closed"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-11",
+    "area": "designer",
+    "title": "Run a script after a record event (record trigger)",
+    "description": "An administrator binds a published script to the event of an entity type (created, updated...) so that the engine runs it when the event happens.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "ScriptsWrite"
+      }
+    ],
+    "preconditions": [
+      "a published script"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/record-trigger-bindings",
+        "code_refs": [
+          "lib/letflow/routers/record_trigger_bindings.ex:42"
+        ],
+        "result": "the bindings are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "PUT /api/v1/record-trigger-bindings/:entity_type/:event",
+          "DELETE /api/v1/record-trigger-bindings/:entity_type/:event"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/record_trigger_bindings.ex:47",
+          "lib/letflow/routers/record_trigger_bindings.ex:60"
+        ],
+        "result": "a binding is set or removed"
+      }
+    ],
+    "inputs": [
+      "entity_type",
+      "event",
+      "script key"
+    ],
+    "outputs": [
+      "binding"
+    ],
+    "refusals": [
+      "a role without ScriptsPublish gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-12",
+    "area": "designer",
+    "title": "Write, test, publish and withdraw a business rule script",
+    "description": "A designer writes a versioned script (rule), tests it with its stored test cases and a dry run; an administrator publishes it (the author does not confirm their own), retires or revokes it, and the audit of a version is read. Scripts run in a sandbox with a hash that binds the content, a tenant HMAC key, validation and a policy.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "ScriptsWrite"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      }
+    ],
+    "preconditions": [
+      "scripts not killed by the tenant kill switch"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/script-rules",
+          "GET /api/v1/script-rules/:key/versions/:version"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:62",
+          "lib/letflow/routers/script_rules.ex:66"
+        ],
+        "result": "scripts and versions are listed and read"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Validation",
+          "Letflow.Scripts.Hash",
+          "Letflow.Scripts.ScriptRule"
+        ],
+        "route": [
+          "POST /api/v1/script-rules/:key/versions",
+          "PUT /api/v1/script-rules/:key/versions/:version",
+          "DELETE /api/v1/script-rules/:key/versions/:version"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:90",
+          "lib/letflow/routers/script_rules.ex:97",
+          "lib/letflow/routers/script_rules.ex:111",
+          "lib/letflow/scripts/validation.ex:1",
+          "lib/letflow/scripts/hash.ex:1",
+          "lib/letflow/scripts/script_rule.ex:1"
+        ],
+        "result": "a draft version is created, changed, deleted"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Runtime",
+          "Letflow.Scripts.FormValidation"
+        ],
+        "route": [
+          "POST /api/v1/script-rules/:key/dry-run",
+          "POST /api/v1/script-rules/:key/form-validation-dry-run"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:175",
+          "lib/letflow/routers/script_rules.ex:193",
+          "lib/letflow/scripts/runtime.ex:1",
+          "lib/letflow/scripts/form_validation.ex:1"
+        ],
+        "result": "a dry run and a form-validation dry run on sample input"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.HmacSecret"
+        ],
+        "route": [
+          "POST /api/v1/script-rules/:key/versions/:version/publish",
+          "POST /api/v1/script-rules/:key/versions/:version/retire",
+          "POST /api/v1/script-rules/:key/versions/:version/revoke",
+          "POST /api/v1/script-rules/:key/versions/:version/confirm"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:118",
+          "lib/letflow/routers/script_rules.ex:133",
+          "lib/letflow/routers/script_rules.ex:147",
+          "lib/letflow/routers/script_rules.ex:161",
+          "lib/letflow/scripts/hmac_secret.ex:1"
+        ],
+        "result": "a version is published, retired, revoked, confirmed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/script-rules/:key/versions/:version/audit",
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:74"
+        ],
+        "result": "the audit of a version"
+      }
+    ],
+    "inputs": [
+      "key",
+      "source",
+      "test cases"
+    ],
+    "outputs": [
+      "version"
+    ],
+    "refusals": [
+      "publishing needs ScriptsPublish: designer 403",
+      "the audit read needs AuditRead"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-13",
+    "area": "designer",
+    "title": "Set the tenant's script policy",
+    "description": "An administrator switches all scripts off (kill switch), turns separation of duties on or off for publishing, and flags which entity types scripts may read.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "ScriptsWrite"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/script-policy",
+          "GET /api/v1/script-policy/pending-review",
+          "GET /api/v1/script-policy/readable-masters"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_policy.ex:42",
+          "lib/letflow/routers/script_policy.ex:76",
+          "lib/letflow/routers/script_policy.ex:85"
+        ],
+        "result": "the policy, the scripts waiting for review and the readable types are read"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Policy",
+          "Letflow.Scripts.ScriptPolicy"
+        ],
+        "route": [
+          "PUT /api/v1/script-policy/kill-switch",
+          "PUT /api/v1/script-policy/sod"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_policy.ex:50",
+          "lib/letflow/routers/script_policy.ex:63",
+          "lib/letflow/scripts/policy.ex:1",
+          "lib/letflow/scripts/script_policy.ex:1"
+        ],
+        "result": "kill switch and separation of duties are set"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.ReadableMaster"
+        ],
+        "route": [
+          "PUT /api/v1/script-policy/readable-masters/:entity_type",
+          "POST /api/v1/script-policy/readable-masters/:entity_type/clear"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_policy.ex:90",
+          "lib/letflow/routers/script_policy.ex:103",
+          "lib/letflow/scripts/readable_master.ex:1"
+        ],
+        "result": "a type is made readable by scripts or cleared"
+      }
+    ],
+    "inputs": [
+      "entity_type"
+    ],
+    "outputs": [
+      "policy"
+    ],
+    "refusals": [
+      "a role without ScriptsPublish gets 403 on every write"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-14",
+    "area": "designer",
+    "title": "Start a process and follow it",
+    "description": "A user who may start processes starts an instance of an active definition; the board and the detail page show where it is (history, timeline, version pins). An operator cancels, rebuilds a broken instance from history, moves a timer on, or re-pins it to the newer active version.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "InstancesStart"
+      },
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "InstancesCancel"
+      },
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "InstancesAdvanceTimer"
+      }
+    ],
+    "preconditions": [
+      "an active definition"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/instances",
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:416"
+        ],
+        "result": "an instance starts (201); initial variables cannot overwrite engine-owned targets"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [
+          "instances",
+          "instances/:id"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/instances",
+          "GET /api/v1/instances/:id",
+          "GET /api/v1/instances/:id/history",
+          "GET /api/v1/instances/:id/timeline",
+          "GET /api/v1/instances/:id/pins"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:488",
+          "lib/letflow/routers/instances.ex:484",
+          "lib/letflow/routers/instances.ex:424",
+          "lib/letflow/routers/instances.ex:428",
+          "lib/letflow/routers/instances.ex:432",
+          "web/src/router.tsx:139",
+          "web/src/router.tsx:140"
+        ],
+        "result": "the board, detail, history, timeline and pins"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/instances/:id/cancel",
+          "POST /api/v1/instances/:id/reconstruct",
+          "POST /api/v1/instances/:id/rebind-pins",
+          "POST /api/v1/instances/:id/advance-timer"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:399",
+          "lib/letflow/routers/instances.ex:405",
+          "lib/letflow/routers/instances.ex:395",
+          "lib/letflow/routers/instances.ex:412"
+        ],
+        "result": "cancel, rebuild, re-pin, advance a timer"
+      }
+    ],
+    "inputs": [
+      "definition name"
+    ],
+    "outputs": [
+      "instance_id"
+    ],
+    "refusals": [
+      "a role without InstancesStart gets 403",
+      "a body field that targets an engine-owned variable is refused 422 output_refused"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-15",
+    "area": "designer",
+    "title": "Attach files to a running process instance",
+    "description": "A user attaches a file to an instance, lists and opens it, shares a time-limited link, removes it; storage use is shown.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "AttachmentsManage"
+      },
+      {
+        "role": "TASK_WORKER",
+        "permission": "AttachmentsRead"
+      }
+    ],
+    "preconditions": [
+      "a running instance"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/instances/:id/attachments",
+          "DELETE /api/v1/instances/:id/attachments/:attachment_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:439",
+          "lib/letflow/routers/instances.ex:451"
+        ],
+        "result": "a file is uploaded and removed"
+      },
+      {
+        "actor": "TASK_WORKER",
+        "forms": [
+          "instances/:id/attachments/:attachmentId"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/instances/:id/attachments",
+          "GET /api/v1/instances/:id/attachments/:attachment_id",
+          "GET /api/v1/instances/storage-usage"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:443",
+          "lib/letflow/routers/instances.ex:447",
+          "lib/letflow/routers/instances.ex:480",
+          "web/src/router.tsx:141"
+        ],
+        "result": "the list, one file, the viewer page and storage use"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/instances/:id/attachments/:attachment_id/link",
+          "GET /api/v1/instances/:id/attachments/:attachment_id/link-content"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:465",
+          "lib/letflow/routers/instances.ex:469"
+        ],
+        "result": "a link is issued and read"
+      }
+    ],
+    "inputs": [
+      "instance_id",
+      "file"
+    ],
+    "outputs": [
+      "attachment id"
+    ],
+    "refusals": [
+      "type and size limits refuse the upload",
+      "an expired link answers 410"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-16",
+    "area": "designer",
+    "title": "Work the task inbox",
+    "description": "A person sees the tasks addressed to them, their groups or roles (an operator or administrator sees all), claims and completes a task; an operator assigns or reassigns it.",
+    "actors": [
+      {
+        "role": "TASK_WORKER",
+        "permission": "TasksComplete"
+      },
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "TasksAssign"
+      }
+    ],
+    "preconditions": [
+      "a running instance with a task"
+    ],
+    "tasks": [
+      {
+        "actor": "TASK_WORKER",
+        "forms": [
+          "tasks"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/tasks/inbox",
+          "GET /api/v1/tasks",
+          "GET /api/v1/tasks/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:147",
+          "lib/letflow/routers/tasks.ex:151",
+          "lib/letflow/routers/tasks.ex:155",
+          "web/src/router.tsx:142"
+        ],
+        "result": "the inbox, the task list and one task"
+      },
+      {
+        "actor": "TASK_WORKER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:163",
+          "lib/letflow/routers/tasks.ex:159"
+        ],
+        "result": "a task is claimed and completed; the completion body cannot overwrite write targets"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tasks/:id/assign",
+          "POST /api/v1/tasks/:id/reassign"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:167",
+          "lib/letflow/routers/tasks.ex:171"
+        ],
+        "result": "a task is assigned or reassigned (a role-routed task needs the role or TasksReassignRouted)"
+      }
+    ],
+    "inputs": [
+      "task_id"
+    ],
+    "outputs": [
+      "completed task"
+    ],
+    "refusals": [
+      "a user outside the routing role/group gets 404 or 403",
+      "a completion body that sets an engine-owned variable is refused"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-17",
+    "area": "designer",
+    "title": "Retry or discard failed jobs (dead-letter queue)",
+    "description": "An operator reads the failed deliveries and retries or discards each.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "DlqOperate"
+      }
+    ],
+    "preconditions": [
+      "a failed job exists"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [
+          "dlq"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/dlq",
+          "GET /api/v1/dlq/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/dlq.ex:91",
+          "lib/letflow/routers/dlq.ex:95",
+          "web/src/router.tsx:193"
+        ],
+        "result": "the queue and one entry"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/dlq/:id/retry",
+          "POST /api/v1/dlq/:id/discard"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/dlq.ex:99",
+          "lib/letflow/routers/dlq.ex:103"
+        ],
+        "result": "retry or discard"
+      }
+    ],
+    "inputs": [
+      "dlq id"
+    ],
+    "outputs": [
+      "entry state"
+    ],
+    "refusals": [
+      "a role without DlqOperate gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-18",
+    "area": "designer",
+    "title": "Notify another system by webhook",
+    "description": "An operator subscribes a URL to events, reads the delivery log, changes and deletes the subscription. The URL is validated (no private or internal addresses) and the HMAC secret is shown once.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "WebhooksManage"
+      }
+    ],
+    "preconditions": [
+      "a public https endpoint"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [
+          "webhooks"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/webhooks/subscriptions",
+          "GET /api/v1/webhooks/subscriptions/:id/deliveries"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/webhooks.ex:127",
+          "lib/letflow/routers/webhooks.ex:143",
+          "web/src/router.tsx:194"
+        ],
+        "result": "the list and the delivery log"
+      },
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/webhooks/subscriptions",
+          "PATCH /api/v1/webhooks/subscriptions/:id",
+          "DELETE /api/v1/webhooks/subscriptions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/webhooks.ex:131",
+          "lib/letflow/routers/webhooks.ex:135",
+          "lib/letflow/routers/webhooks.ex:139"
+        ],
+        "result": "a subscription is created, changed, deleted"
+      }
+    ],
+    "inputs": [
+      "url",
+      "event types"
+    ],
+    "outputs": [
+      "subscription id"
+    ],
+    "refusals": [
+      "a role without WebhooksManage gets 403",
+      "an unsafe URL is refused",
+      "an outbound mapping needs IntegrationMappingsManage"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-19",
+    "area": "designer",
+    "title": "Map fields for an integration",
+    "description": "An administrator defines how external field names map to the tenant's field names.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "IntegrationMappingsManage"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/integration-mappings",
+          "GET /api/v1/integration-mappings",
+          "GET /api/v1/integration-mappings/:id",
+          "PUT /api/v1/integration-mappings/:id",
+          "DELETE /api/v1/integration-mappings/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/integration_mappings.ex:24",
+          "lib/letflow/routers/integration_mappings.ex:31",
+          "lib/letflow/routers/integration_mappings.ex:36",
+          "lib/letflow/routers/integration_mappings.ex:43",
+          "lib/letflow/routers/integration_mappings.ex:55"
+        ],
+        "result": "a mapping is created, listed, read, changed, deleted"
+      }
+    ],
+    "inputs": [
+      "mapping"
+    ],
+    "outputs": [
+      "mapping id"
+    ],
+    "refusals": [
+      "any other role gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-20",
+    "area": "designer",
+    "title": "Run a job on a schedule",
+    "description": "An administrator defines a scheduled job, switches it on or off, edits it and reads it.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScheduledJobsManage"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/scheduled-jobs",
+          "PATCH /api/v1/scheduled-jobs/:id",
+          "POST /api/v1/scheduled-jobs/:id/enable",
+          "POST /api/v1/scheduled-jobs/:id/disable",
+          "GET /api/v1/scheduled-jobs",
+          "GET /api/v1/scheduled-jobs/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/scheduled_jobs.ex:66",
+          "lib/letflow/routers/scheduled_jobs.ex:75",
+          "lib/letflow/routers/scheduled_jobs.ex:89",
+          "lib/letflow/routers/scheduled_jobs.ex:100",
+          "lib/letflow/routers/scheduled_jobs.ex:57",
+          "lib/letflow/routers/scheduled_jobs.ex:62"
+        ],
+        "result": "a job is created, edited, enabled, disabled, listed"
+      }
+    ],
+    "inputs": [
+      "schedule",
+      "job"
+    ],
+    "outputs": [
+      "job id"
+    ],
+    "refusals": [
+      "any other role gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-21",
+    "area": "designer",
+    "title": "Govern documents: retention, hold and print forms",
+    "description": "An administrator sets how long a kind of document is kept, puts a document on hold and releases it, keeps the tenant's own print layout (override) and the company's version of an official form.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DocumentsRetentionManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DocumentHold"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DocumentPrintTemplatesManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "OfficialFormTemplatesManage"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "PUT /api/v1/documents/types/:key/retention",
+          "POST /api/v1/documents/:document_id/hold",
+          "POST /api/v1/documents/:document_id/hold/release"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/documents.ex:68",
+          "lib/letflow/routers/documents.ex:72",
+          "lib/letflow/routers/documents.ex:77"
+        ],
+        "result": "retention of a document type and a hold on one document"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/documents/print-overrides",
+          "GET /api/v1/documents/print-overrides/:id",
+          "POST /api/v1/documents/print-overrides",
+          "POST /api/v1/documents/print-overrides/:id/activate",
+          "POST /api/v1/documents/print-overrides/:id/retire"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/documents.ex:82",
+          "lib/letflow/routers/documents.ex:86",
+          "lib/letflow/routers/documents.ex:90",
+          "lib/letflow/routers/documents.ex:94",
+          "lib/letflow/routers/documents.ex:99"
+        ],
+        "result": "print overrides: list, read, create, activate, retire"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/documents/official-form-templates",
+          "GET /api/v1/documents/official-form-templates/starter/:form",
+          "GET /api/v1/documents/official-form-templates/:id",
+          "GET /api/v1/documents/official-form-templates/:id/download",
+          "GET /api/v1/documents/official-form-templates/:id/preview",
+          "POST /api/v1/documents/official-form-templates",
+          "POST /api/v1/documents/official-form-templates/:id/activate",
+          "POST /api/v1/documents/official-form-templates/:id/retire",
+          "POST /api/v1/documents/official-form-templates/:id/rollback"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/documents.ex:103",
+          "lib/letflow/routers/documents.ex:108",
+          "lib/letflow/routers/documents.ex:113",
+          "lib/letflow/routers/documents.ex:117",
+          "lib/letflow/routers/documents.ex:122",
+          "lib/letflow/routers/documents.ex:127",
+          "lib/letflow/routers/documents.ex:131",
+          "lib/letflow/routers/documents.ex:136",
+          "lib/letflow/routers/documents.ex:141"
+        ],
+        "result": "company official-form templates: list, starter, read, download, preview, create, activate, retire, roll back"
+      }
+    ],
+    "inputs": [
+      "document type",
+      "template"
+    ],
+    "outputs": [
+      "template id"
+    ],
+    "refusals": [
+      "any other role gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-DESIGNER-22",
+    "area": "designer",
+    "title": "Share a record read-only with an outside person (public read)",
+    "description": "An administrator issues a handle for one record kind and id; the outside person opens the public address with the handle and sees a fixed projection. Any unknown, wrong, revoked or expired handle gives the same 404.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "PublicReadHandlesIssue"
+      }
+    ],
+    "preconditions": [
+      "a record kind registered for public read"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/public-read-handles",
+        "code_refs": [
+          "lib/letflow/routers/public_read_handles.ex:35"
+        ],
+        "result": "a handle is issued"
+      },
+      {
+        "actor": "anyone with the handle",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/public/:kind/:handle",
+        "code_refs": [
+          "lib/letflow/routers/public_read.ex:59"
+        ],
+        "result": "the public projection (no login; no store, no referrer, no index; rate limited)"
+      }
+    ],
+    "inputs": [
+      "kind",
+      "record id"
+    ],
+    "outputs": [
+      "handle"
+    ],
+    "refusals": [
+      "unknown kind or handle, revoked, expired, wrong kind: uniform 404",
+      "rate limit 429"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-DESIGNER-23",
+    "area": "designer",
+    "title": "List the services a process may call",
+    "description": "A designer looks up the services the tenant may use as service tasks in a process.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "DefinitionsRead"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/services",
+        "code_refs": [
+          "lib/letflow/routers/services.ex:96"
+        ],
+        "result": "the services usable by the tenant"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "service list"
+    ],
+    "refusals": [
+      "a caller without DefinitionsRead gets 403"
+    ],
+    "scenario": null,
+    "status": "partial"
+  },
+  {
+    "id": "BP-DESIGNER-24",
+    "area": "designer",
+    "title": "SECURITY: permission matrix of the designer area, role by role",
+    "description": "Each write route of the area is refused with 403 to a role that does not hold its permission (storekeeper, task worker, auditor, operator where only the designer or administrator may), and answered to the holder. The matrix is `priv/permission_matrix/effective.golden`; holders: DefinitionsWrite [PLATFORM_ADMIN, PROCESS_DESIGNER, TENANT_ADMIN]; ScriptsWrite [PLATFORM_ADMIN, PROCESS_DESIGNER, TENANT_ADMIN]; ScriptsPublish [PLATFORM_ADMIN, TENANT_ADMIN]; DlqOperate [PLATFORM_ADMIN, PROCESS_OPERATOR, TENANT_ADMIN]; WebhooksManage [PLATFORM_ADMIN, PROCESS_OPERATOR, TENANT_ADMIN]; EntitiesDefinitionsWrite [PLATFORM_ADMIN, PROCESS_DESIGNER, TENANT_ADMIN]; PromotionsManage [PLATFORM_ADMIN, TENANT_ADMIN].",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "none of these"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "all of these"
+      }
+    ],
+    "preconditions": [
+      "roster: storekeeper and administrator of the QA tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/definitions",
+          "POST /api/v1/entities/definitions",
+          "POST /api/v1/script-rules/:key/versions",
+          "PUT /api/v1/script-policy/kill-switch",
+          "POST /api/v1/webhooks/subscriptions",
+          "POST /api/v1/dlq/:id/retry",
+          "POST /api/v1/promotions"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:256",
+          "lib/letflow/routers/entities.ex:323",
+          "lib/letflow/routers/script_rules.ex:90",
+          "lib/letflow/routers/script_policy.ex:50",
+          "lib/letflow/routers/webhooks.ex:131",
+          "lib/letflow/routers/dlq.ex:99",
+          "lib/letflow/routers/promotions.ex:220"
+        ],
+        "result": "403 on create definition, create entity type, create script version, set kill switch, subscribe webhook, retry a dead letter, create a promotion; nothing changed"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 for a role without the permission, before the body is read"
+    ],
+    "scenario": "test/uat/processes/BP-DESIGNER-24.json",
+    "status": "implemented",
+    "security_status": "automated (storekeeper only); planned for the roles with no roster actor (process designer, operator, task worker, auditor)"
+  },
+  {
+    "id": "BP-DESIGNER-25",
+    "area": "designer",
+    "title": "SECURITY: cross-tenant read and write refused, uniform 404",
+    "description": "A token of tenant A used on an id of tenant B (definition, entity definition, record, instance, task, webhook subscription, script version, promotion, attachment) answers the same 404 as an id that does not exist; no write happens. Isolation is the schema-per-tenant prefix (INV-1, INV-5, INV-10).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "any tenant-scope permission"
+      }
+    ],
+    "preconditions": [
+      "two tenants and a token of each"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/definitions/:id",
+          "GET /api/v1/entities/definitions/:id",
+          "GET /api/v1/instances/:id",
+          "GET /api/v1/tasks/:id",
+          "GET /api/v1/promotions/:id",
+          "GET /api/v1/integration-mappings/:id",
+          "GET /api/v1/scheduled-jobs/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:318",
+          "lib/letflow/routers/entities.ex:342",
+          "lib/letflow/routers/instances.ex:484",
+          "lib/letflow/routers/tasks.ex:155",
+          "lib/letflow/routers/promotions.ex:235",
+          "lib/letflow/routers/integration_mappings.ex:36",
+          "lib/letflow/routers/scheduled_jobs.ex:62"
+        ],
+        "result": "the same 404 bytes for a foreign id and an absent id on every id route (covered by the Elixir tests)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "404 identical for foreign and absent"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "partial: the absent-id half is automated in BP-DESIGNER-26; the two-token half is planned (the runner runs one tenant per run)"
+  },
+  {
+    "id": "BP-DESIGNER-26",
+    "area": "designer",
+    "title": "SECURITY: unknown, malformed and absent ids answer one uniform 404",
+    "description": "An id that does not exist in the tenant is answered by the same 404 on the read and the write routes of definitions, with no change.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DefinitionsWrite"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/definitions/:id",
+          "POST /api/v1/definitions/:id/activate",
+          "DELETE /api/v1/definitions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:318",
+          "lib/letflow/routers/definitions.ex:266",
+          "lib/letflow/routers/definitions.ex:292"
+        ],
+        "result": "404 on read, activate and delete of an unknown definition id"
+      },
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/public/:kind/:handle",
+        "code_refs": [
+          "lib/letflow/routers/public_read.ex:59"
+        ],
+        "result": "404 on a public read with an unknown kind and handle (not in the runner scenario: no public route in the static check)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "404 and nothing changed"
+    ],
+    "scenario": "test/uat/processes/BP-DESIGNER-26.json",
+    "status": "implemented",
+    "security_status": "automated for the definition routes; planned for the public address"
+  },
+  {
+    "id": "BP-DESIGNER-27",
+    "area": "designer",
+    "title": "SECURITY: crafted start and completion refused (write targets)",
+    "description": "Starting an instance of a definition whose nodes carry module write targets through POST /instances is refused with 404 (the answer for an unknown definition, INV-5) and nothing is started; a task completion body that names an engine-owned variable or a module write target is refused with 422 output_refused and nothing is written (T-2429, T-2443; commit 3a84f6a2b).",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "InstancesStart"
+      },
+      {
+        "role": "TASK_WORKER",
+        "permission": "TasksComplete"
+      }
+    ],
+    "preconditions": [
+      "a process whose steps write a protected target"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/instances",
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:416"
+        ],
+        "result": "404, nothing started (a module-write definition cannot be started publicly)"
+      },
+      {
+        "actor": "TASK_WORKER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:159"
+        ],
+        "result": "422 output_refused for a crafted body, nothing written"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "start of a module-write definition: 404, nothing started",
+      "completion with crafted body: 422 output_refused, no write"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: the stock BP-09 scenario (stock area) covers the module case; a designer-area generic scenario needs a test definition"
+  },
+  {
+    "id": "BP-DESIGNER-28",
+    "area": "designer",
+    "title": "SECURITY: token and host lookup (wrong, expired, other-tenant token; unknown host)",
+    "description": "A request with no token, a bad or expired token, or a token of another tenant's issuer is refused 401 with the same body, before any handler runs. (No host-based tenant lookup exists in the API plugs; the unknown-host case is not claimed.)",
+    "actors": [
+      {
+        "role": "anyone",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "anyone",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/definitions",
+          "GET /api/v1/tasks/inbox"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:322",
+          "lib/letflow/routers/tasks.ex:147"
+        ],
+        "result": "401 on every route of the area without a valid token"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "401, uniform body"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: the runner steps always carry an actor token; a no-token step kind is needed",
+    "code_refs_note": "auth plug: lib/letflow/plugs/auth_pipeline.ex"
+  },
+  {
+    "id": "BP-DESIGNER-29",
+    "area": "designer",
+    "title": "SECURITY: upload types and limits",
+    "description": "An instance attachment whose declared content type is outside the allowlist (415, REQ-389, Letflow.Repository.Attachments.upload/2) or over the 25 MiB ceiling (413) is refused and nothing is stored; a record attachment over the size ceiling is refused 413 (its type check is not confirmed here); a malformed import file writes nothing.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "AttachmentsManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsImport"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/instances/:id/attachments",
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:439"
+        ],
+        "result": "415 for a declared content type outside the allowlist, 413 over the size ceiling; nothing stored (the type is the caller-declared one, not sniffed)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/records/:entity_type/:record_id/attachments",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:447"
+        ],
+        "result": "413 over the size ceiling, nothing stored"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/records/:entity_type/import",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:387"
+        ],
+        "result": "a malformed import file writes nothing"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "415 content type not allowed (instance attachment)",
+      "413 over the size limit"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: the runner has no multipart step kind"
+  },
+  {
+    "id": "BP-DESIGNER-30",
+    "area": "designer",
+    "title": "SECURITY: outbound URLs, webhook inputs and the public handle",
+    "description": "A webhook URL that points at a private or internal address is refused (INV-9); the HMAC secret is shown once; the public read handle gives only the fixed projection and one uniform 404.",
+    "actors": [
+      {
+        "role": "PROCESS_OPERATOR",
+        "permission": "WebhooksManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "PublicReadHandlesIssue"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "PROCESS_OPERATOR",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/webhooks/subscriptions",
+          "PATCH /api/v1/webhooks/subscriptions/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/webhooks.ex:131",
+          "lib/letflow/routers/webhooks.ex:135"
+        ],
+        "result": "an unsafe URL is refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/public-read-handles",
+        "code_refs": [
+          "lib/letflow/routers/public_read_handles.ex:35"
+        ],
+        "result": "a handle for a kind that is not registered is refused"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 for an unsafe URL",
+      "404 uniform for the public read"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: an operator actor is not in the roster"
+  },
+  {
+    "id": "BP-DESIGNER-31",
+    "area": "designer",
+    "title": "SECURITY: separation of duties for scripts and definitions",
+    "description": "With separation of duties on, the author of a script version may not confirm or publish it; activating a definition records the signed activator and a changed authority flags re-activation; module-owned versions are immutable to the tenant.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "ScriptsWrite"
+      }
+    ],
+    "preconditions": [
+      "sod on (PUT /script-policy/sod)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/script-rules/:key/versions/:version/confirm",
+          "PUT /api/v1/script-policy/sod"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/script_rules.ex:161",
+          "lib/letflow/routers/script_policy.ex:63"
+        ],
+        "result": "the author's own confirmation is refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/definitions/:id/reactivate",
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:272"
+        ],
+        "result": "the activator is recorded; a lost-authority activation needs re-activation"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "409/403 for the author",
+      "409 for a module-owned version"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: needs two administrators (admin2 is a precondition of the roster)"
+  },
+  {
+    "id": "BP-DESIGNER-32",
+    "area": "designer",
+    "title": "SECURITY: scripts are sandboxed and can be switched off",
+    "description": "A script runs with no access to the file system, network or other tenants; the kill switch stops every script of the tenant; a script failure fails the write closed (INV-3).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScriptsPublish"
+      }
+    ],
+    "preconditions": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Scripts.Runtime"
+        ],
+        "route": "PUT /api/v1/script-policy/kill-switch",
+        "code_refs": [
+          "lib/letflow/routers/script_policy.ex:50",
+          "lib/letflow/scripts/runtime.ex:1"
+        ],
+        "result": "the kill switch stops script runs"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "script_busy / killed: the run is refused, the record write fails closed"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: a kill-switch step would stop other sessions' scripts on the shared QA tenant; run on a private tenant only"
+  },
+  {
+    "id": "BP-DESIGNER-33",
+    "area": "designer",
+    "title": "SECURITY: module-managed entity types cannot be redefined by the tenant",
+    "description": "A tenant request to define or write a managed entity type (owned by an installed module) is refused with entity_type_managed.",
+    "actors": [
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "EntitiesDefinitionsWrite"
+      }
+    ],
+    "preconditions": [
+      "an installed module that owns a type"
+    ],
+    "tasks": [
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/entities/definitions",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:323"
+        ],
+        "result": "a definition with a managed name is refused"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 entity_type_managed, nothing created"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security_status": "planned: the managed name of the QA tenant must be read at run time"
+  }
+]

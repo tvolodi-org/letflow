@@ -7,6 +7,7 @@ DELETE /modules/assets/cards/:id/photos/:photo_id AssetsRead
 DELETE /modules/assets/documents/:id AssetsPost
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
+DELETE /outbound-destinations OutboundDestinationsManage
 DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
 DELETE /tenant/logo TenantSettingsManage
@@ -31,6 +32,7 @@ GET /instances/:id/timeline InstancesRead
 GET /instances/storage-usage AttachmentsRead
 GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
+GET /modules/assets/approval-access AssetsApprove
 GET /modules/assets/balances AssetsRead
 GET /modules/assets/cards/:id/lock AssetsRead
 GET /modules/assets/cards/:id/photos AssetsRead
@@ -95,6 +97,8 @@ GET /modules/stock/stock-workbook/imports StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
+GET /outbound-destinations OutboundDestinationsManage
+GET /platform-functions TenantsManage
 GET /platform-migrations/rollouts/:id TenantsManage
 GET /platform-module-rollouts ModuleRolloutsManage
 GET /platform-module-rollouts/:id ModuleRolloutsManage
@@ -246,6 +250,7 @@ POST /modules/stock/voice/draft StockPost
 POST /modules/stock/voice/draft-text StockPost
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
+POST /outbound-destinations OutboundDestinationsManage
 POST /platform-migrations/rollouts TenantsManage
 POST /platform-migrations/rollouts/:id/resume TenantsManage
 POST /platform-module-rollouts ModuleRolloutsManage

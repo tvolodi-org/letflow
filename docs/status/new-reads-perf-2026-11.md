@@ -30,7 +30,7 @@ of 5 timed runs after one warm-up; milliseconds. Host: shared (12 CPU, 62 GB), P
 | id | read | what is timed | median / max ms | limit ms | verdict |
 |---|---|---|---|---|---|
 | R1 | `GET /platform-module-rollouts` | one request, 50 rollouts with 3 outcomes each | 3.8 / 4.4 | 500 | ok |
-| T1 | `GET /instances/:id/timeline` | all pages of 200 until `next_cursor` is null (6 requests, as `useInstanceTimelineAll` does) | 39.8 / 50.1 | 2000 | ok |
+| T1 | `GET /instances/:id/timeline` | all pages of 200 until `next_cursor` is null (6 requests, as `useInstanceTimelineAll` does) | 371.0 / 392.9 | 2000 | ok |
 | T2 | `GET /instances/:id/history?event_type=NODE_ENTERED` | all pages of 200 (as `useInstanceNodeEntries` does) | 40.0 / 42.7 | 2000 | ok |
 | N1 | `GET /me/notifications?limit=100` | one request, 200 stored | 3.0 / 3.4 | 300 | ok |
 | U1 | `POST /identity/users/import?dry_run=true` | 200 rows | 13.7 / 27.8 | 5000 | ok |
@@ -39,10 +39,20 @@ of 5 timed runs after one warm-up; milliseconds. Host: shared (12 CPU, 62 GB), P
 
 A first run (before an assertion was added) gave the same picture: R1 3.4, T1 35.9, T2 38.2, N1 3.2, U1 12.6, U2 550, U3 19.5.
 
+T1 was re-measured on 2026-11-23, after the pilot G6 step log was added to the timeline answer
+(`Letflow.Instances.StepLog`): the walk is now 371.0 / 392.9 ms (the pre-step-log figure was
+39.8 / 50.1 ms). The step log is derived from the instance's own events and from the three
+dispatch tables, and it is read once per PAGE of the walk, so the walk reads the instance's
+event history more than once. The read is bounded: at most the most recent 5 000 events, the
+payload is projected in the database down to the few fields the log needs (`node_id`,
+`node_type`, `affected` -- never a payload body), and the answer holds at most the most recent
+200 visits. Giving the step log its own cursor (so it is computed once per walk, not once per
+page) is the obvious follow-up.
+
 ## Reading
 
 - Every measured value is below its assumed limit. The margin differs: the real import is about 30x below (500 vs 15000 ms),
-  the timeline walk about 50x (median 39.8 vs 2000 ms), the single-request reads 100x or more. The slowest is the real import (about 2.5 ms per created
+  the timeline walk about 5x (median 371 vs 2000 ms), the single-request reads 100x or more. The slowest is the real import (about 2.5 ms per created
   user, which includes the user insert, the login-directory entry and the audit entry of `Identity.create_user/2`).
 - The replay reads are linear in the number of pages (about 6.5 ms per page of 200). The web hooks cap the walk at
   `MAX_TIMELINE_PAGES` (25) pages; the fixture holds 1003 events (`Engine.create/2` writes INSTANCE_STARTED and NODE_ENTERED for START and HUMAN_TASK, then the test adds 1000), which is 6 requests (5 full pages of 200 and a last page of 3).

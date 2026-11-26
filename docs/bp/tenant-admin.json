@@ -1,0 +1,3394 @@
+[
+  {
+    "id": "BP-TENANT-ADMIN-01",
+    "area": "tenant-admin",
+    "title": "Sign in to the company's own address and map the person to the company",
+    "description": "A person opens the company's address. The page asks the server which company this host belongs to (public tenant config: name, sign-in realm, branding, environment label), signs the person in through the company's own sign-in realm, and the server then maps the signed-in identity to a user and memberships of that company only.",
+    "actors": [
+      {
+        "role": "any user of the company",
+        "permission": "none for tenant-config (public); MyAccessRead for /me"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "MyAccessRead"
+      }
+    ],
+    "preconditions": [
+      "the company exists and is active with a host name and a sign-in realm",
+      "the user exists in the company (or holds a pending first-administrator grant)"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [
+          "/login"
+        ],
+        "functions": [],
+        "route": "GET /api/tenant-config",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:231",
+          "web/src/router.tsx:110"
+        ],
+        "result": "the page learns the company's sign-in realm and branding before login; an unknown host gets the not-found answer"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/tenant-config/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:235"
+        ],
+        "result": "the company's public logo bytes are read without a login"
+      },
+      {
+        "actor": "any user",
+        "forms": [
+          "/auth/callback"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:103"
+        ],
+        "result": "the sign-in callback exchanges the code and opens the app shell"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:113"
+        ],
+        "result": "the server returns the signed-in person (id, name, tenant) resolved from the token, never from a request member"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me/memberships",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:117"
+        ],
+        "result": "the person's memberships of this company are listed"
+      }
+    ],
+    "inputs": [
+      "host name",
+      "credential (OIDC token)"
+    ],
+    "outputs": [
+      "user id",
+      "tenant",
+      "memberships"
+    ],
+    "refusals": [
+      "an unknown or inactive company host answers the not-found answer (tests tenant_config_host_test, tenant_config_inactive_test)",
+      "a token of another realm is not accepted for this company"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-02",
+    "area": "tenant-admin",
+    "title": "See my access, modules and the first screen",
+    "description": "After sign-in the app asks what the person may do: effective access (permissions), the modules installed for the company, and shows the dashboard.",
+    "actors": [
+      {
+        "role": "any user of the company",
+        "permission": "MyAccessRead, MyModulesRead"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me/access",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:125"
+        ],
+        "result": "the effective permissions of the caller are returned; the menu is built from them"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me/modules",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:121"
+        ],
+        "result": "the installed modules the caller may use are returned"
+      },
+      {
+        "actor": "any user",
+        "forms": [
+          "dashboard"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:128"
+        ],
+        "result": "the dashboard is shown"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "menu",
+      "module list"
+    ],
+    "refusals": [
+      "a screen that needs a permission the caller lacks is not reachable (RequirePermission in web/src/router.tsx)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-03",
+    "area": "tenant-admin",
+    "title": "Create and maintain a user of the company",
+    "description": "The administrator adds a person to the company, lists users, opens one, and changes the profile (name, e-mail and so on).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "UsersManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN of the company"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/users",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:219",
+          "web/src/router.tsx:143"
+        ],
+        "result": "the users of this company only are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/users",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:202",
+          "web/src/router.tsx:143"
+        ],
+        "result": "a user is created in this company"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/users/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:223",
+          "web/src/router.tsx:145"
+        ],
+        "result": "one user is shown with groups and roles"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "PATCH /api/v1/identity/users/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:227",
+          "web/src/router.tsx:145"
+        ],
+        "result": "the profile is changed; the last interactive tenant-wide administrator may not be demoted when scope enforcement is on"
+      }
+    ],
+    "inputs": [
+      "user name",
+      "e-mail",
+      "display name"
+    ],
+    "outputs": [
+      "user id"
+    ],
+    "refusals": [
+      "a role without UsersManage gets 403",
+      "an id of another company answers the plain 404",
+      "demoting the last tenant-wide administrator answers 409 last_tenant_wide_admin / last_interactive_tenant_wide_admin (identity.ex moduledoc)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-04",
+    "area": "tenant-admin",
+    "title": "Import users from an Excel file",
+    "description": "The administrator downloads the template, fills it, and loads it; a dry run validates without writing, the real load is atomic.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "UsersManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/import"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/users/import-template",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:208",
+          "web/src/router.tsx:144"
+        ],
+        "result": "the xlsx template is downloaded"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/import"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/users/import",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:212",
+          "web/src/router.tsx:144"
+        ],
+        "result": "the file is checked with dry_run=true, then loaded atomically (all rows or none)"
+      }
+    ],
+    "inputs": [
+      "xlsx file"
+    ],
+    "outputs": [
+      "created users",
+      "row errors"
+    ],
+    "refusals": [
+      "a role without UsersManage gets 403",
+      "a file with any bad row creates no user (atomic, tests identity_users_import_test)",
+      "a file that is not a valid xlsx is refused"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-05",
+    "area": "tenant-admin",
+    "title": "Give a user a sign-in or send a password reminder",
+    "description": "The administrator creates the sign-in (shown once as a temporary password, while the creation flag is on) or asks the system to send the 'forgot password' mail. Letflow handles no password itself.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "UsersManage"
+      }
+    ],
+    "preconditions": [
+      "the user exists",
+      "for sign-in creation: the sign_in_creation flag is on"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/users/:id/sign-in",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:235",
+          "web/src/router.tsx:145"
+        ],
+        "result": "a temporary password is shown once; 409 sign_in_creation_off while the flag is off"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/users/:id/reset-password",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:231",
+          "web/src/router.tsx:145"
+        ],
+        "result": "202 and a 'forgot password' mail; one accepted request per user per window, a repeat answers the same 202 and writes nothing"
+      }
+    ],
+    "inputs": [
+      "user id"
+    ],
+    "outputs": [
+      "temporary password (shown once)",
+      "audit entry user.password_reset_requested"
+    ],
+    "refusals": [
+      "409 sign_in_creation_off",
+      "a role without UsersManage gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-06",
+    "area": "tenant-admin",
+    "title": "Deactivate or reactivate a user",
+    "description": "The administrator switches a user active or inactive; the last interactive tenant-wide administrator cannot be deactivated while enforcement is on.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "UsersManage"
+      }
+    ],
+    "preconditions": [
+      "the user exists"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/users/:id/status",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:239",
+          "web/src/router.tsx:145"
+        ],
+        "result": "the status of the user changes and an audit entry is written"
+      }
+    ],
+    "inputs": [
+      "user id",
+      "status"
+    ],
+    "outputs": [
+      "audit entry"
+    ],
+    "refusals": [
+      "409 last_tenant_wide_admin / last_interactive_tenant_wide_admin",
+      "another company's id answers the plain 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-07",
+    "area": "tenant-admin",
+    "title": "Flag a user as a service principal",
+    "description": "A tenant administrator marks an identity-provider service account as a service principal so that it is not counted as a human administrator by the scope-enforcement gate.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ServicePrincipalManage (in-handler check TenantSecurityManage, interactive tenant-wide only)"
+      }
+    ],
+    "preconditions": [
+      "the user exists"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/users/:userId"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/identity/users/:id/service-principal",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:245",
+          "web/src/router.tsx:145"
+        ],
+        "result": "the flag is set or cleared"
+      }
+    ],
+    "inputs": [
+      "user id",
+      "flag"
+    ],
+    "outputs": [
+      "flag"
+    ],
+    "refusals": [
+      "an API token, a scoped administrator or the platform tenant's PLATFORM_ADMIN gets 403 (roles.md TenantSecurityManage)",
+      "removing the flag of the last interactive tenant-wide administrator is refused with 409 when enforcement is on"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-08",
+    "area": "tenant-admin",
+    "title": "Manage groups and their members",
+    "description": "The administrator makes groups, adds and removes members, and deletes an unused group. Groups carry role bindings.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "GroupsManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/groups",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:249",
+          "web/src/router.tsx:146"
+        ],
+        "result": "a group is created"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/groups",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:253",
+          "web/src/router.tsx:146"
+        ],
+        "result": "groups are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/groups/:id/members",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:261",
+          "web/src/router.tsx:146"
+        ],
+        "result": "a user is added to a group"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/groups/:id/members",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:265",
+          "web/src/router.tsx:146"
+        ],
+        "result": "members are listed page by page (cursor)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/groups/:id/members/:user_id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:269",
+          "web/src/router.tsx:146"
+        ],
+        "result": "a member is removed (refused if it would leave no tenant-wide admin under enforcement)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/groups"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/groups/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:257",
+          "web/src/router.tsx:146"
+        ],
+        "result": "a group is deleted"
+      }
+    ],
+    "inputs": [
+      "group name",
+      "user id"
+    ],
+    "outputs": [
+      "group id",
+      "audit entries"
+    ],
+    "refusals": [
+      "deleting a group bound to a role answers 409 (identity.ex moduledoc, ISS-1032)",
+      "a user or group id of another company answers the plain 404",
+      "a role without GroupsManage gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-09",
+    "area": "tenant-admin",
+    "title": "Bind a role to a group and move it",
+    "description": "The administrator lists roles, creates a role binding (a role name pointing at one group), and, only as TENANT_ADMIN and with a written reason, rebinds an existing role to another group.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "RolesManage, RolesRebind"
+      }
+    ],
+    "preconditions": [
+      "the group exists"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/identity/roles",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:304"
+        ],
+        "result": "roles and their groups are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN or PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/roles",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:308"
+        ],
+        "result": "a role name is bound to a group; a name already bound to another group answers 409 role_already_bound"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/roles/:id/rebind",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:312"
+        ],
+        "result": "the role moves to another group with a mandatory reason; audit entry role.rebound with old and new group"
+      }
+    ],
+    "inputs": [
+      "role name",
+      "group id",
+      "reason"
+    ],
+    "outputs": [
+      "role binding",
+      "audit entry role.rebound"
+    ],
+    "refusals": [
+      "PROCESS_DESIGNER gets 403 on rebind (roles.md, PR #2537)",
+      "rebind without a reason is refused",
+      "409 role_already_bound for a re-post to another group"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-10",
+    "area": "tenant-admin",
+    "title": "Read and change what each role may do in the company",
+    "description": "The administrator reads the company's role grants (which permissions the module roles give) and writes them. The auditor may read.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "RoleGrantsManage"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "RoleGrantsRead"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/role-grants",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_grants.ex:23"
+        ],
+        "result": "the role grants are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/role-grants",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_grants.ex:30"
+        ],
+        "result": "the role grants are changed and audited"
+      }
+    ],
+    "inputs": [
+      "role",
+      "permissions"
+    ],
+    "outputs": [
+      "role grants"
+    ],
+    "refusals": [
+      "a caller without RoleGrantsManage gets 403 on PUT (tests tenant_auditor_routes_test)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-11",
+    "area": "tenant-admin",
+    "title": "Give a role access to a part of the organisation (scoped grants)",
+    "description": "The administrator gives a role a grant on a node of the organisation tree, makes a grant tenant-wide, removes a grant, and declares which entity types are restricted by scope. The auditor reads grants and checks that the tree is consistent.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "RoleScopeGrantsManage, EntitiesRestrictionsManage"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "RoleScopeGrantsRead, ScopeNodePathsConsistencyRead"
+      }
+    ],
+    "preconditions": [
+      "the organisation tree has the node"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/role-scope-grants",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_scope_grants.ex:32"
+        ],
+        "result": "a scope grant is created"
+      },
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/role-scope-grants",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_scope_grants.ex:36"
+        ],
+        "result": "scope grants are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/role-scope-grants/make-tenant-wide",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_scope_grants.ex:40"
+        ],
+        "result": "a grant is made tenant-wide"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/tenant/role-scope-grants/:id",
+        "code_refs": [
+          "lib/letflow/routers/tenant_role_scope_grants.ex:44"
+        ],
+        "result": "a grant is removed (refused for the last interactive tenant-wide administrator under enforcement)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/entity-scope-declarations/:entity_type",
+        "code_refs": [
+          "lib/letflow/routers/entity_scope_declarations.ex:29"
+        ],
+        "result": "an entity type is declared as restricted by scope"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/entity-scope-declarations",
+        "code_refs": [
+          "lib/letflow/routers/entity_scope_declarations.ex:44"
+        ],
+        "result": "the declarations are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/scope-node-paths/consistency",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_node_paths.ex:25"
+        ],
+        "result": "the tree's paths are checked for consistency"
+      }
+    ],
+    "inputs": [
+      "role",
+      "scope node",
+      "entity type"
+    ],
+    "outputs": [
+      "grant ids"
+    ],
+    "refusals": [
+      "a caller without the permission gets 403",
+      "a grant id of another company answers the plain 404",
+      "409 last_interactive_tenant_wide_admin under enforcement"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-12",
+    "area": "tenant-admin",
+    "title": "Switch scope enforcement off, shadow or on",
+    "description": "An interactive, tenant-wide administrator moves the company between off, shadow and on. The pre-checks (integrity, token preconditions) are read first. 'on' is reached only from 'shadow' after the gate facts hold.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ScopeEnforcementManage, TenantSecurityManage"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "ScopeEnforcementRead, ScopeGrantsIntegrityRead"
+      }
+    ],
+    "preconditions": [
+      "signed in interactively as a tenant-wide TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/scope-enforcement",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:50"
+        ],
+        "result": "the current mode is read"
+      },
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/scope-enforcement/integrity",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:58"
+        ],
+        "result": "the integrity snapshot with the on_gate block is read"
+      },
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/scope-enforcement/token-preconditions",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:62"
+        ],
+        "result": "the token preconditions are read"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/scope-enforcement",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:54"
+        ],
+        "result": "the mode is changed with a reason where required"
+      }
+    ],
+    "inputs": [
+      "mode",
+      "reason"
+    ],
+    "outputs": [
+      "mode",
+      "audit entry"
+    ],
+    "refusals": [
+      "off to on: 409 shadow_required (roles.md)",
+      "gate failures: bindings_without_row, org_inconsistent, tokens_exceed_owner, zero_tenant_wide_admins, shadow_evidence_insufficient",
+      "an API token, a scoped administrator or a platform admin without TENANT_ADMIN gets the uniform 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-13",
+    "area": "tenant-admin",
+    "title": "Name the first administrator and see pending grants",
+    "description": "At onboarding the first administrator is named by e-mail; the pending grant becomes membership at the person's first sign-in when the e-mail matches and is verified. The administrator reads the pending grants.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "UsersManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant was onboarded with admin_email"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/identity/pending-admin-grants",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:318"
+        ],
+        "result": "pending administrator grants are listed"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "pending grant list"
+    ],
+    "refusals": [
+      "no route adds or replaces an administrator afterwards (roles.md, decision 0048)",
+      "the grant binds only when email_verified is true"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-14",
+    "area": "tenant-admin",
+    "title": "Issue and revoke an API token",
+    "description": "A tenant administrator who holds the role through a group mints a token for a user; the plaintext is shown once. Tokens are listed and revoked.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage"
+      }
+    ],
+    "preconditions": [
+      "the minter is an active user holding TENANT_ADMIN through a group",
+      "the token's roles are held through groups by minter and user"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/tokens",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:278",
+          "web/src/router.tsx:147"
+        ],
+        "result": "a token is minted; the plaintext appears only in this answer"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/tokens",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:282",
+          "web/src/router.tsx:147"
+        ],
+        "result": "tokens are listed without plaintext"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/tokens/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286",
+          "web/src/router.tsx:147"
+        ],
+        "result": "a token is revoked"
+      }
+    ],
+    "inputs": [
+      "user id",
+      "roles",
+      "expiry"
+    ],
+    "outputs": [
+      "token id",
+      "token plaintext (once)"
+    ],
+    "refusals": [
+      "a user whose only admin source is a token cannot mint (roles.md)",
+      "a role the minter does not hold is refused",
+      "an unknown token id answers the plain 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-15",
+    "area": "tenant-admin",
+    "title": "Shared stock access for the old phone app",
+    "description": "The administrator creates, reads and revokes the tenant's stock-only shared access value used by the old app. The value is shown once.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage"
+      }
+    ],
+    "preconditions": [
+      "shared access is enabled for the company",
+      "interactive caller"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:292",
+          "web/src/router.tsx:147"
+        ],
+        "result": "the shared access exists or not is read"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:296",
+          "web/src/router.tsx:147"
+        ],
+        "result": "the value is created and shown once"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/tokens"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:300",
+          "web/src/router.tsx:147"
+        ],
+        "result": "the value is revoked"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "shared access value (once)"
+    ],
+    "refusals": [
+      "409 shared_access_not_enabled",
+      "422 shared_access_value_invalid",
+      "STOREKEEPER and other roles get 403 (scenario qoimeks-token-5)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-16",
+    "area": "tenant-admin",
+    "title": "Set company settings and appearance",
+    "description": "The administrator reads and changes the company settings (branding colours, language, formats). Unknown or out-of-scope keys are not stored; the rejection is audited.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSettingsManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/appearance"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/tenant/settings",
+        "code_refs": [
+          "lib/letflow/routers/tenant_settings.ex:42",
+          "web/src/router.tsx:149"
+        ],
+        "result": "settings are read"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/appearance"
+        ],
+        "functions": [],
+        "route": "PATCH /api/v1/tenant/settings",
+        "code_refs": [
+          "lib/letflow/routers/tenant_settings.ex:46",
+          "web/src/router.tsx:149"
+        ],
+        "result": "a partial change is merged into the stored settings; a rejected key is audited without failing the rest"
+      }
+    ],
+    "inputs": [
+      "settings keys"
+    ],
+    "outputs": [
+      "settings"
+    ],
+    "refusals": [
+      "a role without TenantSettingsManage gets 403",
+      "invalid colours or keys are refused (scenario tenant-admin-26)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-17",
+    "area": "tenant-admin",
+    "title": "Upload and remove the company logo",
+    "description": "The administrator uploads a png, jpeg or webp logo, replaces it or deletes it; the web and mobile configuration show it.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSettingsManage"
+      }
+    ],
+    "preconditions": [
+      "the tenant_logo_upload_enabled flag is on"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/appearance"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_logo.ex:25",
+          "web/src/router.tsx:149"
+        ],
+        "result": "a logo is uploaded after type, size and signature checks"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/appearance"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/tenant/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_logo.ex:29",
+          "web/src/router.tsx:149"
+        ],
+        "result": "the logo is deleted"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/mobile/tenant-config",
+        "code_refs": [
+          "lib/letflow/routers/mobile_tenant_config.ex:215"
+        ],
+        "result": "the mobile app reads the company configuration including the logo"
+      }
+    ],
+    "inputs": [
+      "image file"
+    ],
+    "outputs": [
+      "logo"
+    ],
+    "refusals": [
+      "declared type not in image/png, image/jpeg, image/webp is refused (tenant_logo.ex @allowed_detail)",
+      "with the flag off both routes answer the ordinary not-found",
+      "oversize or wrong-signature files are refused (scenario tenant-admin-41)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-18",
+    "area": "tenant-admin",
+    "title": "Export and import the company configuration bundle",
+    "description": "The administrator exports the company's configuration (settings, module settings, label overrides, notification templates) and imports it into another company or back.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSettingsManage, ModulesManage, LabelsManage, NotificationTemplatesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tenant/config-bundle",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config_bundle.ex:28"
+        ],
+        "result": "the bundle is downloaded; parts the caller may not read are left out"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/config-bundle/import",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config_bundle.ex:32"
+        ],
+        "result": "a bundle is imported; module settings need ModulesManage too"
+      }
+    ],
+    "inputs": [
+      "bundle document"
+    ],
+    "outputs": [
+      "applied settings"
+    ],
+    "refusals": [
+      "unknown bundle_schema_version and any violation answer 422 naming keys, not secrets",
+      "a part without its extra permission answers the same 403 body"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-19",
+    "area": "tenant-admin",
+    "title": "Install, set up, upgrade and remove modules and solutions",
+    "description": "The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ModulesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/tenant/modules",
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:63",
+          "web/src/router.tsx:158"
+        ],
+        "result": "a module is installed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/tenant/solutions",
+        "code_refs": [
+          "lib/letflow/routers/tenant_solutions.ex:30",
+          "web/src/router.tsx:158"
+        ],
+        "result": "a solution is installed with one required rationale"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/modules/:module_id/settings",
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:67",
+          "web/src/router.tsx:158"
+        ],
+        "result": "module settings are saved"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tenant/modules/:module_id/upgrade/plan",
+          "POST /api/v1/tenant/modules/:module_id/upgrade"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:79",
+          "lib/letflow/routers/tenant_modules.ex:83",
+          "web/src/router.tsx:158"
+        ],
+        "result": "an upgrade plan is read, then the upgrade applied"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/tenant/modules/:module_id/rollback",
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:87",
+          "web/src/router.tsx:158"
+        ],
+        "result": "an upgrade is rolled back"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/module-lifecycle"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tenant/modules/:module_id/uninstall",
+          "POST /api/v1/tenant/modules/:module_id/reactivate"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:71",
+          "lib/letflow/routers/tenant_modules.ex:75",
+          "web/src/router.tsx:158"
+        ],
+        "result": "a module is uninstalled and later reactivated"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/modules/:module_id/ensure-seeds",
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:91"
+        ],
+        "result": "the seeds of an installed module are ensured"
+      }
+    ],
+    "inputs": [
+      "module id",
+      "solution id",
+      "rationale"
+    ],
+    "outputs": [
+      "module state"
+    ],
+    "refusals": [
+      "blank rationale: 422 rationale is required, nothing installed (tenant_solutions.ex)",
+      "a tenant_id in the body is ignored",
+      "a role without ModulesManage gets 403"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-20",
+    "area": "tenant-admin",
+    "title": "Switch the four-eyes rule per process step",
+    "description": "The administrator reads the list of steps that carry the four-eyes rule and switches each on or off with a written reason. A new company starts with the rule OFF (D-165); an older company keeps ON until switched. Every change writes an approval_rule.changed audit entry.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in interactively as TENANT_ADMIN, tenant-wide"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/approval-rules"
+        ],
+        "functions": [
+          "Letflow.ApprovalRules.list",
+          "Letflow.Engine.ApprovalRuleSetting.read",
+          "Letflow.Engine.ApprovalRuleSetting.default_off",
+          "Letflow.Engine.ApprovalRuleSetting.effective"
+        ],
+        "route": "GET /api/v1/approval-rules",
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:32",
+          "web/src/router.tsx:155",
+          "lib/letflow/approval_rules.ex:78",
+          "lib/letflow/engine/approval_rule_setting.ex:48",
+          "lib/letflow/engine/approval_rule_setting.ex:68",
+          "lib/letflow/engine/approval_rule_setting.ex:94"
+        ],
+        "result": "steps with their current setting, including rows of steps no longer in an active definition, are listed"
+      },
+      {
+        "actor": "PROCESS_DESIGNER or TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.ApprovalRuleSetting.off_steps"
+        ],
+        "route": null,
+        "code_refs": [
+          "lib/letflow/engine/approval_rule_setting.ex:128",
+          "lib/letflow/definitions/role_binding.ex:213"
+        ],
+        "result": "when a definition is saved, the separate-person warning of a role binding is not shown for steps whose switch is OFF (lib/letflow/definitions/role_binding.ex:213, read-only use of the setting)"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "Letflow.ApprovalRules.four_eyes_off?"
+        ],
+        "route": null,
+        "code_refs": [
+          "lib/letflow/approval_rules.ex:69",
+          "lib/letflow/modules/stock/documents.ex:306",
+          "lib/letflow/modules/stock/old_app_writes.ex:262"
+        ],
+        "result": "the stock quick count posts at once when the quick-count approve switch is OFF (lib/letflow/modules/stock/documents.ex:306 and old_app_writes.ex:262 ask four_eyes_off?)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/approval-rules"
+        ],
+        "functions": [
+          "Letflow.ApprovalRules.put"
+        ],
+        "route": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38",
+          "web/src/router.tsx:155",
+          "lib/letflow/approval_rules.ex:115"
+        ],
+        "result": "the switch is written after body, reason and step-existence checks; a PUT equal to the current value writes nothing"
+      }
+    ],
+    "inputs": [
+      "definition name",
+      "node id",
+      "four_eyes",
+      "reason"
+    ],
+    "outputs": [
+      "setting row",
+      "audit entry approval_rule.changed"
+    ],
+    "refusals": [
+      "a role other than TENANT_ADMIN (the platform tenant's PLATFORM_ADMIN too) gets 403",
+      "missing reason or unknown step is 422 and writes nothing",
+      "an API token cannot switch (interactive sign-in required)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-21",
+    "area": "tenant-admin",
+    "title": "Same person approving: separation of duties at claim and completion",
+    "description": "When a step names other steps it must be done by a different person, the engine refuses the claim and the completion by the person who completed the named step. If the administrator switched the rule off for that step, an interactive sign-in may approve their own task; tokens and scripts may not. The task screen asks the server whether self-approval is allowed.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove (stock steps), TasksComplete"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "TasksComplete (no StockApprove)"
+      }
+    ],
+    "preconditions": [
+      "a process step with distinct_from",
+      "a task addressed to the caller"
+    ],
+    "tasks": [
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.SeparationOfDuties.check_for_claim"
+        ],
+        "route": "POST /api/v1/tasks/:id/claim",
+        "code_refs": [
+          "lib/letflow/engine/separation_of_duties.ex:184",
+          "lib/letflow/routers/tasks.ex:163"
+        ],
+        "result": "early feedback at claim; fail-open, completion decides"
+      },
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.SeparationOfDuties.check"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/engine/separation_of_duties.ex:82",
+          "lib/letflow/routers/tasks.ex:159"
+        ],
+        "result": "the authority check inside the completion transaction; a self-approval under an OFF switch is audited task.self_approved"
+      },
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [
+          "Letflow.ApprovalRules.self_approval_allowed?",
+          "Letflow.ApprovalRules.four_eyes_off?",
+          "Letflow.Engine.ApprovalRuleSetting.off_for_instance_step"
+        ],
+        "route": "GET /api/v1/tasks/:id",
+        "code_refs": [
+          "lib/letflow/approval_rules.ex:54",
+          "lib/letflow/approval_rules.ex:69",
+          "lib/letflow/engine/approval_rule_setting.ex:159",
+          "lib/letflow/routers/tasks.ex:340"
+        ],
+        "result": "the task detail tells the web whether self-approval is allowed (interactive and effective OFF)"
+      }
+    ],
+    "inputs": [
+      "task id"
+    ],
+    "outputs": [
+      "completed task",
+      "audit entry task.self_approved"
+    ],
+    "refusals": [
+      "the same user completing a named step again is refused (no role exempt)",
+      "API token, service principal, script and timer need a second person even when the switch is OFF",
+      "no row, row true, missing name or unreadable setting refuse (fail closed)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-22",
+    "area": "tenant-admin",
+    "title": "Choose whether stock may go negative per ledger",
+    "description": "The administrator reads and changes the negative-balance switch of each ledger registration.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LedgerSettingsManage"
+      }
+    ],
+    "preconditions": [
+      "signed in interactively as TENANT_ADMIN, tenant-wide"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/ledger-settings"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/ledger-settings",
+        "code_refs": [
+          "lib/letflow/routers/ledger_settings.ex:30",
+          "web/src/router.tsx:156"
+        ],
+        "result": "the registrations with their setting are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/ledger-settings"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/ledger-settings/:registration",
+        "code_refs": [
+          "lib/letflow/routers/ledger_settings.ex:36",
+          "web/src/router.tsx:156"
+        ],
+        "result": "the setting of one registration is changed and audited"
+      }
+    ],
+    "inputs": [
+      "registration",
+      "value"
+    ],
+    "outputs": [
+      "setting"
+    ],
+    "refusals": [
+      "a role other than TENANT_ADMIN (platform admin included) gets 403 (roles.md REQ-835)",
+      "an unknown registration is refused"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-23",
+    "area": "tenant-admin",
+    "title": "Read the audit log",
+    "description": "The administrator or auditor reads who did what in the company: a filtered, cursor-paged list from the hash-chained audit table, with before and after state where captured.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AuditRead"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "AuditRead"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN or TENANT_AUDITOR",
+        "forms": [
+          "admin/audit"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/audit",
+        "code_refs": [
+          "lib/letflow/routers/audit.ex:155",
+          "web/src/router.tsx:148"
+        ],
+        "result": "entries of this company only are listed, newest first, with filters"
+      }
+    ],
+    "inputs": [
+      "filters",
+      "cursor"
+    ],
+    "outputs": [
+      "audit entries"
+    ],
+    "refusals": [
+      "a role without AuditRead gets 403",
+      "entries of other companies and platform entries are not shown (tests audit_platform_entries_isolation_test, audit_visibility_test)",
+      "an unknown audit action filter is refused (gh2669_unknown_audit_action_test)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-24",
+    "area": "tenant-admin",
+    "title": "See and read my notifications",
+    "description": "A person reads their own bell notifications and marks them read; a person sees only their own.",
+    "actors": [
+      {
+        "role": "any user of the company",
+        "permission": "MyAccessRead, MyPreferencesSet"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me/notifications",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:137"
+        ],
+        "result": "own notifications are listed"
+      },
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/me/notifications/read",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:141"
+        ],
+        "result": "own notifications are marked read"
+      }
+    ],
+    "inputs": [],
+    "outputs": [
+      "unread count"
+    ],
+    "refusals": [
+      "another person's entry cannot be read or marked (scenario notification-bell-2)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-25",
+    "area": "tenant-admin",
+    "title": "My settings and problem reports",
+    "description": "A person sets their own preferences (language, layout) and reports a problem; they see their own reports.",
+    "actors": [
+      {
+        "role": "any user of the company",
+        "permission": "MyAccessRead, MyPreferencesSet"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [
+          "me/settings"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/me/preferences",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:129",
+          "web/src/router.tsx:150"
+        ],
+        "result": "preferences are read"
+      },
+      {
+        "actor": "any user",
+        "forms": [
+          "me/settings"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/me/preferences",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:133",
+          "web/src/router.tsx:150"
+        ],
+        "result": "preferences are saved"
+      },
+      {
+        "actor": "any user",
+        "forms": [
+          "me/problem-reports"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/me/problem-reports",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:145",
+          "web/src/router.tsx:151"
+        ],
+        "result": "a problem report is sent"
+      },
+      {
+        "actor": "any user",
+        "forms": [
+          "me/problem-reports"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/me/problem-reports",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:149",
+          "web/src/router.tsx:151"
+        ],
+        "result": "own reports are listed"
+      }
+    ],
+    "inputs": [
+      "preference values",
+      "report text"
+    ],
+    "outputs": [
+      "preferences",
+      "report"
+    ],
+    "refusals": [
+      "invalid preference values are refused (me_preferences_test)",
+      "a person sees only their own reports"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-26",
+    "area": "tenant-admin",
+    "title": "Edit notification templates and read the delivery log",
+    "description": "The administrator lists, overrides, previews and removes the company's notification templates and reads the log of sent, failed and skipped deliveries.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "NotificationTemplatesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/notification-templates",
+        "code_refs": [
+          "lib/letflow/routers/notification_templates.ex:26"
+        ],
+        "result": "templates are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/notification-templates/:template_key",
+        "code_refs": [
+          "lib/letflow/routers/notification_templates.ex:44"
+        ],
+        "result": "a template is overridden"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/notification-templates/:template_key/preview",
+        "code_refs": [
+          "lib/letflow/routers/notification_templates.ex:52"
+        ],
+        "result": "a template is previewed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/notification-templates/:template_key",
+        "code_refs": [
+          "lib/letflow/routers/notification_templates.ex:48"
+        ],
+        "result": "the override is removed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/notification-deliveries",
+        "code_refs": [
+          "lib/letflow/routers/notification_deliveries.ex:22"
+        ],
+        "result": "deliveries are listed (newest first, at most 100, optional status filter)"
+      }
+    ],
+    "inputs": [
+      "template key",
+      "text",
+      "status filter"
+    ],
+    "outputs": [
+      "template",
+      "delivery rows"
+    ],
+    "refusals": [
+      "unknown status filter: 422 fixed text",
+      "a delivery row carries no recipient address, subject, body or error text (INV-4)",
+      "a role without the permission gets the same 403 whether rows exist or not"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-27",
+    "area": "tenant-admin",
+    "title": "Switch currencies on or off and choose the company currency",
+    "description": "Everyone reads the currency list; the administrator switches currencies and picks the tenant currency.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "CurrenciesManage"
+      },
+      {
+        "role": "any user",
+        "permission": "MyAccessRead"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [
+          "admin/currencies"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/currencies",
+        "code_refs": [
+          "lib/letflow/routers/currencies.ex:28",
+          "web/src/router.tsx:153"
+        ],
+        "result": "currencies are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/currencies"
+        ],
+        "functions": [],
+        "route": "PUT /api/v1/currencies/:code",
+        "code_refs": [
+          "lib/letflow/routers/currencies.ex:32",
+          "web/src/router.tsx:153"
+        ],
+        "result": "a currency is switched on/off or made the tenant currency"
+      }
+    ],
+    "inputs": [
+      "currency code"
+    ],
+    "outputs": [
+      "currency list"
+    ],
+    "refusals": [
+      "a role other than TENANT_ADMIN (and platform admin) gets 403 on PUT (roles.md REQ-824)"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-28",
+    "area": "tenant-admin",
+    "title": "Override screen wording (labels)",
+    "description": "Everyone reads the company's label overrides; the administrator sets or removes a wording per language.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LabelsManage"
+      },
+      {
+        "role": "any user",
+        "permission": "MyAccessRead"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/labels",
+        "code_refs": [
+          "lib/letflow/routers/labels.ex:29"
+        ],
+        "result": "overrides are read for a locale"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/labels/:message_id",
+        "code_refs": [
+          "lib/letflow/routers/labels.ex:33"
+        ],
+        "result": "a wording is set for a message and a locale"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/labels/:message_id",
+        "code_refs": [
+          "lib/letflow/routers/labels.ex:37"
+        ],
+        "result": "a wording is removed"
+      }
+    ],
+    "inputs": [
+      "message id",
+      "locale",
+      "text"
+    ],
+    "outputs": [
+      "overrides"
+    ],
+    "refusals": [
+      "invalid id, locale or text: 422; an absent override: the one fixed 404 (labels.ex)",
+      "a role without LabelsManage gets 403 first"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-29",
+    "area": "tenant-admin",
+    "title": "Define number sequences for documents",
+    "description": "The administrator defines a numbering (prefix, padding, period) for an entity type and lists the definitions.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "NumberSequencesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/number-sequences",
+        "code_refs": [
+          "lib/letflow/routers/number_sequences.ex:30"
+        ],
+        "result": "a definition is created (201)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/number-sequences",
+        "code_refs": [
+          "lib/letflow/routers/number_sequences.ex:40"
+        ],
+        "result": "definitions are listed ordered by key"
+      }
+    ],
+    "inputs": [
+      "key",
+      "entity type",
+      "prefix",
+      "padding",
+      "period"
+    ],
+    "outputs": [
+      "definition"
+    ],
+    "refusals": [
+      "a refusal is 422 with fixed text, echoes no value, writes nothing",
+      "other roles get 403 for valid and invalid bodies alike"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-30",
+    "area": "tenant-admin",
+    "title": "Export company data",
+    "description": "The administrator lists the datasets and downloads one as a file; each dataset enforces its own read scope.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "DataExport"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/data-export/datasets",
+        "code_refs": [
+          "lib/letflow/routers/data_export.ex:12"
+        ],
+        "result": "datasets are listed"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/data-export",
+        "code_refs": [
+          "lib/letflow/routers/data_export.ex:16"
+        ],
+        "result": "a dataset file is downloaded with no-store caching; x-export-truncated lists truncated datasets"
+      }
+    ],
+    "inputs": [
+      "dataset name",
+      "format"
+    ],
+    "outputs": [
+      "file"
+    ],
+    "refusals": [
+      "other roles get 403 (data_export_permission_test)",
+      "tenant authority comes from the token, never the body"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-31",
+    "area": "tenant-admin",
+    "title": "Read help topics, prints, official forms and master-data import screens",
+    "description": "The administrator uses the help topic of a screen, the print-template overrides, the official-form company templates and the master-data import page. Their data routes belong to other areas (documents, entities); here they are screens of the administration menu.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "HelpRead, DocumentPrintTemplatesManage, OfficialFormTemplatesManage, EntitiesRecordsImport"
+      }
+    ],
+    "preconditions": [
+      "signed in"
+    ],
+    "tasks": [
+      {
+        "actor": "any user",
+        "forms": [
+          "help/:topic"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/help/resolved",
+        "code_refs": [
+          "lib/letflow/routers/help.ex:111",
+          "web/src/router.tsx:167"
+        ],
+        "result": "the resolved help text for a topic is read"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/print-templates"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:152"
+        ],
+        "result": "the print-template override page opens"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/official-forms"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:154"
+        ],
+        "result": "the official-form template page opens"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/import"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/router.tsx:157"
+        ],
+        "result": "the master-data import page opens"
+      }
+    ],
+    "inputs": [
+      "topic"
+    ],
+    "outputs": [
+      "help text"
+    ],
+    "refusals": [
+      "each page is behind RequirePermission in web/src/router.tsx; a role without it does not reach it"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "gaps": [
+      "The three pages (admin/print-templates, admin/official-forms, admin/import) are screens only: their data routes belong to the documents and entities areas, and the runner has no browser step yet (uat-process-runner.md section 4: ui steps come after the MVP). GET /api/v1/help/resolved answers 404 by design when no help text is written for a screen, so it has no stable expected answer on a fresh tenant. Nothing is missing in the product."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-32",
+    "area": "tenant-admin",
+    "title": "Work my tasks in My Tasks",
+    "description": "A person opens their task inbox and claims and completes tasks addressed to them, their group or their role. A task that needs StockApprove cannot be claimed by a role without it (the storekeeper). Runner script: both actors open the inbox (200) and a task id that does not exist is refused 404 on claim and complete; claiming and completing a real posting task is played by BP-01 to BP-05 (wait_task uses the same routes).",
+    "actors": [
+      {
+        "role": "any task user",
+        "permission": "TasksList, TasksComplete"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TasksReadAll"
+      }
+    ],
+    "preconditions": [
+      "a running instance with a human task"
+    ],
+    "tasks": [
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/tasks/inbox",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:147"
+        ],
+        "result": "the inbox lists tasks: all of the tenant for a holder of TasksReadAll, otherwise only own/group/role tasks"
+      },
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tasks/:id/claim",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:163"
+        ],
+        "result": "a task is claimed"
+      },
+      {
+        "actor": "any task user",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:159"
+        ],
+        "result": "a task is completed"
+      }
+    ],
+    "inputs": [
+      "task id",
+      "completion body"
+    ],
+    "outputs": [
+      "completed task"
+    ],
+    "refusals": [
+      "a non-addressed user gets the plain 404 or 403 by policy",
+      "a role without StockApprove cannot claim or complete stock approve/post/reverse tasks (roles.md)"
+    ],
+    "scenario": "test/uat/processes/BP-TENANT-ADMIN-32-my-tasks-read-and-unknown-task.json",
+    "status": "implemented",
+    "automation": "runner"
+  },
+  {
+    "id": "BP-TENANT-ADMIN-33",
+    "area": "tenant-admin",
+    "title": "SECURITY: Permission matrix of tenant administration: each route, who may, who gets 403",
+    "description": "For every route of this area a caller of each role (TENANT_ADMIN, TENANT_AUDITOR, STOREKEEPER, PROCESS_DESIGNER, TASK_WORKER, no role) is tried; only the roles named in roles.md succeed, all others get 403 with an identical body and nothing changes. Runner scripts: SEC-ID-03 (BP-TENANT-ADMIN-44) and SEC-ID-07 play the roles TENANT_ADMIN and STOREKEEPER on the routes whose path the static check can match; the storekeeper is refused every one with 403.",
+    "actors": [
+      {
+        "role": "each role",
+        "permission": "see docs/roles.md matrix"
+      }
+    ],
+    "preconditions": [
+      "one user per role in the acceptance environment"
+    ],
+    "tasks": [
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/users",
+          "POST /api/v1/identity/users"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:219",
+          "lib/letflow/routers/identity.ex:202"
+        ],
+        "result": "UsersManage routes"
+      },
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "PATCH /api/v1/tenant/settings",
+          "POST /api/v1/tenant/modules"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_settings.ex:46",
+          "lib/letflow/routers/tenant_modules.ex:63"
+        ],
+        "result": "settings and module routes"
+      },
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "PUT /api/v1/approval-rules/:definition_name/:node_id",
+          "PUT /api/v1/ledger-settings/:registration"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/routers/ledger_settings.ex:36"
+        ],
+        "result": "approval and ledger switch routes (TENANT_ADMIN only)"
+      },
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/audit",
+        "code_refs": [
+          "lib/letflow/routers/audit.ex:155"
+        ],
+        "result": "audit read"
+      },
+      {
+        "actor": "each role",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/data-export",
+          "POST /api/v1/number-sequences",
+          "PUT /api/v1/labels/:message_id",
+          "PUT /api/v1/currencies/:code"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/data_export.ex:16",
+          "lib/letflow/routers/number_sequences.ex:30",
+          "lib/letflow/routers/labels.ex:33",
+          "lib/letflow/routers/currencies.ex:32"
+        ],
+        "result": "export, number sequences, labels, currencies writes"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "a role without the permission gets 403 and an identical body for valid and invalid input (INV-5)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-07-remaining-admin-routes-per-role.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/api/authorization_enforcement_test.exs",
+      "test/letflow/api/permission_matrix_test.exs",
+      "test/letflow/routers/tenant_auditor_routes_test.exs"
+    ],
+    "gaps": [
+      "Routes at the root of their prefix (PATCH /tenant/settings, PUT /tenant/scope-enforcement, role grants and scoped role grants) are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "TENANT_AUDITOR, PROCESS_DESIGNER and TASK_WORKER have no login in the actor roster (test/fixtures/uat/actors.yaml), so only TENANT_ADMIN and STOREKEEPER are played; the other roles are covered by test/letflow/api/permission_matrix_test.exs and authorization_enforcement_test.exs."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-34",
+    "area": "tenant-admin",
+    "title": "SECURITY: Cross-tenant read and write refused: a token of company A against company B's ids",
+    "description": "With a token of company A every id of company B (user, group, token, scope grant) is tried on read, change and delete routes: the answer is the same plain 404 as for an id that does not exist, and company B's data is unchanged. Runner scripts: SEC-ID-02 (BP-TENANT-ADMIN-43) plays the reads and the token revoke; SEC-ID-08 plays the user change, user status change, group delete and group member removal of another company's token: every answer equals the answer for an id that does not exist.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN of company A",
+        "permission": "UsersManage, GroupsManage, TokensManage, RoleScopeGrantsManage"
+      }
+    ],
+    "preconditions": [
+      "two companies with a known id each"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/users/:id",
+          "PATCH /api/v1/identity/users/:id",
+          "POST /api/v1/identity/users/:id/status"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:223",
+          "lib/letflow/routers/identity.ex:227",
+          "lib/letflow/routers/identity.ex:239"
+        ],
+        "result": "read and change a user of B"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "DELETE /api/v1/identity/groups/:id",
+          "DELETE /api/v1/identity/groups/:id/members/:user_id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:257",
+          "lib/letflow/routers/identity.ex:269"
+        ],
+        "result": "delete a group and a member of B"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "DELETE /api/v1/identity/tokens/:id",
+          "DELETE /api/v1/tenant/role-scope-grants/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286",
+          "lib/letflow/routers/tenant_role_scope_grants.ex:44"
+        ],
+        "result": "revoke a token and remove a scope grant of B"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/tenant/solutions",
+          "PATCH /api/v1/tenant/settings"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_solutions.ex:30",
+          "lib/letflow/routers/tenant_settings.ex:46"
+        ],
+        "result": "a tenant_id in the body or query is never read"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "uniform 404 (INV-5), a body tenant_id is ignored (INV-10)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-08-other-company-changes-refused.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/routers/req446_cross_tenant_denial_test.exs",
+      "test/letflow/routers/tenant_settings_scope_test.exs"
+    ],
+    "gaps": [
+      "The scoped role grant delete, the company settings change and the solution install of another company are not in a script: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail); they stay with test/letflow/routers/req446_cross_tenant_denial_test.exs and tenant_settings_scope_test.exs."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-35",
+    "area": "tenant-admin",
+    "title": "SECURITY: Privilege escalation and last-administrator guards",
+    "description": "Attempts to raise one's own power are refused: minting a token with a role the minter does not hold, minting from a token, rebinding a role as a non-admin, demoting or deactivating the last tenant-wide administrator under enforcement.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage, RolesRebind, UsersManage"
+      },
+      {
+        "role": "PROCESS_DESIGNER",
+        "permission": "RolesManage"
+      }
+    ],
+    "preconditions": [
+      "scope enforcement on for the last-admin step"
+    ],
+    "tasks": [
+      {
+        "actor": "token holder",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/tokens",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:278"
+        ],
+        "result": "mint a token from a token or with a foreign role"
+      },
+      {
+        "actor": "PROCESS_DESIGNER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/roles/:id/rebind",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:312"
+        ],
+        "result": "rebind a role"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/identity/users/:id/status",
+          "PATCH /api/v1/identity/users/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:239",
+          "lib/letflow/routers/identity.ex:227"
+        ],
+        "result": "deactivate or demote the last interactive tenant-wide administrator"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "403 for a token minter without a group admin source",
+      "403 for rebind by PROCESS_DESIGNER",
+      "409 last_tenant_wide_admin / last_interactive_tenant_wide_admin"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/routers/identity_role_rebind_test.exs",
+      "test/letflow/routers/identity_roles_guard_test.exs",
+      "test/letflow/scope_enforcement_flip_authority_test.exs"
+    ],
+    "gaps": [
+      "Minting a token with a token, and an administrator acting with an API token, need a request that carries a different Authorization than the actor's own: the runner has no per-step Authorization step kind (a runner task, not a product gap).",
+      "The last-administrator guards (409 last_tenant_wide_admin) need scope enforcement ON and a tenant with exactly one tenant-wide administrator; no QA tenant of the roster is in that state and a script must not demote the only administrator of a shared QA tenant. They stay with test/letflow/routers/identity_roles_guard_test.exs and scope_enforcement_flip_authority_test.exs.",
+      "What can be played is played in SEC-ID-07 step s10: a storekeeper's role rebind is refused 403."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-36",
+    "area": "tenant-admin",
+    "title": "SECURITY: Scope enforcement flip refused for tokens, scoped admins and a wrong transition",
+    "description": "A token, a scoped administrator and a platform admin without TENANT_ADMIN each try the flip; and off to on is tried directly.",
+    "actors": [
+      {
+        "role": "API token / scoped admin",
+        "permission": "none that qualify"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSecurityManage"
+      }
+    ],
+    "preconditions": [
+      "a company in mode off or shadow"
+    ],
+    "tasks": [
+      {
+        "actor": "token / scoped admin",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/scope-enforcement",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:54"
+        ],
+        "result": "PUT the mode"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/scope-enforcement",
+        "code_refs": [
+          "lib/letflow/routers/tenant_scope_enforcement.ex:54"
+        ],
+        "result": "off to on directly"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "uniform 403 for the first group",
+      "409 shadow_required for off to on"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/routers/tenant_scope_enforcement_refusal_kinds_test.exs",
+      "test/letflow/scope_enforcement_flip_authority_test.exs"
+    ],
+    "gaps": [
+      "PUT /tenant/scope-enforcement is a root route of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail).",
+      "The token and the scoped-administrator callers need credentials that are not in the roster, and the transition off to on changes the enforcement mode of a shared QA tenant; both stay with test/letflow/routers/tenant_scope_enforcement_refusal_kinds_test.exs and test/letflow/scope_enforcement_flip_authority_test.exs. Read-only parts of the same router are in SEC-ID-07 (integrity and token preconditions: administrator 200, storekeeper 403)."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-37",
+    "area": "tenant-admin",
+    "title": "SECURITY: Token and host lookup: wrong, expired, other-realm credential and unknown host",
+    "description": "A request without a credential, with a wrong or expired token, or with a token of another company, and a request to an unknown or inactive host, are refused with identical answers and nothing is changed.",
+    "actors": [
+      {
+        "role": "no credential / wrong credential",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [
+      "an expired token, a token of another company, an unknown host name"
+    ],
+    "tasks": [
+      {
+        "actor": "no credential",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/me",
+        "code_refs": [
+          "lib/letflow/routers/me.ex:113"
+        ],
+        "result": "protected read"
+      },
+      {
+        "actor": "unknown host",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/tenant-config",
+          "GET /api/mobile/tenant-config",
+          "GET /api/tenant-config/logo"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:231",
+          "lib/letflow/routers/mobile_tenant_config.ex:215",
+          "lib/letflow/routers/tenant_config.ex:235"
+        ],
+        "result": "public configuration of an unknown or inactive company"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "401 for a missing or invalid credential",
+      "the not-found answer for an unknown or inactive host (no hint about which part failed)"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/routers/tenant_config_host_test.exs",
+      "test/letflow/routers/tenant_config_inactive_test.exs",
+      "test/letflow/routers/mobile_tenant_config_inactive_test.exs"
+    ],
+    "gaps": [
+      "A missing, malformed or expired credential needs a request without the actor's token: the runner always sends the token of the named actor (no 'no credential' or 'crafted credential' step kind). A token of another company is played by SEC-ID-02 (BP-TENANT-ADMIN-43) and the host and realm lookup by SEC-ID-01 (BP-TENANT-ADMIN-42). The tenant-config routes are answered by host before sign-in and have no actor."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-38",
+    "area": "tenant-admin",
+    "title": "SECURITY: Uploads: logo, users xlsx and configuration bundle (type, size, content)",
+    "description": "Files of a wrong type, over the size limit, with a wrong signature, or malformed content are refused and nothing is stored.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSettingsManage, UsersManage"
+      }
+    ],
+    "preconditions": [
+      "logo upload flag on"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/tenant/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_logo.ex:25"
+        ],
+        "result": "logo with a wrong content type, wrong signature, oversize"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/users/import",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:212"
+        ],
+        "result": "xlsx with a bad row or not an xlsx"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/config-bundle/import",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config_bundle.ex:32"
+        ],
+        "result": "bundle with an unknown schema version or crafted keys"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "logo: only image/png, image/jpeg, image/webp",
+      "import: atomic, nothing created on any bad row",
+      "bundle: 422 naming keys, not secrets"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/routers/tenant_logo_test.exs",
+      "test/letflow/routers/identity_users_import_test.exs",
+      "test/letflow/routers/tenant_config_bundle_test.exs"
+    ],
+    "gaps": [
+      "The three upload routes take a multipart file body; the runner has no file-upload step kind (scripts/uat/README.md lists it as a runner task). The type, size and content refusals stay with test/letflow/routers/tenant_logo_test.exs, identity_users_import_test.exs and tenant_config_bundle_test.exs."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-39",
+    "area": "tenant-admin",
+    "title": "SECURITY: Old-address shared access: revoked, wrong value, wrong role",
+    "description": "The shared stock access is used after revoke, with a wrong value, and by a non-administrator; it must not reach any administration route. Runner scripts: SEC-ID-04 (revoke, rotate, storekeeper refused), SEC-OLD-01 (revoked and rotated value refused with one 401 body, malformed value 422), SEC-OLD-02 (value presented at another slug) and SEC-OLD-04 (the value on the standard API, which includes every administration route, is refused 401).",
+    "actors": [
+      {
+        "role": "shared access / STOREKEEPER",
+        "permission": "none for administration"
+      }
+    ],
+    "preconditions": [
+      "a created then revoked shared access"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:296"
+        ],
+        "result": "create shared access"
+      },
+      {
+        "actor": "shared access value",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/users",
+          "GET /api/v1/audit"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:219",
+          "lib/letflow/routers/audit.ex:155"
+        ],
+        "result": "call administration routes"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "403 for STOREKEEPER on shared access",
+      "a revoked or wrong value is refused",
+      "the shared access never reaches administration routes"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-04-shared-access-lifecycle.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/routers/shared_stock_access_test.exs",
+      "test/fixtures/uat/scenarios/qoimeks-token/qoimeks-token-5-storekeeper-refused-shared-access.yaml"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-40",
+    "area": "tenant-admin",
+    "title": "SECURITY: Approval and separation of duties negatives",
+    "description": "Self-approval is tried with the switch ON, with an API token and a service principal with the switch OFF, and a rule switch is tried by a non-administrator and by a token.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "TasksComplete"
+      }
+    ],
+    "preconditions": [
+      "a process step with distinct_from"
+    ],
+    "tasks": [
+      {
+        "actor": "same user",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.SeparationOfDuties.check"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "lib/letflow/engine/separation_of_duties.ex:82"
+        ],
+        "result": "complete a step that must be done by another person"
+      },
+      {
+        "actor": "STOREKEEPER / token",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38"
+        ],
+        "result": "switch the rule"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "completion refused with separation_of_duties when the rule applies",
+      "403 for a switch by a non-administrator, a token or a platform admin"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/engine/separation_of_duties_test.exs",
+      "test/letflow/approval_rules_default_test.exs",
+      "test/letflow/routers/approval_rules_test.exs"
+    ],
+    "gaps": [
+      "Self-approval with the switch ON is played by SEC-STOCK-06 and SEC-STOCK-07 (BP-STOCK). A rule switch by a non-administrator is played by SEC-ID-03 step s11 (storekeeper refused 403).",
+      "Self-approval with an API token or a service principal needs a request that carries a different Authorization than the actor's own (no such runner step kind), and a service principal that is not in the roster; these stay with test/letflow/engine/separation_of_duties_test.exs."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-41",
+    "area": "tenant-admin",
+    "title": "SECURITY: Crafted request bodies: unknown keys, tenant ids and write targets",
+    "description": "Bodies with unknown keys, a foreign tenant_id or crafted fields are refused or ignored; refusals write nothing and echo no submitted value.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TenantSettingsManage, NumberSequencesManage, ApprovalRulesManage, ModulesManage"
+      }
+    ],
+    "preconditions": [
+      "signed in as TENANT_ADMIN"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PATCH /api/v1/tenant/settings",
+        "code_refs": [
+          "lib/letflow/routers/tenant_settings.ex:46"
+        ],
+        "result": "settings with out-of-scope keys"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/number-sequences",
+        "code_refs": [
+          "lib/letflow/routers/number_sequences.ex:30"
+        ],
+        "result": "number sequence with extra keys"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "PUT /api/v1/approval-rules/:definition_name/:node_id",
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38"
+        ],
+        "result": "approval rule with no reason or unknown step"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tenant/solutions",
+        "code_refs": [
+          "lib/letflow/routers/tenant_solutions.ex:30"
+        ],
+        "result": "solution install with blank rationale"
+      }
+    ],
+    "inputs": [
+      "credential of the actor named in each task"
+    ],
+    "outputs": [
+      "the refusals, nothing written"
+    ],
+    "refusals": [
+      "out-of-scope keys are not stored (audited); 422 fixed text; nothing written"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "security": true,
+    "automation": "planned",
+    "existing_tests": [
+      "test/letflow/routers/tenant_settings_test.exs",
+      "test/letflow/routers/number_sequences_test.exs",
+      "test/letflow/routers/tenant_solutions_test.exs"
+    ],
+    "gaps": [
+      "POST /number-sequences is matched by the static check but is not scripted for crafted bodies: its router takes only the five definition keys (Map.take in lib/letflow/routers/number_sequences.ex), so an unknown key or a body tenant id is dropped, not refused, and a created definition has no delete route to undo it. The crafted-body targets PATCH /tenant/settings and POST /tenant/solutions are root routes of their prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The approval rule route is reached by SEC-ID-03 only with an empty body by the storekeeper (refused 403 before the body is read). Crafted write targets of the stock completion are played by BP-09 and BP-MASTER-13 (their own areas)."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-42",
+    "area": "tenant-admin",
+    "title": "SECURITY: Login lookup by host and company code: unknown host, bare host and unknown code answer the default",
+    "description": "Runner script of the public half of BP-TENANT-ADMIN-37. Before sign-in the web page asks which sign-in realm belongs to a host (?host=) or a company code (?realm=), the phone app asks by code (?slug=). A known company answers its own realm and company type. An unknown host, the bare platform host, no parameter and an unknown code answer the same default body (default realm, no company type, default branding); only the explicit company check (company_check=1 on the web, always on the phone) says found or not found. The logo of an unknown or missing code is the plain not-found answer.",
+    "actors": [
+      {
+        "role": "anyone before sign-in",
+        "permission": "none (public route)"
+      }
+    ],
+    "preconditions": [
+      "the company of the run exists and has a host registered",
+      "the unknown host and code are names no company holds"
+    ],
+    "tasks": [
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/tenant-config"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:231",
+          "lib/letflow/routers/tenant_config.ex:350"
+        ],
+        "result": "known host: the company's realm; unknown host, bare host, unknown code, no parameter: the same default body"
+      },
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/tenant-config/logo",
+        "code_refs": [
+          "lib/letflow/routers/tenant_config.ex:235"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for an unknown or missing code"
+      },
+      {
+        "actor": "anyone before sign-in",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/mobile/tenant-config",
+        "code_refs": [
+          "lib/letflow/routers/mobile_tenant_config.ex:215",
+          "lib/letflow/routers/mobile_tenant_config.ex:229"
+        ],
+        "result": "company_found true with the company's realm, or false with the default realm"
+      }
+    ],
+    "inputs": [
+      "company_host",
+      "unknown_host",
+      "bare_host",
+      "unknown_code"
+    ],
+    "outputs": [],
+    "refusals": [
+      "no error status for an unknown host or code: the default 200 body, identical to the no-parameter answer (anti-oracle)",
+      "the logo route answers 404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-01-login-host-and-realm-lookup.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-37",
+    "existing_tests": [
+      "test/letflow/routers/tenant_config_host_test.exs",
+      "test/letflow/routers/tenant_config_default_slug_test.exs",
+      "test/letflow/routers/mobile_tenant_config_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-43",
+    "area": "tenant-admin",
+    "title": "SECURITY: A signed-in administrator of another company: the token's company decides, this company's ids answer not-found",
+    "description": "Runner script of BP-TENANT-ADMIN-34. The company of an API request is the sign-in realm of the token (decision 0042, rejected alternative 9: no host-to-tenant binding by design), never the host: a valid token of company B sent to company A's address is company B, so it is not 401 and it sees only B. With it, A's user, A's stock document and A's API token (read, revoke) answer the same not-found as an id that does not exist, and A's token stays active.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN of company A",
+        "permission": "TokensManage, UsersManage, StockRead"
+      },
+      {
+        "role": "TENANT_ADMIN of company B",
+        "permission": "the same, in company B"
+      }
+    ],
+    "preconditions": [
+      "two companies with one tenant administrator each",
+      "company A has at least one stock document"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/me/memberships"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:133",
+          "lib/letflow/routers/me.ex:117"
+        ],
+        "result": "the memberships list only company B, on company A's address"
+      },
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/users/:id",
+          "GET /api/v1/modules/stock/documents/:id"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:223",
+          "lib/letflow/modules/stock/router.ex:717",
+          "lib/letflow/api/error.ex:199"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for A's ids and for an id that does not exist"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/identity/tokens",
+          "GET /api/v1/identity/tokens"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:278",
+          "lib/letflow/routers/identity.ex:282"
+        ],
+        "result": "A's own API token is minted and stays active after B's attempt"
+      },
+      {
+        "actor": "TENANT_ADMIN of company B",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/tokens/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286"
+        ],
+        "result": "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5); A's token is not revoked"
+      },
+      {
+        "actor": "TENANT_ADMIN of company A",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/tokens/:id",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:286"
+        ],
+        "result": "A revokes its own token (200, status revoked)"
+      }
+    ],
+    "inputs": [
+      "other_company"
+    ],
+    "outputs": [
+      "this_tenant_id"
+    ],
+    "refusals": [
+      "404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5) for every id of the other company: the same status, title and detail as an id that does not exist (the script compares status, title and detail, not the whole body)"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-02-other-company-token.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-34",
+    "existing_tests": [
+      "test/letflow/routers/req446_cross_tenant_denial_test.exs",
+      "test/letflow/plugs/auth_pipeline_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-44",
+    "area": "tenant-admin",
+    "title": "SECURITY: Administration routes per role: the tenant administrator reads them, the storekeeper is refused every read and change",
+    "description": "Runner script of part of BP-TENANT-ADMIN-33. The tenant administrator reads approval rules, ledger settings, audit, API tokens, users, groups and the shared access status (200). The storekeeper is refused the same reads and the changes of approval rule, ledger setting, API token and user with one identical 403, decided before the body is read. The approval rule and the ledger setting are unchanged at the end. Role grants, scoped role grants, company settings and the scope enforcement mode are NOT in the script yet: the runner's static check cannot match a route mounted under a two-part prefix (/tenant/...), see findings of T-2504.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ApprovalRulesManage, LedgerSettingsManage, AuditRead, TokensManage, UsersManage, GroupsManage"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none of them (closed core list)"
+      }
+    ],
+    "preconditions": [
+      "the company has at least one approval rule row and one ledger setting row"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "GET /api/v1/ledger-settings",
+          "GET /api/v1/audit",
+          "GET /api/v1/identity/tokens",
+          "GET /api/v1/identity/users",
+          "GET /api/v1/identity/groups",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:32",
+          "lib/letflow/routers/ledger_settings.ex:30",
+          "lib/letflow/routers/audit.ex:155",
+          "lib/letflow/routers/identity.ex:282",
+          "lib/letflow/routers/identity.ex:219",
+          "lib/letflow/routers/identity.ex:253",
+          "lib/letflow/routers/identity.ex:292"
+        ],
+        "result": "200 for each read"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "PUT /api/v1/approval-rules/:definition_name/:node_id",
+          "GET /api/v1/ledger-settings",
+          "PUT /api/v1/ledger-settings/:registration",
+          "GET /api/v1/audit",
+          "GET /api/v1/identity/tokens",
+          "POST /api/v1/identity/tokens",
+          "GET /api/v1/identity/users",
+          "POST /api/v1/identity/users",
+          "GET /api/v1/identity/groups",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/approval_rules.ex:38",
+          "lib/letflow/routers/ledger_settings.ex:36",
+          "lib/letflow/routers/identity.ex:278",
+          "lib/letflow/routers/identity.ex:202",
+          "lib/letflow/plugs/authorize.ex:121",
+          "lib/letflow/api/authorization.ex:2317"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the storekeeper on every listed read and change"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-03-admin-routes-per-role.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-33",
+    "existing_tests": [
+      "test/letflow/api/authorization_enforcement_test.exs",
+      "test/letflow/modules/stock/storekeeper_test.exs",
+      "test/letflow/routers/tenant_auditor_routes_test.exs"
+    ],
+    "gaps": [
+      "Role grants, scoped role grants, company settings and the scope enforcement mode are root routes of a two-part prefix: the runner's static check cannot match a route mounted at the root of a two-part prefix (/tenant/settings, /tenant/scope-enforcement, /tenant/solutions, /tenant/role-grants, /tenant/role-scope-grants), see scripts/uat/check_processes.py Routes.match (a route that is only '/' or only a wildcard gets no literal tail). The other routes of the same family are in SEC-ID-07."
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-45",
+    "area": "tenant-admin",
+    "title": "SECURITY: Shared stock access value lifecycle: create, use, rotate, revoke, refused after revoke, never in the status",
+    "description": "Runner script of BP-TENANT-ADMIN-15 and BP-TENANT-ADMIN-39. The tenant administrator creates the shared access value (shown once), the old phone address accepts it, the administrator rotates it (the new value works, the status shows the rotation), revokes it, and the old address then refuses it with 401. The status never contains the value. The storekeeper is refused reading, creating and revoking it. The script starts only when no value exists, so a value in use is never revoked by a run.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TokensManage (interactive sign-in, tenant-wide)"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none"
+      },
+      {
+        "role": "old phone app",
+        "permission": "the shared access value"
+      }
+    ],
+    "preconditions": [
+      "the company is listed for shared access on the deployment and no value exists",
+      "scope enforcement of the company is off"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/identity/shared-stock-access",
+          "POST /api/v1/identity/shared-stock-access",
+          "DELETE /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:1086"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/identity/shared-stock-access",
+          "GET /api/v1/identity/shared-stock-access"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:296",
+          "lib/letflow/routers/identity.ex:1096",
+          "lib/letflow/routers/identity.ex:1108"
+        ],
+        "result": "201 with the value once (create, then rotate); the status shows exists, created_by, rotated_at and never the value"
+      },
+      {
+        "actor": "old phone app",
+        "forms": [],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "lib/letflow/routers/shared_stock_access.ex:149",
+          "lib/letflow/routers/shared_stock_access.ex:85",
+          "lib/letflow/routers/shared_stock_access.ex:106"
+        ],
+        "result": "catalog and movements read with the value; after revoke 401 'invalid or expired bearer token'"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "DELETE /api/v1/identity/shared-stock-access",
+        "code_refs": [
+          "lib/letflow/routers/identity.ex:300",
+          "lib/letflow/routers/identity.ex:1134",
+          "lib/letflow/shared_stock_access.ex:99"
+        ],
+        "result": "204; a second revoke 404 Not Found, detail 'the requested resource was not found' (one body for every miss, INV-5)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the storekeeper",
+      "401 at the old address after revoke",
+      "404 for a revoke with nothing to revoke"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-04-shared-access-lifecycle.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "refines": "BP-TENANT-ADMIN-39",
+    "existing_tests": [
+      "test/letflow/routers/shared_stock_access_test.exs",
+      "test/letflow/routers/tenant_admin_routes_test.exs",
+      "test/fixtures/uat/scenarios/qoimeks-token/qoimeks-token-1-admin-revokes-then-old-address-refused.yaml"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-46",
+    "area": "tenant-admin",
+    "title": "SECURITY: Platform routes need the platform role; the platform administrator is kept out of a company's approval and ledger switches",
+    "description": "The company list, one company's record (also the caller's own), the company create and the backup status are refused to a tenant administrator and a storekeeper with one 403; the platform administrator signed in to the platform company reads them. The platform administrator is refused the approval rules and the ledger settings of a company (explicit false clauses). Overlap: the tenant-administrator refusals over the wider platform route list are BP-PLATFORM-16 (test/uat/processes/BP-PLATFORM-16-platform-routes-refused.json); this script adds the storekeeper's refusals, the platform administrator's allowed reads and the platform administrator's refusal on the company switches.",
+    "actors": [
+      {
+        "role": "PLATFORM_ADMIN (platform company)",
+        "permission": "TenantsManage"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "no TenantsManage"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none"
+      }
+    ],
+    "preconditions": [
+      "a platform administrator account of the platform company"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN / STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/:slug",
+          "POST /api/v1/tenants",
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/tenants.ex:213",
+          "lib/letflow/routers/tenants.ex:217",
+          "lib/letflow/routers/tenants.ex:209",
+          "lib/letflow/routers/platform_status.ex:25"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/me",
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/:slug",
+          "GET /api/v1/platform-status/backup"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/me.ex:113",
+          "lib/letflow/routers/tenants.ex:213",
+          "lib/letflow/routers/tenants.ex:217",
+          "lib/letflow/routers/platform_status.ex:25"
+        ],
+        "result": "200; me shows platform_tenant true"
+      },
+      {
+        "actor": "PLATFORM_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "GET /api/v1/approval-rules",
+          "GET /api/v1/ledger-settings"
+        ],
+        "code_refs": [
+          "lib/letflow/api/authorization.ex:2119",
+          "lib/letflow/api/authorization.ex:2122"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) for the tenant administrator and the storekeeper on platform routes, and for the platform administrator on the company's approval and ledger switches"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-05-platform-routes-need-platform-role.json",
+    "status": "implemented",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/api/platform_admin_outside_platform_test.exs",
+      "test/letflow/routers/tenants_test.exs",
+      "test/letflow/routers/platform_status_test.exs"
+    ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-47",
+    "area": "tenant-admin",
+    "title": "SECURITY: The storekeeper does not hold the stock approve permission; the tenant administrator does (decision 0093)",
+    "description": "Decision 0093: the stock approve, post and reverse tasks require StockApprove, checked at claim and completion before the addressing rule; a holder-less caller gets the task-not-found answer. The script checks the permission through the approval-access route (storekeeper 403, administrator can_approve true) and the permission lists. NOT in the script: the storekeeper's direct claim and completion of the administrator's posting task by its id, and its absence from the storekeeper's My Tasks: the runner cannot hand one actor the id of a task found in another actor's inbox and has no 'absent from a list' check (see findings of T-2504); covered by test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "TasksComplete, StockPost, StockReverse; not StockApprove"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "StockApprove"
+      }
+    ],
+    "preconditions": [
+      "module stock installed"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/approval-access",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:475"
+        ],
+        "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/approval-access",
+        "code_refs": [
+          "lib/letflow/modules/stock/router.ex:475",
+          "lib/letflow/modules/stock/stock.ex:467",
+          "lib/letflow/api/authorization.ex:2137"
+        ],
+        "result": "200 can_approve true"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "POST /api/v1/tasks/:id/claim",
+        "code_refs": [
+          "lib/letflow/tasks.ex:574",
+          "lib/letflow/tasks.ex:750"
+        ],
+        "result": "claim or completion of an approve/post/reverse task refused with the task-not-found answer (not in the runner script yet)"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 Forbidden, detail 'insufficient permissions' (one body for every refusal) on approval-access for the storekeeper",
+      "task-not-found for the storekeeper's claim or completion of a StockApprove task"
+    ],
+    "scenario": "test/uat/processes/SEC-ID-06-storekeeper-cannot-approve.json",
+    "status": "partial",
+    "security": true,
+    "automation": "runner",
+    "existing_tests": [
+      "test/letflow/modules/stock/stock_approve_tasks_test.exs",
+      "test/letflow/routers/tasks_required_permission_test.exs",
+      "test/letflow/modules/stock/storekeeper_test.exs"
+    ],
+    "gaps": [
+      "The storekeeper's direct claim and completion of the administrator's posting task by its id, and the task's absence from the storekeeper's My Tasks, need the id of a task found in another actor's inbox and an 'absent from a list' check: the runner has neither (runner tasks, not a product gap). They stay with test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs."
+    ]
+  }
+]
