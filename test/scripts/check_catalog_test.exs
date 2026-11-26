@@ -417,4 +417,57 @@ defmodule Letflow.Scripts.CheckCatalogTest do
     assert result["executed_by"] == %{"direct" => 2, "definition" => 1, "n/a" => 0}
     assert [%{"executed_by" => %{"direct" => 2, "definition" => 1, "n/a" => 0}}] = result["areas"]
   end
+
+  # T-2543: chain coverage. Every SEC file is listed in exactly one of the two release-candidate chains.
+  defp chain_fixture(dir, chains) do
+    build(dir)
+    catalog(dir, [entry()])
+    write(dir, "test/uat/processes/SEC-AAA-01-one.json", "{}")
+    write(dir, "test/uat/processes/SEC-AAA-02-two.json", "{}")
+
+    for {name, entries} <- chains do
+      write(
+        dir,
+        "test/uat/chains/#{name}.json",
+        Jason.encode!(%{"id" => name, "processes" => entries})
+      )
+    end
+  end
+
+  test "chain coverage: every SEC file in exactly one chain (string and object entries) passes",
+       %{tmp_dir: dir} do
+    chain_fixture(dir, %{
+      "rc-sss" => ["SEC-AAA-01"],
+      "rc-sec" => [%{"process" => "SEC-AAA-02", "dry_run" => true}]
+    })
+
+    {out, code} = run(dir)
+    assert code == 0, out
+    assert out =~ "check_catalog: PASS"
+  end
+
+  test "chain coverage: a SEC file in no chain fails and is named", %{tmp_dir: dir} do
+    chain_fixture(dir, %{"rc-sss" => ["SEC-AAA-01"], "rc-sec" => []})
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ "SEC-AAA-02-two.json: listed in none of rc-sss, rc-sec"
+  end
+
+  test "chain coverage: a SEC file in both chains fails and is named", %{tmp_dir: dir} do
+    chain_fixture(dir, %{
+      "rc-sss" => ["SEC-AAA-01", "SEC-AAA-02"],
+      "rc-sec" => [%{"process" => "SEC-AAA-02"}]
+    })
+
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ "SEC-AAA-02-two.json: listed in more than one chain (rc-sss, rc-sec)"
+  end
+
+  test "chain coverage: an entry naming a missing file fails", %{tmp_dir: dir} do
+    chain_fixture(dir, %{"rc-sss" => ["SEC-AAA-01", "SEC-ZZZ-09"], "rc-sec" => ["SEC-AAA-02"]})
+    {out, code} = run(dir)
+    assert code == 1
+    assert out =~ "entry SEC-ZZZ-09 names no file in test/uat/processes"
+  end
 end

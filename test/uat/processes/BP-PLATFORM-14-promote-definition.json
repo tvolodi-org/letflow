@@ -1,0 +1,131 @@
+{
+  "id": "BP-PLATFORM-14-promote-definition",
+  "bp_entry": "BP-PLATFORM-14",
+  "title": "Promote a tested process definition into the caller's own company: the REFUSAL half on QA (no promotion is performed)",
+  "description": "The promotion copies the ACTIVE version of a definition from a test company into the caller's own company and activates it there; the destination is never a request value. The file proves what can be proved without changing a company: the platform administrator naming a source that does not exist (a random id, or something that is not an id) is answered 404; a company administrator naming another company (the platform fixture, when it exists) or a random id gets the identical zero-detail 404, so a prober learns nothing; a caller without a sign-in gets 401. The step that names a random well-formed source id as the platform administrator (s1) is BLOCKED by a PRODUCT DEFECT: QA answers 500 internal-error where the entry promises 404 (the malformed source id of s2 does answer 404); the step keeps the expected answer 404 and carries a blocked_by that names the defect. The process key is a throwaway name that no definition has, so even a source that existed would have nothing to copy. NOT automated, on purpose: the success path (201 with the promoted definition) activates a definition in the caller's own company, a new version that cannot be removed by a script, and the only own company with a source on QA is the platform company itself; it is covered by test/letflow/routers/tenants_test.exs and platform_scope_routes_test.exs. GAP: BP-PLATFORM-16 already carries the foreign-source refusals as part of the whole refusal matrix; this file is the entry's own file. Nothing is created or changed, so there is no cleanup and no residue; the fixture tenant is only READ (never created) and its steps are skipped with 'requires fixture_id' while it does not exist.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the platform fixture tenant by its fixed slug (404 is an answer, not a failure). It is only READ here: this file never creates, changes or removes it.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The platform administrator names a source company that does not exist (a fresh random id): 404, nothing is read or written (the destination is always the caller's own company).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${uuid1}/promote/uat-no-such-process"
+      },
+      "expect_refused": {
+        "status": 404
+      },
+      "blocked_by": "product defect, found by the dry run on 2026-11-26: the platform administrator naming a well-formed source id that no company has gets 500 internal-error instead of the 404 the entry promises (schema_name_for_tenant derives a schema name for any UUID and the read of the missing schema raises); remove this marker when the defect is fixed"
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A source that is not even an id: the same 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/not-a-tenant-id/promote/uat-no-such-process"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "says": "A company administrator names ANOTHER company (the platform fixture) as the source: the zero-detail 404, before any read.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${fixture_id}/promote/uat-no-such-process"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "says": "A company administrator names a random id: the identical 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${uuid1}/promote/uat-no-such-process"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "says": "A company administrator names something that is not an id: the identical 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/not-a-tenant-id/promote/uat-no-such-process"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "anonymous",
+      "says": "Without a sign-in the promotion is refused: 401.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${uuid1}/promote/uat-no-such-process"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

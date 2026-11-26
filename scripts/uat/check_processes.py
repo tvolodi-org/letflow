@@ -167,6 +167,9 @@ def calls_of(step) -> list:
         out.append(("GET", str(do["assert_only"].get("path", ""))))
     if isinstance(do.get("repeat"), dict):
         out.append((str(do["repeat"].get("api", "")), str(do["repeat"].get("path", ""))))
+    if isinstance(do.get("sweep"), dict):
+        out.append(("GET", "/api/v1/definitions"))
+        out.append(("DELETE", "/api/v1/definitions/${id}"))
     for call in do.get("parallel") or []:
         if isinstance(call, dict):
             out.append((str(call.get("api", "")), str(call.get("path", ""))))

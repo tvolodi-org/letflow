@@ -58,7 +58,7 @@ class Scenario(unittest.TestCase):
         self.assertTrue(self.steps["B7"]["do"]["path"].startswith("/api/v1/dlq"))
         self.assertEqual(self.steps["B8"]["do"]["path"], "/api/v1/dlq/${dlq_id}/retry")
         self.assertEqual(self.steps["B9"]["expect"]["json"]["$.steps[1].attempts"], {"regex": "^[2-9]$"})
-        self.assertEqual(self.steps["B3"]["do"]["body"]["initial_variables"]["slug"], "x")
+        self.assertEqual(self.steps["B3"]["do"]["body"]["initial_variables"]["slug"], "X-${uuid2}")  # T-2897: unique per run (the call key is the slug)
 
     def test_unrunnable_steps_are_not_run_with_an_owner(self):
         for sid in ("D1", "D2", "D3", "D4"):
@@ -73,7 +73,7 @@ class Scenario(unittest.TestCase):
         self.assertEqual(blocked, {"D1", "D2", "D3", "D4"})
 
     def test_cleanup_uses_delete_for_throwaways_and_the_three_leftovers(self):
-        by_path = {c["do"]["path"]: c for c in self.process["cleanup"] if c["do"]["api"] == "DELETE"}
+        by_path = {c["do"]["path"]: c for c in self.process["cleanup"] if c["do"].get("api") == "DELETE"}
         for key in ("defX", "defY"):
             c = by_path["/api/v1/definitions/${%s}" % key]
             self.assertEqual(c["requires"], [key])
@@ -81,6 +81,9 @@ class Scenario(unittest.TestCase):
             c = by_path["/api/v1/definitions/" + uid]
             self.assertIn(404, c["expect"]["status"])
             self.assertIn(409, c["expect"]["status"])
+        sweeps = [c["do"]["sweep"] for c in self.process["cleanup"] if "sweep" in c["do"]]  # T-2898
+        self.assertEqual(sweeps, [{"prefix": "uat-tmp-designer-", "exclude_contains": "${run_id}"},
+                                  {"draft_versions_of": "platform.register_tenant", "exclude_contains": "${run_id}"}])  # T-2917
         # every definition this run creates is a throwaway name
         for name in re.findall(r'"name": "([^"]+)"', self.text):
             self.assertTrue(name.startswith("uat-tmp-designer-"), name)

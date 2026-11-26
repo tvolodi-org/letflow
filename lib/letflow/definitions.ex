@@ -2182,6 +2182,19 @@ defmodule Letflow.Definitions do
 
   defp run_hard_delete(id, prefix) do
     Repo.transaction(fn ->
+      # T-2890: variable_schemas.definition_id is ON DELETE RESTRICT, so a draft made by
+      # create-with-schemas or by import could not be deleted (FK violation -> 500). Its
+      # declared schemas go first, in this transaction, only for a row that is still DRAFT.
+      VariableSchema
+      |> where(
+        [v],
+        v.definition_id in subquery(
+          from(d in ProcessDefinition, where: d.id == ^id and d.status == :draft, select: d.id)
+          |> Map.put(:prefix, prefix)
+        )
+      )
+      |> Repo.delete_all(prefix: prefix)
+
       ProcessDefinition
       |> where([d], d.id == ^id and d.status == :draft)
       |> Repo.delete_all(prefix: prefix)

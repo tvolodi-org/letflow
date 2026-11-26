@@ -24,6 +24,8 @@ import time
 
 # (label, regex) pairs; the label is what the log shows.
 DOWNLOAD_FLAKE_PATTERNS = [
+    # 429 first: a Maven 429 line also says "Could not GET".
+    ("429", r"(?i)(status code |HTTP(/\d(\.\d)?)? |response code: |error: )429\b|Too Many Requests"),
     ("Could not resolve", r"Could not resolve"),
     ("Could not find", r"Could not find "),
     ("Could not GET", r"Could not GET"),
@@ -33,6 +35,10 @@ DOWNLOAD_FLAKE_PATTERNS = [
     ("ECONNRESET", r"ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection reset"),
 ]
 RETRY_PAUSE_S = 15
+# T-2910: a 429 from a package repository (Maven) is rate limiting: wait longer each time
+# (pause * 2^n: 15, 30, 60 s... by default 30 s base below) and try up to 3 more times.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_PAUSE_S = 30
 MIN_REMAINING_AFTER_PAUSE_S = 60
 
 
@@ -162,8 +168,8 @@ def run_once(command, remaining, capture):
     return code, "".join(tail), timed_out
 
 
-def note_retry(label):
-    message = f"retry 1/1: {label}"
+def note_retry(label, n=1, total=1):
+    message = f"retry {n}/{total}: {label}"
     print(message, flush=True)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -189,13 +195,23 @@ def main():
     if not retry or code == 0 or timed_out:
         return code
     label = match_download_flake(tail)
-    pause = float(os.environ.get("CI_RETRY_PAUSE_S", RETRY_PAUSE_S))
-    remaining = float(deadline) - time.time() - pause
-    if label is None or remaining < float(os.environ.get("CI_RETRY_MIN_REMAINING_S", MIN_REMAINING_AFTER_PAUSE_S)):
-        return code
-    note_retry(label)
-    time.sleep(pause)
-    code, _tail, _timed_out = run_once(command, float(deadline) - time.time(), True)
+    min_remaining = float(os.environ.get("CI_RETRY_MIN_REMAINING_S", MIN_REMAINING_AFTER_PAUSE_S))
+    total = RATE_LIMIT_RETRIES if label == "429" else 1
+    for n in range(1, total + 1):
+        if label == "429":
+            pause = float(os.environ.get("CI_RATE_LIMIT_PAUSE_S", RATE_LIMIT_PAUSE_S)) * 2 ** (n - 1)
+        else:
+            pause = float(os.environ.get("CI_RETRY_PAUSE_S", RETRY_PAUSE_S))
+        if label is None or float(deadline) - time.time() - pause < min_remaining:
+            return code
+        note_retry(label, n, total)
+        time.sleep(pause)
+        code, tail, timed_out = run_once(command, float(deadline) - time.time(), True)
+        if code == 0 or timed_out:
+            return code
+        label = match_download_flake(tail) if label == "429" else None
+        if label != "429":
+            return code
     return code
 
 

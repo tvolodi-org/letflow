@@ -198,7 +198,8 @@ defmodule Letflow.Plugs.AdmissionTest do
           stack: []
         })
 
-      assert result == bare_conn
+      # T-2890: an unhandled exception now also answers the typed 500 (INV-8)
+      assert result.status == 500
 
       # Both slots freed -- exactly once each (release/2 is idempotent, so a
       # double-release wouldn't show up as an error here, but a NEVER-released
@@ -219,7 +220,8 @@ defmodule Letflow.Plugs.AdmissionTest do
           stack: []
         })
 
-      assert result == bare_conn
+      # T-2890: an unhandled exception now also answers the typed 500 (INV-8)
+      assert result.status == 500
     end
   end
 

@@ -575,6 +575,10 @@ How to run the RC:
 `{wait_task: {for_document, step, within_s?, interval_s?}, claim?, complete?: {body}}`,
 `{wait_mail: {recipient, subject, within_s?, interval_s?, subject_contains?, trap_url?}}`,
 `{assert_only: {path, headers?}}`,
+`{sweep: {prefix, exclude_contains: "${run_id}", accept?}}` (T-2898: DELETEs the definitions on the platform tenant
+whose name starts with the throwaway prefix `uat-tmp-<kind>-` and does not contain this run's id, listed through
+`GET /api/v1/definitions?name=<prefix>` paged; one line per definition, `accept` default 200/204/404/409, any other
+status fails; give it `expect: {status: 200}`),
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
