@@ -1182,6 +1182,12 @@
               "json_schema": {
                 "type": "string"
               }
+            },
+            {
+              "variable_key": "slug2",
+              "json_schema": {
+                "type": "string"
+              }
             }
           ]
         }
