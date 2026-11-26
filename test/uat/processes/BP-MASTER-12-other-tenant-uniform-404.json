@@ -1,0 +1,373 @@
+{
+  "id": "BP-MASTER-12",
+  "bp_entry": "BP-MASTER-12",
+  "title": "Another company's administrator cannot reach this company's master data: the plain not-found, nothing changes",
+  "description": "The administrator of this company creates a place (zone), receives a code and assigns the code to the place. The administrator of another company (a TENANT_ADMIN who signs in to their own company and sends the requests to this company's address) then tries every kind of write that takes an id on those two records: change, move and retire the place; release, change the value of, retire and assign the code. The company of a request is the sign-in realm of the token, never the host, so every one of these answers the same 404 as an id that does not exist (the same title and detail as the calls with an unknown id on a place, a code and an org unit, steps s12 to s14: INV-5, no way to tell a record of another company from a missing one). A body that carries a tenant id is not a way round: it is refused as an unknown key (BP-MASTER-13). Finally this company's administrator looks again: the code still resolves to the place, and the place can still be changed, so none of the refused calls wrote anything. Org records are covered by the unknown-id step s14 and by the Elixir route tests (org router_test); this file does not create org data. Precondition (UAT assumption, to be confirmed by the process owner): the other company has the master data modules installed or not; both give the same 404, so the file does not depend on it. Needs modules locations and codes on this tenant. The cleanup retires the code and the place.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "other_company"
+  ],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {
+      "other_company": "sss-rehearsal2"
+    }
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s1",
+          "code": "UAT-${run_id}-12",
+          "name": "UAT cross-tenant place",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "node": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s2",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-12",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "code_id": "$[0].code_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/assign",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s3",
+          "target_type": "location_node",
+          "target_id": "${node}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "assigned"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/me/memberships"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.memberships[0].tenant_slug": "${other_company}",
+          "$.memberships[1]": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${node}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s5",
+          "name": "HIJACKED"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/move",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s6",
+          "parent_id": null
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s7"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/release",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s8"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/value",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s9",
+          "value": "HIJACKED-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s10"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/assign",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s11",
+          "target_type": "location_node",
+          "target_id": "${node}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${missing_id}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s12",
+          "name": "X"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${missing_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s13"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/org/units/${missing_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s14"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found",
+          "$.detail": "the requested resource was not found"
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/resolve",
+        "body": {
+          "value": "UAT-${run_id}-12"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "assigned",
+          "target_type": "location_node",
+          "target_id": "${node}"
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${node}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12s16",
+          "name": "UAT cross-tenant place checked"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "name": "UAT cross-tenant place checked",
+          "active": true
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "code_id"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-12c2"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node"
+      ]
+    }
+  ]
+}

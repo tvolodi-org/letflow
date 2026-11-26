@@ -1,0 +1,26 @@
+{
+  "id": "BP-DESIGNER-22",
+  "bp_entry": "BP-DESIGNER-22",
+  "title": "SECURITY: a storekeeper cannot issue a public-read handle",
+  "description": "The storekeeper (no PublicReadHandlesIssue) is refused 403 when asking for a handle. Only the refusal half is played: issuing a handle as the administrator writes a row that has no revoke route, and the public address is not a route the runner knows. Nothing is written.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/public-read-handles", "body": {}},
+      "expect_refused": {"status": 403}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
