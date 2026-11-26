@@ -176,7 +176,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
       ? e('lock.editorDirty')
       : error?.kind === 'module'
         ? e('save.moduleOwned')
-        : blocking.length > 0
+        : blocking.length > 0 && savedProblems === 0
           ? e('save.blocked', { count: blocking.length })
           : null
 

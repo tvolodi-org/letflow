@@ -353,6 +353,7 @@ describe('T-2812 saved state is never green with open problems', () => {
     const banner = await screen.findByTestId('edit-saved-with-problems')
     expect(banner.textContent).toMatch(/1 open problem/)
     expect(screen.queryByTestId('edit-saved')).toBeNull()
+    expect(screen.queryByText(/before saving/i)).toBeNull()
     await waitFor(() => expect(onProblems).toHaveBeenLastCalledWith(1))
   })
 })

@@ -73,7 +73,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Publish saved version',
     publishing: 'Publishing…',
     saveBeforePublish: 'Save your changes before publishing.',
-    fixBeforePublish: 'The saved draft has {count} open problems. Fix them and save before publishing.',
+    fixBeforePublish: 'Open problems in the saved draft: {count}. Fix them and save before publishing.',
     published: 'This version is active. New instances will use it.',
     publishFailed: 'Publishing failed. Review the problems below and try again.',
     exportButton: 'Export',
