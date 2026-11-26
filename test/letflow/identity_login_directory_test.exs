@@ -783,9 +783,10 @@ defmodule Letflow.IdentityLoginDirectoryTest do
       %{tenant: Fx.tenant!()}
     end
 
-    test "harness control: an ordinary Repo query binding an email IS logged at :debug", %{
-      tenant: tenant
-    } do
+    test "harness control: a SELECT binding an email is logged at :debug with its parameters redacted",
+         %{
+           tenant: tenant
+         } do
       email = "control-logged@example.test"
 
       {_, entries} =
@@ -798,7 +799,11 @@ defmodule Letflow.IdentityLoginDirectoryTest do
 
       log = LoggerCollector.text(entries)
 
-      assert log =~ email
+      # Since T-2740 the filter redacts SELECT parameters too: the statement is logged
+      # (the harness captures), the bound address is not.
+      assert log =~ "SELECT"
+      assert log =~ "[redacted]"
+      refute log =~ email
     end
 
     test "create, email change, deactivation and JIT log no directory query, email-key or advisory-lock parameter",
