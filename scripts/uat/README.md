@@ -93,7 +93,7 @@ Remember the id of the document as `doc_id`."*
   tells you when an address does not exist.
 * `${name}` is replaced by the value of that name: an input, something an earlier step saved, or one of the
   built-in names `${tenant}`, `${TENANT}`, `${run_id}` (the id of this run: put it into notes so that test data is
-  recognisable), `${now_utc}` (the time now), `${tomorrow_utc}` (24 hours later: the end of a window that must be open during the run), `${old_base_url}` and `${uuid1}` .. `${uuid12}`. Each UUID name is a
+  recognisable), `${now_utc}` (the time now), `${old_base_url}` and `${uuid1}` .. `${uuid12}`. Each UUID name is a
   fresh UUID for the run, different from the other names, and keeps the same value wherever it is used, including a
   `repeat` retry. You may add and subtract numbers: `${balance_before + quantity}`.
   Using a name that nobody gave or saved is a mistake that the static check reports.

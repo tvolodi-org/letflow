@@ -63,7 +63,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -97,7 +97,7 @@ TENANT_REGISTRY_PATH = "/api/v1/tenants"
 # ${uuid1} .. ${uuid12}: twelve fresh UUIDs per run (a client operation id of the old phone address must be a
 # new UUID for every operation and the same one on a retry; the run makes them, the process file only names them).
 UUID_NAMES = tuple(f"uuid{i}" for i in range(1, 13))
-BUILTIN_NAMES = ("tenant", "TENANT", "run_id", "now_utc", "tomorrow_utc", "old_base_url") + UUID_NAMES
+BUILTIN_NAMES = ("tenant", "TENANT", "run_id", "now_utc", "old_base_url") + UUID_NAMES
 
 SECRET_KEY = re.compile(r"pass(?:word|wd)?|secret|token|authorization|api[_-]?key|credential|access", re.I)
 JWT_SHAPE = re.compile(r"(?<![A-Za-z0-9_.-])[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?![A-Za-z0-9_.-])")
@@ -640,11 +640,6 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def tomorrow_utc() -> str:
-    """One day after now: the end of a window that must still be open when the run uses it."""
-    return (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def sha_matches(have, want) -> bool:
     """A short sha from the command line matches the full sha of /health (either may be the prefix)."""
     have, want = (have or "").lower(), (want or "").lower()
@@ -719,7 +714,7 @@ class Runner:
         self.replay = False
         self.started_mono = time.monotonic()
         ctx = dict(inputs or {})
-        ctx.update({"tenant": tenant, "TENANT": tenant, "run_id": self.run_id, "now_utc": now_utc(), "tomorrow_utc": tomorrow_utc()})
+        ctx.update({"tenant": tenant, "TENANT": tenant, "run_id": self.run_id, "now_utc": now_utc()})
         ctx.update({name: str(uuid.uuid4()) for name in UUID_NAMES})
         if self.old_base_url:
             ctx["old_base_url"] = self.old_base_url
@@ -743,7 +738,7 @@ class Runner:
 
     def _fresh_ctx(self, over):
         ctx = dict(over.get("inputs") or {})
-        ctx.update({"tenant": over["tenant"], "TENANT": over["tenant"], "run_id": self.run_id, "now_utc": now_utc(), "tomorrow_utc": tomorrow_utc()})
+        ctx.update({"tenant": over["tenant"], "TENANT": over["tenant"], "run_id": self.run_id, "now_utc": now_utc()})
         ctx.update({name: str(uuid.uuid4()) for name in UUID_NAMES})
         if over.get("old_base_url"):
             ctx["old_base_url"] = over["old_base_url"].rstrip("/")

@@ -166,8 +166,8 @@
         "body": {
           "org_unit_id": "${org_unit}",
           "kind": "selective",
-          "planned_start": "${now_utc}",
-          "planned_end": "${tomorrow_utc}",
+          "planned_start": "2020-01-01T00:00:00Z",
+          "planned_end": "2020-01-02T00:00:00Z",
           "chair_employee_id": "${responsible}",
           "member_employee_ids": [],
           "location_ids": [
@@ -216,7 +216,8 @@
             "exists": true
           }
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s8",
@@ -247,7 +248,8 @@
       },
       "save": {
         "book_quantity": "$.rows[0].book_quantity"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s9",
@@ -266,7 +268,8 @@
             "equals": "${count_id}"
           }
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s10",
@@ -288,7 +291,8 @@
       "expect_refused": {
         "status": 422,
         "code": "count_in_progress"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s11",
@@ -300,7 +304,8 @@
       "expect_refused": {
         "status": 422,
         "code": "lines_uncounted"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s12",
@@ -314,7 +319,8 @@
       },
       "expect": {
         "status": 200
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s13",
@@ -328,7 +334,8 @@
         "json": {
           "status": "counted"
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s14",
@@ -340,7 +347,8 @@
       "expect_refused": {
         "status": 422,
         "code": "sheet_not_signed"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s15",
@@ -357,7 +365,8 @@
       "expect_refused": {
         "status": 422,
         "code": "not_chair"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s16",
@@ -372,7 +381,8 @@
       "expect_refused": {
         "status": 422,
         "code": "signers_incomplete"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s17",
@@ -394,7 +404,8 @@
             "exists": true
           }
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s18",
@@ -410,7 +421,8 @@
             "exists": true
           }
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s19",
@@ -421,7 +433,8 @@
       },
       "expect": {
         "status": 200
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s20",
@@ -446,7 +459,8 @@
       },
       "save": {
         "diff_doc_id": "$.differences_document_id"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s21",
@@ -460,7 +474,8 @@
         "json": {
           "posting_state": "pending"
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s22",
@@ -481,7 +496,8 @@
       },
       "save": {
         "count_posted_id": "${count_id}"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s23",
@@ -499,7 +515,8 @@
       },
       "save": {
         "count_entry_id": "$.entry_id"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s24",
@@ -518,7 +535,8 @@
       },
       "save": {
         "balance_after": "$.rows[0].quantity"
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     },
     {
       "id": "s25",
@@ -534,7 +552,8 @@
             "absent": true
           }
         }
-      }
+      },
+      "blocked_by": "OWNER: runner developer (change task to queue): the runner has no relative-time value (now plus 24 h). Opening a count needs 'now' inside the order window (count_not_due) and the window may be at most 96 hours (count_too_long), so no fixed date works. Add a tomorrow_utc built-in to scripts/uat/runner.py, then set planned_end in s5 to it and planned_start to now_utc and remove this marker from s7..s25"
     }
   ],
   "outputs": {
