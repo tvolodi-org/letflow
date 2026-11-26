@@ -25,12 +25,13 @@ def tree(listing, files=()):
 
 
 class ReadList(unittest.TestCase):
-    def test_the_shipped_list_names_25_01_02_24_and_every_listed_file_exists(self):
+    def test_the_shipped_list_names_25_01_02_24_designer_34_and_every_listed_file_exists(self):
         got = pilot_list.read_list(ROOT)
-        self.assertEqual(["BP-PLATFORM-25", "BP-PLATFORM-01", "BP-PLATFORM-02", "BP-PLATFORM-24"], [g[0] for g in got])
+        self.assertEqual(["BP-PLATFORM-25", "BP-PLATFORM-01", "BP-PLATFORM-02", "BP-PLATFORM-24", "BP-DESIGNER-34"], [g[0] for g in got])
         self.assertIsNotNone(got[0][1])
         self.assertIsNone(got[2][1])
         self.assertIsNotNone(got[3][1])
+        self.assertIsNotNone(got[4][1])
 
     def test_planned_has_no_file_and_does_not_need_one(self):
         d = tree("# c\nBP-X-01 planned\n")
