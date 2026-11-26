@@ -22,7 +22,8 @@ import '../bootstrap/navigation_bootstrap.dart'
         installedModulesProvider,
         isModuleInstalled,
         kCodesScanRoutePath,
-        kStockHomeRoutePath;
+        kStockHomeRoutePath,
+        kMaintenanceOrdersRoutePath;
 import '../i18n/i18n.dart';
 import '../bootstrap/language_switcher.dart';
 import '../offline/install_hint_card.dart';
@@ -117,6 +118,11 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
       'stock',
     );
 
+    final maintenanceInstalled = isModuleInstalled(
+      ref.watch(installedModulesProvider),
+      'maintenance',
+    );
+
     return Scaffold(
       key: const Key('tenant-home-screen'),
       appBar: AppBar(
@@ -143,6 +149,13 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
               leading: const Icon(Icons.inventory_2_outlined),
               title: Text(tr('home.stock.entry')),
               onTap: () => context.go(kStockHomeRoutePath),
+            ),
+          if (maintenanceInstalled)
+            ListTile(
+              key: const Key('tenant-home-maintenance-entry'),
+              leading: const Icon(Icons.build_outlined),
+              title: Text(tr('home.maintenance.entry')),
+              onTap: () => context.go(kMaintenanceOrdersRoutePath),
             ),
           Expanded(
             child: entries.isEmpty
