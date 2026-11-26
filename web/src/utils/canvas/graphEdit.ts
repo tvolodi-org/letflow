@@ -297,3 +297,24 @@ export function withLayoutPositions(g: DefinitionGraph): DefinitionGraph {
     }),
   }
 }
+
+/** T-2847 (PILOT-SUB-4): the child definition of a SUB_PROCESS and its variable mapping as ONE unit. The mapping model
+ *  is the node's `interface` attribute (`Letflow.Engine.SubProcess`): `inputs` are the parent variables copied into the
+ *  child, `outputs` the child variables merged back, each by the same name. A new child starts with no mapping (the
+ *  old names belong to the old child); an empty name removes both. */
+export function setSubProcessChild(
+  g: DefinitionGraph,
+  id: string,
+  definitionName: string,
+  iface?: { inputs: unknown[]; outputs: unknown[] },
+): EditResult {
+  return mapNode(g, id, (n) => {
+    if (!attributesEditable(n)) return n
+    const attrs = readAttrs(n)
+    if (definitionName === '') delete attrs.definition_name
+    else attrs.definition_name = definitionName
+    if (iface && (iface.inputs.length > 0 || iface.outputs.length > 0)) attrs.interface = iface
+    else delete attrs.interface
+    return withAttrs(n, attrs)
+  })
+}

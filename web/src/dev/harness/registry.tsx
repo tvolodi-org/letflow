@@ -130,6 +130,7 @@ import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 import { quickCountFormatScreens } from './fixtures/quickCountFormats'
 import { canvasPropertyPanelScreens } from './fixtures/canvasPropertyPanel'
 import { signupScreens } from './fixtures/signupScreens'
+import { subProcessPickerScreens } from './fixtures/subProcessPicker'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -457,5 +458,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...registerTenantPageScreens,
     ...signupScreens,
     ...editTenantPageScreens,
+    ...subProcessPickerScreens,
   ].map(s => [s.name, s]),
 )
