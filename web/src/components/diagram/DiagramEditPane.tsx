@@ -49,9 +49,9 @@ function classify(err: unknown): NonNullable<SaveError> {
   const x = err as { status?: number; message?: string; code?: string }
   const message = x?.message ?? ''
   if (x?.status === 409) {
-    if (/DRAFT/.test(message)) return { kind: 'not_draft', message }
-    if (/module-owned/.test(message)) return { kind: 'module', message }
-    if (/already exists/.test(message)) return { kind: 'duplicate', message }
+    if (/DRAFT/.test(message)) return { kind: 'not_draft', message, code: 'http_409', status: 409 }
+    if (/module-owned/.test(message)) return { kind: 'module', message, code: 'conflict_module_owned', status: 409 }
+    if (/already exists/.test(message)) return { kind: 'duplicate', message, code: 'conflict_duplicate', status: 409 }
   }
   return { kind: 'other', message, code: x?.code, status: x?.status }
 }
@@ -283,8 +283,8 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           tone="danger"
           action={error.kind === 'not_draft' ? <Button variant="secondary" size="sm" onClick={onReload} data-testid="edit-error-reload">{e('stale.reload')}</Button> : undefined}
         >
-          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: friendly(error) }) : error.message}</span>
-          {error.kind === 'other' && (error.code || error.message) && (
+          <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: friendly(error) }) : friendly(error)}</span>
+          {(error.code || error.message) && (
             <details className="lf-hint" data-testid="edit-error-details">
               <summary>{intl.formatMessage({ id: `${DESIGNER_ERROR_PREFIX}details` })}</summary>
               <small>{[error.status, error.code].filter(Boolean).join(' ')} {error.message}</small>

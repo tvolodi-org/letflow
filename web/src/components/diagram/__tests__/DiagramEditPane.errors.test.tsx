@@ -47,16 +47,16 @@ const DEF: ProcessDefinition = {
   },
 }
 
-function show(error: { code?: string; status?: number; message: string }) {
+function show(error: { code?: string; status?: number; message: string }, kind: 'other' | 'not_draft' | 'module' | 'duplicate' = 'other') {
   const qc = new QueryClient()
   render(
     <QueryClientProvider client={qc}>
       <ProcessDiagramIntlProvider>
-        <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={vi.fn()} onSaved={vi.fn()} onReload={vi.fn()} demo={{ error: { kind: 'other', ...error } }} />
+        <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={vi.fn()} onSaved={vi.fn()} onReload={vi.fn()} demo={{ error: { kind, ...error } }} />
       </ProcessDiagramIntlProvider>
     </QueryClientProvider>,
   )
-  return screen.getByTestId('edit-error-other')
+  return screen.getByTestId(`edit-error-${kind}`)
 }
 
 describe('DiagramEditPane error text', () => {
@@ -83,5 +83,21 @@ describe('DiagramEditPane error text', () => {
     const el2 = show({ code: undefined, status: 500, message: 'Internal Server Error' })
     expect(el2.textContent).toContain('Something went wrong')
     expect(el2.textContent).not.toContain('Internal Server Error')
+  })
+
+  it('E4 the 409 kinds (not draft, module-owned, duplicate) read as plain sentences in ru; the server text stays under details', () => {
+    act(() => useUiLocaleStore.getState().setLocale('ru'))
+    const cases: Array<['not_draft' | 'module' | 'duplicate', string, string, string]> = [
+      ['not_draft', 'Definition is not DRAFT', 'http_409', 'уже не черновик'],
+      ['module', 'module-owned definition', 'conflict_module_owned', 'принадлежит модулю'],
+      ['duplicate', 'version already exists', 'conflict_duplicate', 'уже есть'],
+    ]
+    for (const [kind, message, code, text] of cases) {
+      const el = show({ code, status: 409, message }, kind)
+      expect(el.textContent).toContain(text)
+      expect(el.textContent).not.toContain(message)
+      expect(screen.getByTestId('edit-error-details').textContent).toContain(message)
+      cleanup()
+    }
   })
 })
