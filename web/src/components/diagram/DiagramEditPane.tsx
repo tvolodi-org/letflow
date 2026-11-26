@@ -36,6 +36,8 @@ export interface DiagramEditPaneProps {
   onSaved: (saved: ProcessDefinition, copied: boolean) => void
   /** Refetch the definition (after a not_draft conflict or a stale warning). */
   onReload: () => void
+  /** The number of open problems of the SAVED draft (0 while the draft has unsaved edits or no check has finished): the page disables Publish on it. */
+  onProblemsChange?: (count: number) => void
   /** Screen harness only: a fixed starting state (selection, problems, a banner) for the screenshots. */
   demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean; stale?: boolean; versionTaken?: boolean; loading?: boolean }
   /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
@@ -53,7 +55,7 @@ function classify(err: unknown): NonNullable<SaveError> {
   return { kind: 'other', message }
 }
 
-export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, demo, tenantId = null }: DiagramEditPaneProps) {
+export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, onSaved, onReload, onProblemsChange, demo, tenantId = null }: DiagramEditPaneProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
@@ -164,13 +166,18 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     return all.map((v) => (v.code === 'step_mapping_variable_undeclared' ? { ...v, message: `${v.message}. ${intl.formatMessage({ id: 'processDiagram.edit.vars.undeclaredFix' })}` } : v))
   }, [check, saveProblems, draft.graph, intl])
   const blocking = violations.filter(isBlocking)
+  // The saved draft's open problems (all of them: activation refuses what the live check only warns about). Counted for any
+  // clean server-backed draft, also one opened without saving in this mount; savedTick only controls the banner.
+  const savedProblems = isDraftDef && !editorDirty && !draft.dirty && !error ? violations.length : 0
+  useEffect(() => onProblemsChange?.(savedProblems), [savedProblems, onProblemsChange])
+  useEffect(() => () => onProblemsChange?.(0), [onProblemsChange])
 
   const blockedReason =
     editorDirty
       ? e('lock.editorDirty')
       : error?.kind === 'module'
         ? e('save.moduleOwned')
-        : blocking.length > 0
+        : blocking.length > 0 && savedProblems === 0
           ? e('save.blocked', { count: blocking.length })
           : null
 
@@ -269,7 +276,13 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           <span data-testid={`edit-error-${error.kind}`}>{error.kind === 'other' ? e('save.failed', { message: error.message }) : error.message}</span>
         </Banner>
       )}
-      {savedTick && !draft.dirty && !error && <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>}
+      {savedTick && !draft.dirty && !error && (
+        savedProblems > 0 ? (
+          <div data-testid="edit-saved-with-problems"><Banner tone="warning">{e('savedWithProblems', { count: savedProblems })}</Banner></div>
+        ) : (
+          <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>
+        )
+      )}
       {demo?.loading ? (
         <Skeleton />
       ) : (

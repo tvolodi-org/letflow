@@ -187,6 +187,7 @@ export default function DefinitionEditorPage() {
   const [previewGraph, setPreviewGraph] = useState<DefinitionGraph | null>(null)
   // T-1563: "Edit diagram" keeps its own draft; the Editor and the draft never hold two divergent unsaved states.
   const [diagramDirty, setDiagramDirty] = useState(false)
+  const [savedProblems, setSavedProblems] = useState(0)
   const [editRefused, setEditRefused] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [goTo, setGoTo] = useState<string | null>(null)
@@ -846,8 +847,8 @@ export default function DefinitionEditorPage() {
               data-testid="btn-publish-diagram"
               onClick={() => { void handleSubmitForRelease() }}
               loading={releaseCheck.phase === 'checking'}
-              disabled={diagramDirty || dirty || releaseCheck.phase === 'checking'}
-              title={diagramDirty || dirty ? dm.saveBeforePublish : undefined}
+              disabled={diagramDirty || dirty || savedProblems > 0 || releaseCheck.phase === 'checking'}
+              title={diagramDirty || dirty ? dm.saveBeforePublish : savedProblems > 0 ? dm.fixBeforePublish.replace('{count}', String(savedProblems)) : undefined}
             >
               {releaseCheck.phase === 'checking' ? dm.publishing : dm.publish}
             </Button>
@@ -969,6 +970,7 @@ export default function DefinitionEditorPage() {
       </div>
 
       {view === 'edit' && (diagramDirty || dirty) && <p className="lf-hint">{dm.saveBeforePublish}</p>}
+      {view === 'edit' && !(diagramDirty || dirty) && savedProblems > 0 && <p className="lf-hint" data-testid="publish-blocked-reason">{dm.fixBeforePublish.replace('{count}', String(savedProblems))}</p>}
       {view === 'edit' && releaseCheck.phase === 'clean' && <Banner tone="success">{dm.published}</Banner>}
       {view === 'edit' && releaseCheck.phase === 'error' && <Banner tone="danger">{dm.publishFailed} {releaseCheck.message}</Banner>}
       {view === 'edit' && releaseCheck.phase === 'blocked' && (
@@ -1157,6 +1159,7 @@ export default function DefinitionEditorPage() {
               justSaved={def.id === justSavedCopyId}
               editorDirty={dirty}
               onDirtyChange={setDiagramDirty}
+              onProblemsChange={setSavedProblems}
               onSaved={handleDiagramSaved}
               onReload={() => void refetch()}
               tenantId={tenantId}

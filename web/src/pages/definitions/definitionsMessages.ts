@@ -13,6 +13,8 @@ export interface DefinitionsMessages {
   publish: string
   publishing: string
   saveBeforePublish: string
+  /** {count} open problems of the saved draft. */
+  fixBeforePublish: string
   published: string
   publishFailed: string
   exportButton: string
@@ -71,6 +73,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Publish saved version',
     publishing: 'Publishing…',
     saveBeforePublish: 'Save your changes before publishing.',
+    fixBeforePublish: 'Open problems in the saved draft: {count}. Fix them and save before publishing.',
     published: 'This version is active. New instances will use it.',
     publishFailed: 'Publishing failed. Review the problems below and try again.',
     exportButton: 'Export',
@@ -127,6 +130,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Опубликовать сохранённую версию',
     publishing: 'Публикация…',
     saveBeforePublish: 'Перед публикацией сохраните изменения.',
+    fixBeforePublish: 'В сохранённом черновике открытых проблем: {count}. Исправьте их и сохраните перед публикацией.',
     published: 'Версия активна. Новые экземпляры будут использовать её.',
     publishFailed: 'Не удалось опубликовать. Исправьте ошибки ниже и повторите попытку.',
     exportButton: 'Экспорт',
@@ -183,6 +187,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Сақталған нұсқаны жариялау',
     publishing: 'Жариялануда…',
     saveBeforePublish: 'Жариялау алдында өзгерістерді сақтаңыз.',
+    fixBeforePublish: 'Сақталған жобада ашық мәселелер: {count}. Жариялау алдында түзетіп, сақтаңыз.',
     published: 'Бұл нұсқа белсенді. Жаңа даналар осы нұсқаны қолданады.',
     publishFailed: 'Жариялау сәтсіз аяқталды. Төмендегі қателерді түзетіп, қайталаңыз.',
     exportButton: 'Экспорттау',
