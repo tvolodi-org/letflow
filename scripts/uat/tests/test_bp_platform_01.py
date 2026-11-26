@@ -296,11 +296,10 @@ class StepsBToH(unittest.TestCase):
         self.assertEqual("uat-tmp-${uuid1}", self.steps["C3"]["expect"]["json"]["$.idp_realm_id"])
         self.assertNotIn("realm", self.process["inputs"])
 
-    def test_the_file_and_sign_in_gaps_are_named_in_the_description(self):
+    def test_the_description_names_the_setting_and_no_marker_is_left(self):
         text = self.process["description"]
-        self.assertIn("is NOT RUN", text)
-        self.assertIn("sign-in as the new tenant's administrator at C3", text)
-        self.assertIn("observation of the notification file at F8", text)
+        self.assertIn("LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true", text)
+        self.assertIn("No step carries a blocked_by marker now", text)
         self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
@@ -392,15 +391,11 @@ class BlockedSteps(H2IsPlayed):
         self.assertIn("steps not run (blocked_by): 1", summary)
         self.assertIn("1 steps NOT RUN", summary)
 
-    def test_every_realm_dependent_step_of_the_scenario_is_marked(self):
+    def test_no_step_of_the_scenario_is_parked_any_more(self):
+        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason."""
         process = json.loads(FILE.read_text())
         marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
-        for sid in ("B1", "E1", "F6", "G3", "C3", "C4", "C5", "F8"):
-            self.assertIn(sid, marked)
-        for x in process["steps"]:  # a step that saves a name used by a blocked step is blocked too
-            if x["id"] in marked:
-                continue
-            self.assertNotIn("instance_id", " ".join((x.get("requires") or [])), x["id"])
+        self.assertEqual(set(), marked)
 
     def test_fresh_tenant_module_install_ends_active(self):
         """G14 finding: no shipped definition of a fresh tenant stays a draft; an empty install does not pass."""
