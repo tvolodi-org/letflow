@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `maintenance` has 21 process(es): 17 implemented, 2 partial, 2 planned. Executed by: 21 direct, 0 definition.
+The area `maintenance` has 21 process(es): 17 implemented, 3 partial, 1 planned. Executed by: 21 direct, 0 definition.
 
 ## The processes of the area
 
@@ -20,7 +20,7 @@ The area `maintenance` has 21 process(es): 17 implemented, 2 partial, 2 planned.
 | BP-MAINTENANCE-07 | Close a work order | After the work is reported, a tenant administrator completes the close task from My Tasks. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-08 | Read and list work orders | A tenant administrator lists the orders (filter by status or asset card, newest first, paging) and opens one; the view shows the status r... | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). | TENANT_ADMIN | partial | direct | no | no | see report |
-| BP-MAINTENANCE-10 | Web screens for work orders and My work orders | The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the tas... | TENANT_ADMIN, TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
+| BP-MAINTENANCE-10 | Web screens for work orders and My work orders | The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person,... | TENANT_ADMIN, TASK_WORKER (the technician, addressed by the work order) | partial | direct | no | no | see report |
 | BP-MAINTENANCE-11 | My work orders on the phone app and PWA | The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen... | TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
 | BP-MAINTENANCE-12 | Problem-report export for the PM handoff (platform) | The operator session polls the read-only export with a hash-configured bearer credential; each new problem report (older than the settle... | PM export credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-13 | Import the owner list into the platform company | The owner's team posts the JSON copy of the lab list with a write credential of its own; new items (with thread and screenshots) are stor... | Owner-list credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
@@ -343,12 +343,23 @@ Report a problem from the new-request form, the request list and the request pag
 
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 
-The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src. Why it stays planned (re-checked 2026-11-21): no order screen and no My work orders list in web/src; REQ-899 is pending and has no build. The API half is BP-MAINTENANCE-04..08; the technician works from the core task inbox today.
+The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person, built on the task inbox (REQ-899, merged in #5111). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/orders, orders/new, orders/:id, maintenance/my-orders). Stays planned: the release flag :maintenance_enabled is off on QA, REQ-899 is still pending in the register, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-04..08. The phone screens of the technician (REQ-900) are not built.
 
 **Actors and their permissions.**
 
 - `TENANT_ADMIN` -- MaintenanceRequestCreate, MaintenanceRead, MaintenanceOrderManage (held through the TENANT_ADMIN catch-all; the manifest has no role grant)
 - `TASK_WORKER (the technician, addressed by the work order)` -- TasksComplete (core task route; no maintenance permission)
+
+**Steps.**
+
+1. **TENANT_ADMIN**: screen `orders -> MaintenanceOrdersPage`, call `web: admin/maintenance/orders`, function `MaintenanceOrdersPage`
+   Result: the order list opens for a holder of MaintenanceRead, filtered by status and asset card; a tenant without the module gets the not-found page
+2. **TENANT_ADMIN**: screen `orders/new -> MaintenanceOrderFormPage`, call `web: admin/maintenance/orders/new`, function `MaintenanceOrderFormPage`
+   Result: the new-order form opens for a holder of MaintenanceOrderManage; one save creates the order, an optional assignee is sent with it
+3. **TENANT_ADMIN**: screen `orders/:id -> MaintenanceOrdersPage`, call `web: admin/maintenance/orders/:id`, function `MaintenanceOrdersPage`
+   Result: the same page opens with one order selected in the detail pane; Assign opens the user picker (MaintenanceOrderManage)
+4. **TASK_WORKER (the technician, addressed by the work order)**: screen `maintenance/my-orders -> MyMaintenanceOrdersPage`, call `web: maintenance/my-orders`, function `MyMaintenanceOrdersPage`
+   Result: the signed-in user sees the orders addressed to them from the task inbox; needs TasksRead only, no maintenance permission
 
 **Runner scenario.**
 
@@ -356,9 +367,10 @@ The order form from a request or direct, the order list and page with Assign, an
 
 **Status.**
 
-- implementation: `planned` (requirement: REQ-899)
+- implementation: `partial` (requirement: REQ-899)
 - UAT: planned -- no runner scenario yet.
 - security: no
+- automation: planned
 
 ## BP-MAINTENANCE-11 -- My work orders on the phone app and PWA
 
@@ -743,12 +755,7 @@ The operator asked for voice, webhook and old-address inputs. The maintenance mo
 
 ## Orphans (docs/bp/orphans-maintenance.md)
 
-| function | file:line | what it does | history | why it exists | proposed action |
-|---|---|---|---|---|---|
-| requests -> MaintenanceRequestsPage | web/src/modules/maintenance/maintenanceRoutes.tsx:18 | list of work requests | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
-| requests/new -> MaintenanceRequestFormPage | web/src/modules/maintenance/maintenanceRoutes.tsx:19 | form for a new work request | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
-| requests/:id -> MaintenanceRequestsPage | web/src/modules/maintenance/maintenanceRoutes.tsx:20 | work request detail in the list | REQ-898 slice 1 part 6, PR #5099 | web work request screens of the planned BP-MAINTENANCE-09 (REQ-898), no process entry or runner scenario yet | give a process |
-| route `admin/maintenance` (container) | `web/src/modules/maintenance/maintenanceRoutes.tsx:16` | parent route of the three request screens; it has no page of its own, it only groups `requests`, `requests/new`, `requests/:id` | REQ-898, commit 6e6c35f7c (#5099) | route nesting in the router, not a user task | keep as a platform function |
+The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-maintenance.md`).
 
 ## Gaps of the area
 
