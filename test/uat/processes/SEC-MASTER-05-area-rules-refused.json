@@ -1,0 +1,295 @@
+{
+  "id": "SEC-MASTER-05",
+  "bp_entry": "BP-MASTER-19",
+  "title": "Master data business rules hold: no cycle, no retire with live children, no child under a retired parent, no duplicate code",
+  "description": "SECURITY / area rules, on qoimeks-qa2 (modules locations and codes). Location tree: moving a parent under its own child is refused cycle; retiring a parent with a live child is refused has_active_descendants; a new child under a retired parent is refused parent_inactive; an unknown parent is the 404 of an unknown id. Codes: receiving a value that already exists is refused entry_invalid (value_taken); a batch that repeats a value is refused entry_invalid (duplicate_in_batch); an empty batch is refused batch_size. Each refusal writes nothing. The cleanup retires the code and both locations.",
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s1",
+          "code": "UAT-${run_id}-p",
+          "name": "UAT rule parent",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "p": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s2",
+          "code": "UAT-${run_id}-c",
+          "name": "UAT rule child",
+          "node_kind": "shelf",
+          "parent_id": "${p}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "c": "$.record_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${p}/move",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s3",
+          "parent_id": "${c}"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "cycle"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${p}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s4"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "has_active_descendants"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${c}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s5"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "active": false
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s6",
+          "code": "UAT-${run_id}-d",
+          "name": "UAT under retired",
+          "node_kind": "shelf",
+          "parent_id": "${c}"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "parent_inactive"
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s7",
+          "code": "UAT-${run_id}-e",
+          "name": "UAT unknown parent",
+          "node_kind": "shelf",
+          "parent_id": "00000000-0000-4000-8000-0000000000d1"
+        }
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s8",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-r",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "code_id": "$[0].code_id"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s9",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-r",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "entry_invalid"
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s10",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-s",
+              "kind": "epc"
+            },
+            {
+              "value": "UAT-${run_id}-s",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "entry_invalid"
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05s11",
+          "entries": []
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "batch_size"
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "code_id"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${c}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05c2"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "c"
+      ]
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${p}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-05c3"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "p"
+      ]
+    }
+  ],
+  "tenant": "${tenant}",
+  "inputs": [],
+  "outputs": {}
+}

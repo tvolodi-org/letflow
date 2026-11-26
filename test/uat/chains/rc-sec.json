@@ -143,6 +143,26 @@
     {
       "process": "SEC-STOCK-08",
       "dry_run": true
+    },
+    {
+      "process": "SEC-MASTER-01",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-MASTER-02",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-MASTER-03",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-MASTER-04",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-MASTER-05",
+      "dry_run": true
     }
   ],
   "pass": {}
