@@ -33,9 +33,11 @@
  *   -> 04: EO-002 -- apply with no resolution is blocked, names adapted-proc
  *   -> 05: EO-003/EO-004 -- resolve keep-local on adapted-proc, apply (GUI)
  *   -> 06: EO-005 -- re-review the same v2 document does not re-flag adapted-proc
- *   -> cleanup: none required (matches the scenario's own
- *      `cleanup: cancel_open_instances: false` -- pack installs/resolutions
- *      are not instance state)
+ *   -> cleanup (T-2947): DELETE /api/v1/definitions/:id for the three installed
+ *      definitions (a draft is hard-deleted, an active one is deprecated and
+ *      archived by the same route; variable_schemas rows go with it, T-2890).
+ *      The pack's own base-snapshot rows have no delete route and stay, which
+ *      is why this spec refuses a non-local target (assertLocalTarget).
  */
 
 import { test, expect } from '@playwright/test'
@@ -93,6 +95,12 @@ function packDocument(
 }
 
 test.describe('Pipeline: template-update-conflict-resolution (PW-01)', () => {
+  let cleanup: (() => Promise<void>) | null = null
+  test.afterEach(async () => {
+    await cleanup?.()
+    cleanup = null
+  })
+
   test('own adaptations survive a pack update; unresolved conflicts block apply; resolutions are not re-flagged', async ({ page, request }) => {
     await assertServiceReadiness(request, API_BASE_URL)
 
@@ -110,6 +118,20 @@ test.describe('Pipeline: template-update-conflict-resolution (PW-01)', () => {
     const pl = createPipeline<TemplateUpdateConflictState>('template-update-conflict-resolution', { page, request })
     pl.state.adminToken = adminToken
     pl.state.packId = packId
+
+    // Registered before the first step so a failed step still cleans up (afterEach below).
+    pl.onCleanup(async (s) => {
+      for (const id of [s.unchangedDefinitionId, s.adaptedDefinitionId, s.untouchedDefinitionId]) {
+        if (!id) continue
+        const del = await request.delete(`${API_BASE_URL}/api/v1/definitions/${id}`, {
+          headers: authHeaders(adminToken),
+        })
+        if (![204, 404, 409].includes(del.status())) {
+          console.warn(`[pl-cleanup] DELETE definition ${id} -> ${del.status()}`)
+        }
+      }
+    })
+    cleanup = () => pl.runCleanup()
 
     // ── Step 01: install pack v1 (API) ──────────────────────────────────────
     await pl.step('01: install pack v1 -- three fixture processes', async (s) => {
@@ -280,7 +302,5 @@ test.describe('Pipeline: template-update-conflict-resolution (PW-01)', () => {
           .filter({ hasText: s.adaptedDefinitionId }),
       ).toHaveCount(0)
     })
-
-    await pl.runCleanup()
   })
 })

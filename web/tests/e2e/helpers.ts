@@ -25,6 +25,39 @@ export const BPM_IDP_BASE_URL =
 const KEYCLOAK_TOKEN_URL = `${BPM_IDP_BASE_URL}/realms/bpm-default/protocol/openid-connect/token`
 export const BPM_IDP_CLIENT_ID = process.env.BPM_IDP_CLIENT_ID ?? 'letflow-web'
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal'])
+
+function isLocalUrl(raw: string | undefined): boolean {
+  if (!raw) return true
+  try {
+    const host = new URL(raw).hostname.toLowerCase()
+    // E2E_LOCAL_HOSTS: extra comma-separated hosts (the CI service host name).
+    const extra = (process.env.E2E_LOCAL_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
+    return LOCAL_HOSTS.has(host) || extra.includes(host)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * T-2947: specs that write data refuse a non-local target. A run against QA left a draft
+ * definition on the shared tenant. Checks the backend URL and the web base URL
+ * (`E2E_BASE_URL`); `E2E_ALLOW_REMOTE=1` lifts it, only for a throwaway stack.
+ */
+export function assertLocalTarget(
+  apiBaseUrl?: string,
+  webBaseUrl: string | undefined = process.env.E2E_BASE_URL,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.E2E_ALLOW_REMOTE === '1') return
+  const remote = [apiBaseUrl, webBaseUrl].filter((u) => !isLocalUrl(u))
+  if (remote.length > 0) {
+    throw new Error(
+      `this spec writes data; QA is not a target; set E2E_ALLOW_REMOTE=1 only on a throwaway stack (remote: ${remote.join(', ')})`,
+    )
+  }
+}
+
 /**
  * Resolve a credential from an env var, falling back to a local-dev literal.
  *
@@ -276,6 +309,7 @@ export async function assertBackendHealthy(
   request: APIRequestContext,
   apiBaseUrl: string,
 ): Promise<void> {
+  assertLocalTarget(apiBaseUrl)
   const backendHealth = await request.fetch(`${apiBaseUrl}/health`)
   if (!backendHealth.ok()) {
     throw new Error(

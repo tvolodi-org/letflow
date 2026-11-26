@@ -40,7 +40,7 @@
  *   - Against 6f1b1d15 (post-fix ISS-0707, this branch's tip): all pass.
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { APIRequestContext } from '@playwright/test'
@@ -98,6 +98,10 @@ function fakeRequest(responses: Record<string, { ok: boolean; status: number }>)
 }
 
 describe('ISS-0706 — e2e health-precondition fix', () => {
+  // 'http://api.test' is a fake remote host; lift the T-2947 local-target guard.
+  beforeEach(() => { vi.stubEnv('E2E_ALLOW_REMOTE', '1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
   describe('TC-1/TC-2: assertBackendHealthy', () => {
     it('resolves without throwing when GET /health is 2xx, and never polls /health/ready', async () => {
       const { assertBackendHealthy } = await import('../e2e/helpers')
