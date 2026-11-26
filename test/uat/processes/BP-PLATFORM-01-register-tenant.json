@@ -2,7 +2,7 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
-  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. BLOCKED (D-179/PM 12:20, D-195): every step that needs a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5, marked blocked_by) is NOT RUN: the onboarding route verifies the realm against the real Keycloak (RealmProbe) and no automated provisioner flow gives a realm or a tenant-admin token per uat-tmp tenant. The runner prints 'not run: blocked by ...' for them, counts them in the verdict line, and a blocked step never passes. Removing a marker is an acceptance line of the task that builds the provisioner wiring (it must then also add the sign-in as the new tenant's administrator at C3 and the observation of the notification file at F8). Steps that run now: A (read), B0 (outbound allow-list), F1-F5 (designer edit, activation refusal), G1-G2 (rollback), H1-H3 and H6 (refusals). The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. No step carries a blocked_by marker now. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
@@ -204,8 +204,7 @@
       "save": {
         "instance_id1": "$.instance_id",
         "slug1": "$.slug"
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "B2",
@@ -227,8 +226,7 @@
             "absent": false
           }
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "B3",
@@ -247,8 +245,7 @@
         "json": {
           "$.steps[1].result": "completed"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "C1",
@@ -267,8 +264,7 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "C2",
@@ -311,8 +307,7 @@
           },
           "$.steps[10].node_id": "end"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "C3",
@@ -332,8 +327,7 @@
       },
       "requires": [
         "slug1"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "C4",
@@ -353,8 +347,7 @@
       },
       "requires": [
         "slug1"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "C5",
@@ -372,8 +365,7 @@
       },
       "requires": [
         "slug1"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "D1",
@@ -388,8 +380,7 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "E1",
@@ -418,8 +409,7 @@
       "save": {
         "instance_id2": "$.instance_id",
         "slug2": "$.slug"
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "E2",
@@ -438,8 +428,7 @@
         "json": {
           "$.status": "ERROR"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "E3",
@@ -464,8 +453,7 @@
             "exists": true
           }
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "E4",
@@ -489,8 +477,7 @@
       },
       "save": {
         "dlq_id": "$.items[0].id"
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "E5",
@@ -509,8 +496,7 @@
       },
       "requires": [
         "dlq_id"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "E6",
@@ -532,8 +518,7 @@
             "regex": "^[2-9]$"
           }
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "F1",
@@ -1063,8 +1048,7 @@
       "save": {
         "instance_id3": "$.instance_id",
         "slug3": "$.slug"
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "F7",
@@ -1083,8 +1067,7 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "F8",
@@ -1116,8 +1099,7 @@
           "$.steps[7].node_id": "notify_file",
           "$.steps[7].result": "completed"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "F9",
@@ -1132,8 +1114,7 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "F10",
@@ -1151,8 +1132,7 @@
       },
       "requires": [
         "instance_id1"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "G1",
@@ -1217,8 +1197,7 @@
       "save": {
         "instance_id4": "$.instance_id",
         "slug4": "$.slug"
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "G4",
@@ -1237,8 +1216,7 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "G5",
@@ -1269,8 +1247,7 @@
           "$.steps[6].result": "completed",
           "$.steps[7].node_id": "end"
         }
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "G6",
@@ -1285,8 +1262,7 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      }
     },
     {
       "id": "H1",
@@ -1363,8 +1339,7 @@
       },
       "requires": [
         "instance_id1"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "H5",
@@ -1383,8 +1358,7 @@
       },
       "requires": [
         "dlq_id"
-      ],
-      "blocked_by": "blocked by infra setting LETFLOW_PROVISIONER_CREATE_VIA_PROCESS on QA (owner: infra): the step is not run until the setting is on; it then uses the runner actor new_admin"
+      ]
     },
     {
       "id": "H6",
