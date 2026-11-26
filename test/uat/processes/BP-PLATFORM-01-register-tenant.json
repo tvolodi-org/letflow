@@ -219,7 +219,7 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
@@ -429,7 +429,7 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
@@ -1067,7 +1067,7 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
@@ -1215,7 +1215,7 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
