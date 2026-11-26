@@ -67,6 +67,8 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
   alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.User
+  alias Letflow.Engine.PlatformStepRunner
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.Oidc.Iss0778PlatformAdminTokenVerifierDouble
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.TenantFixture
@@ -103,21 +105,35 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
     {:ok, %{plaintext: plaintext}} =
       Identity.create_token(user.id, %{roles: roles, expires_at: nil}, prefix: tenant.schema_name)
 
-    {plaintext, tenant.tenant.slug}
+    {plaintext, tenant.tenant.slug, tenant.schema_name}
   end
 
   defp dispatch(conn), do: Letflow.Router.call(conn, Letflow.Router.init([]))
 
-  # No default `body \\ nil` here (ISS-0069): this file's only call site (below,
-  # the POST /onboarding request) always supplies a body, so a default would be
-  # dead code -- unlike test/letflow/routers/onboarding_test.exs's own
-  # authed_request/5, which this was ported from and which DOES have GET-with-no-
-  # body call sites elsewhere in that file.
+  # The route's own request, with a body (the POST /onboarding call below is its only user).
   defp authed_request(method, path, plaintext, tenant_slug, body) do
     conn(method, path, Jason.encode!(body))
     |> put_req_header("content-type", "application/json")
     |> put_req_header("authorization", "Bearer " <> plaintext)
     |> put_req_header("x-tenant-slug", tenant_slug)
+  end
+
+  # POST /onboarding starts the `platform.register_tenant` process; the platform step runner
+  # (off in the test environment) runs its steps. Drives the instance, cycle by cycle, until it
+  # completes -- the real steps create and provision the tenant; nothing is written by hand.
+  defp run_registration!(instance_id, platform_schema) do
+    Enum.reduce_while(1..12, nil, fn _cycle, _status ->
+      PlatformStepRunner.run_due(platform_schema)
+      # T-2810: the notification step of the definition is run by its own runner.
+      Letflow.Engine.NotifyStepRunner.run_due(platform_schema)
+
+      projection =
+        Repo.get_by!(InstanceProjection, [instance_id: instance_id], prefix: platform_schema)
+
+      if projection.status in [:completed, :error],
+        do: {:halt, projection.status},
+        else: {:cont, projection.status}
+    end)
   end
 
   defp oidc_request(method, path, bearer_token) do
@@ -136,18 +152,26 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
   # Full teardown for a tenant created via a real POST /onboarding, mirroring
   # test/letflow/routers/onboarding_test.exs's cleanup_onboarded_tenant!/1 exactly
   # (FK dependency order: onboarding_registry -> tenant_schemas -> tenants).
-  defp cleanup_onboarded_tenant!(tenant_id) do
+  # The tenant is found by its slug at exit, so a run that fails between the request and the
+  # tenant's appearing (or after it) still tears down what the process created.
+  defp cleanup_onboarded_tenant!(slug) do
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
 
-      case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-        {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-        {:error, :invalid_tenant_id} -> :ok
-      end
+      case Repo.get_by(Tenant, slug: slug) do
+        nil ->
+          :ok
 
-      Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
-      Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
-      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+        %Tenant{id: tenant_id} ->
+          case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+            {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
+            {:error, :invalid_tenant_id} -> :ok
+          end
+
+          Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
+          Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
+          Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+      end
     end)
   end
 
@@ -191,27 +215,50 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
 
       # ── Step 1 (design §5.1): real, PLATFORM_ADMIN-authenticated
       # POST /api/v1/onboarding ──────────────────────────────────────────────
-      {admin_plaintext, admin_slug} = mint_caller!("iss0778-e2e-caller", ["PLATFORM_ADMIN"])
+      {admin_plaintext, admin_slug, platform_schema} =
+        mint_caller!("iss0778-e2e-caller", ["PLATFORM_ADMIN"])
+
+      Letflow.Support.RegisterTenantProcessFixture.seed!(platform_schema)
 
       slug = unique_onboarding_slug("iss0778-e2e-new")
       hostname = unique_hostname("iss0778-e2e")
+
+      # T-2704: the request starts the registration process (202 with the instance id); the
+      # tenant is created and provisioned by the process steps, run below.
+      cleanup_onboarded_tenant!(slug)
 
       create_conn =
         authed_request(:post, "/api/v1/onboarding", admin_plaintext, admin_slug, %{
           "slug" => slug,
           "display_name" => "ISS-0778 T4 New Tenant",
-          "hostname" => hostname
+          "hostname" => hostname,
+          "idp_realm_id" => "bpm-default",
+          "admin_email" => "iss0778-first-admin@example.com"
         })
         |> dispatch()
 
-      assert create_conn.status == 201
-      resp = Jason.decode!(create_conn.resp_body)
-      new_tenant_id = resp["tenant_id"]
+      assert create_conn.status == 202, create_conn.resp_body
+      instance_id = Jason.decode!(create_conn.resp_body)["instance_id"]
+      assert is_binary(instance_id)
+
+      # Every step that creates, provisions, binds and grants runs for real. The LAST node of
+      # the definition is the notification step (T-2810: run by `NotifyStepRunner`): it may stop
+      # the instance in ERROR AT THAT NODE (a mail that cannot be sent in this test) and nowhere earlier, so a failing create, provision, bind or grant
+      # step still fails this test.
+      assert run_registration!(instance_id, platform_schema) in [:completed, :error]
+
+      projection =
+        Repo.get_by!(InstanceProjection, [instance_id: instance_id], prefix: platform_schema)
+
+      if projection.status == :error do
+        assert projection.error_detail["affected"]["node_id"] == "notify"
+        assert projection.error_detail["details"]["failure_kind"] =~ ~r/\Anotify_/
+      end
+
+      %Tenant{id: new_tenant_id} = Repo.get_by!(Tenant, slug: slug)
       assert is_binary(new_tenant_id)
 
-      cleanup_onboarded_tenant!(new_tenant_id)
-
-      # provision_and_migrate/1 (T3's mechanism, exercised for real by the request
+      # The provisioning step (T3's mechanism, run for real by the request's own process
       # above) already seeded all six platform roles as part of handling THIS
       # request, and flipped the tenant to :active -- confirmed structurally here
       # (status), and confirmed FUNCTIONALLY below by the OIDC request actually

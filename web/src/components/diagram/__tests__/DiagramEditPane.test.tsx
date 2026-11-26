@@ -214,7 +214,7 @@ describe('T-1563 diagram edit: save', () => {
     vi.mocked(definitionsApi.validate).mockRejectedValue({ status: 422, message: 'invalid', code: 'x', details: [{ code: 'missing_role', message: "Node 'start' (HUMAN_TASK) is missing a non-empty 'role' attribute." }] })
     mount()
     await addStep()
-    await waitFor(() => expect(screen.getByTestId('edit-save-reason')).toHaveTextContent('Fix 1 error before saving.'), { timeout: 3000 })
+    await waitFor(() => expect(screen.getByTestId('edit-save-reason')).toHaveTextContent('Not saved: fix 1 problem.'), { timeout: 3000 })
     expect(screen.getByTestId('edit-save')).toBeDisabled()
     cleanup()
 
@@ -316,5 +316,52 @@ describe('T-1563 diagram edit: save', () => {
     fireEvent.click(within(screen.getByTestId('confirm-dialog')).getByRole('button', { name: 'Discard changes' }))
     expect(screen.getByTestId('edit-save')).toBeDisabled()
     expect(screen.queryByTestId('edit-undo')).toBeDisabled()
+  })
+})
+
+describe('T-2812 saved state is never green with open problems', () => {
+  const mountWith = (onProblemsChange: (n: number) => void) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProcessDiagramIntlProvider>
+          <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={vi.fn()} onSaved={onSaved} onReload={onReload} onProblemsChange={onProblemsChange} />
+        </ProcessDiagramIntlProvider>
+      </QueryClientProvider>,
+    )
+
+  it('D2a a saved draft without problems shows the green Saved. and reports 0 problems', async () => {
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const onProblems = vi.fn()
+    mountWith(onProblems)
+    await addStep()
+    save()
+    expect(await screen.findByTestId('edit-saved')).toBeTruthy()
+    expect(screen.queryByTestId('edit-saved-with-problems')).toBeNull()
+    expect(onProblems).toHaveBeenLastCalledWith(0)
+  })
+
+  it('D2b a saved draft with an open problem shows the amber state with the count and reports it', async () => {
+    vi.mocked(definitionsApi.validate).mockRejectedValue({ status: 422, message: 'invalid', code: 'x', details: [{ code: 'undeclared_variable_reference', message: 'Edge e1 condition x' }] })
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const onProblems = vi.fn()
+    mountWith(onProblems)
+    await addStep()
+    await waitFor(() => expect(screen.getByTestId('edit-save')).not.toBeDisabled())
+    save()
+    const banner = await screen.findByTestId('edit-saved-with-problems')
+    expect(banner.textContent).toMatch(/1 open problem/)
+    expect(screen.queryByTestId('edit-saved')).toBeNull()
+    expect(screen.queryByText(/Not saved/i)).toBeNull()
+    await waitFor(() => expect(onProblems).toHaveBeenLastCalledWith(1))
+  })
+
+  it('D2c an existing invalid draft opened without saving reports its problems (Publish stays blocked)', async () => {
+    vi.mocked(definitionsApi.validate).mockRejectedValue({ status: 422, message: 'invalid', code: 'x', details: [{ code: 'undeclared_variable_reference', message: 'Edge e1 condition x' }] })
+    const onProblems = vi.fn()
+    mountWith(onProblems)
+    await waitFor(() => expect(onProblems).toHaveBeenLastCalledWith(1))
+    expect(screen.queryByTestId('edit-saved')).toBeNull()
   })
 })

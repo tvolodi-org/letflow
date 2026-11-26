@@ -703,6 +703,10 @@ defmodule Letflow.EngineSubProcessTest do
 
       assert [event] = sub_process_completed_events(schema_name, created.instance_id)
       assert event.payload["child_instance_id"] == child.instance_id
+      # Pilot gap G6: the event names the PARENT's own node (the SUB_PROCESS
+      # node of the parent's graph), so a reader of the parent's history --
+      # the instance step log -- can close the parent's visit with it.
+      assert event.payload["node_id"] == "sp"
       assert event.payload["output_variables"] == %{"result" => true}
       refute Map.has_key?(event.payload["output_variables"], "junk")
 

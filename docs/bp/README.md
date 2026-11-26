@@ -9,10 +9,12 @@ This folder holds the map; `scripts/uat/` holds its two tools.
 | File | What it is |
 |---|---|
 | `docs/bp/<area>.json` | the processes of one area: a JSON list of entries (schema below) |
+| `docs/bp/<area>.md` | the same map in plain words, for the owner to read (generated, D-173) |
 | `docs/bp/orphans-<area>.md` | the inventory items of the area that no process uses (format below) |
 | `scripts/uat/bp_inventory.py <area\|all>` | lists everything a process could use, mechanically |
 | `scripts/uat/check_catalog.py [area ...\|all]` | validates the files and computes COVERAGE |
 | `scripts/uat/check_routes.py` | the mechanical route inventory (D-170): authentication, tenant scope and permission of every API route |
+| `scripts/bp/bp_doc.py <area\|all>` | renders the map of an area into `docs/bp/<area>.md` (D-173) |
 | `docs/bp/public-routes.json` | the allow-list of declared routes (public, shared-secret, exempt), each with reason and owner |
 | `docs/bp/route-gaps.md` | the first run of `check_routes.py`: the routes that fail (a to-do list, generated with `--gaps-md`) |
 
@@ -29,11 +31,15 @@ python3 scripts/uat/bp_inventory.py stock --summary  # counts per kind
 python3 scripts/uat/check_catalog.py                 # every area that has a file under docs/bp/
 python3 scripts/uat/check_catalog.py stock assets    # named areas
 python3 scripts/uat/check_catalog.py all             # every area; an area without a file is 0% and fails
+python3 scripts/bp/bp_doc.py stock                   # write docs/bp/stock.md (the map in plain words)
+python3 scripts/bp/bp_doc.py --check                 # the committed documents must equal the render
 ```
 
-`check_catalog.py` prints one `COVERAGE <area>: n/m = p%` line per area, the uncovered items, every error,
-and ends with `check_catalog: PASS` or `FAIL`. Exit code 0 only when there is no error and every checked
-area is at 100%.
+`check_catalog.py` prints one `COVERAGE <area>: n/m = p%` line per area, the uncovered items, one
+`EXECUTED BY <area>: n direct, m definition` line per area (how the processes of the area run: a
+hard-coded route or a BPM definition -- see "Who runs a process" below), the `EXECUTED BY total` line,
+every error, and ends with `check_catalog: PASS` or `FAIL`. Exit code 0 only when there is no error and
+every checked area is at 100%.
 
 `public-routes.json`, `dead-code.json`, `dead-code-allow.json` and `dead-code-baseline.json` are support files,
 **not area catalogs**; `route-gaps*.md` is not a catalog either. With no area argument, `check_catalog.py` skips
@@ -101,6 +107,26 @@ The file is a JSON list. One entry per business process, written in the user's w
 | `tasks` | list | see below; at least one unless the status is `planned` |
 | `scenario` | text or `null` | repo-relative path of the runner script (`test/uat/processes/<id>.json`); must exist when not null |
 | `status` | `implemented` \| `partial` \| `planned` | `implemented` only when code **and** a test exist; `planned` needs the extra field `requirement` (a REQ id) |
+| `executed_by` | text | optional: `direct` (a hard-coded route or function) `n/a` (a proof experiment, not a process the engine runs; counted apart) or `definition:<process_key>` (the process runs as a BPM definition of the engine, e.g. `definition:platform.register_tenant`); a missing field means `direct` (D-175) |
+
+### Who runs a process (`executed_by`, D-175)
+
+The owner's rule: **a new business process is a definition**, not a hard-coded route. The map says
+which of the two a process is:
+
+| value | meaning |
+|---|---|
+| `direct` | the process is a hard-coded route or function of the code (the default of every existing entry) |
+| `definition:<process_key>` | the process runs as a BPM definition of the engine; `<process_key>` names that definition (`platform.register_tenant`) |
+
+- The field is **optional**: a missing one means `direct`. The existing maps are not rewritten by the
+  tooling; the migration that writes the field out explicitly is a separate step.
+- `check_catalog.py` refuses any other form, and a `definition:` value must name a process key
+  (letters, digits, `_`, `-`, `.`).
+- `bp_doc.py` renders it as the **Executed by** column of the area table, and the head of the document
+  counts the two forms of the area.
+- `check_catalog.py` prints the counts of the whole run: one `EXECUTED BY <area>: n direct, m definition`
+  line per area and the `EXECUTED BY total` line.
 
 A **task** is one step of the process done by one actor:
 
@@ -144,8 +170,8 @@ file as one row of a Markdown table with exactly these columns, none empty:
 ## Statuses and checks the validator repeats
 
 `check_catalog.py` checks the form (fields, types, ids, statuses, resolving `code_refs`, existing
-`scenario` paths, coverage). It cannot check that a `code_refs` line really does what the task says:
-the `ba-validator` gate opens the file at the line and confirms it.
+`scenario` paths, the `executed_by` form, coverage). It cannot check that a `code_refs` line really does
+what the task says: the `ba-validator` gate opens the file at the line and confirms it.
 
 ## The route inventory (`check_routes.py`, D-170)
 
@@ -233,3 +259,47 @@ says `not covered` for it; the task forbids adding a dependency.
 4 `dynamic_suspect`; 25 dynamic call sites. Per area: `procurement` 8, `unassigned` 5, `designer` 1,
 `master` 1. The baseline (`docs/bp/dead-code-baseline.json`) holds those 15; `--check` fails from now
 on when a NEW dead function appears.
+
+## The map in plain words (`bp_doc.py`, D-173)
+
+`docs/bp/<area>.json` is written for the team; the owner needs the same map in plain words. `bp_doc.py`
+renders one area into `docs/bp/<area>.md`: a table of the processes of the area and then every process
+in full -- what it is, who may do it (and with which permission), the numbered steps with the screen
+and the call of each step, what it refuses, the tests, the runner scenario, the status and the gaps.
+At the end of the document: the orphans of the area and the gaps of the area.
+
+```
+python3 scripts/bp/bp_doc.py stock           # write docs/bp/stock.md
+python3 scripts/bp/bp_doc.py all             # write every area
+python3 scripts/bp/bp_doc.py --check         # the gate: the committed .md must equal the render
+python3 scripts/bp/bp_doc.py stock --proof /path/to/verdicts   # the Machine-proven column, never committed
+```
+
+The render is deterministic: the processes are sorted by id, every list is sorted, there is no timestamp
+and no model in the output. The same checkout gives the same bytes, so `--check` is a real gate: a map
+that changed without its document fails it (the difference is shown), and a map without a document fails
+it too. The CI runs the check in the backend gate: the test `test/scripts/bp_doc_test.exs` runs the tool
+on the real checkout and is a global CI pin (`scripts/ci_select_tests.py`, the fixed safety set), so it
+runs for every change, a map change included. The unit tests of the tool run it on the real checkout too.
+
+The table holds one row per process: the id, the name, the process in one line, the actors, the status,
+**who runs it** (`direct` or `definition:<process_key>` -- see "Who runs a process" above), whether a runner
+scenario exists, whether the process is a security (negative) one, and the
+**Machine-proven** column. That column says `see report` in the committed document: the proof is in the
+runner's report, not in the repository. With `--proof DIR` (a directory of runner verdict files, the table
+`| process | build sha | result | when |`) the column reads `PASS on <sha> <date>` per process. That mode
+is never committed: it prints to stdout (or writes to `--out`, outside the checkout), because a proof
+belongs to one run on one build.
+
+The head of the document counts the area: "The area `stock` has 44 process(es): ... Executed by: 44 direct,
+0 definition." -- how many processes of the area are still a hard-coded route and how many already run as
+a BPM definition (D-175).
+
+The runner scenario of a process is found through the `bp_entry` of the scenario files
+(`test/uat/processes/*.json`): a scenario file names the process it walks, so one process can be walked
+by several files and one file can walk several processes.
+
+A process is a **security** process when the map says so: the `security` field (`true`), the `kind` field
+(`security`) or the wording of the process itself (a title that starts with "Security" or ends with
+"(security)", a description that calls it a "negative process"). The map uses all three, so the tool reads
+all three.

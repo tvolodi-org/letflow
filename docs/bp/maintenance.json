@@ -18,7 +18,9 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/new -> MaintenanceRequestFormPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.create"
         ],
@@ -26,7 +28,8 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:50",
           "lib/letflow/modules/maintenance/requests.ex:75",
-          "lib/letflow/modules/maintenance/access.ex:25"
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19"
         ],
         "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
       }
@@ -163,27 +166,33 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.list"
         ],
         "route": "GET /api/v1/modules/maintenance/requests",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:69",
-          "lib/letflow/modules/maintenance/requests.ex:195"
+          "lib/letflow/modules/maintenance/requests.ex:195",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:18"
         ],
         "result": "200 with rows and next_cursor"
       },
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/:id -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.get"
         ],
         "route": "GET /api/v1/modules/maintenance/requests/:id",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:84",
-          "lib/letflow/modules/maintenance/requests.ex:219"
+          "lib/letflow/modules/maintenance/requests.ex:219",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:20"
         ],
         "result": "200 with the request view (status, order reference, photo_count)"
       },
@@ -524,7 +533,7 @@
     "id": "BP-MAINTENANCE-09",
     "area": "maintenance",
     "title": "Web screens for work requests",
-    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only. Why it stays planned (re-checked 2026-11-21 on origin/main): `grep -rli maintenance web/src` finds only the permission list in web/src/dev/harness/navRoleAccess.ts; there is no route, page, nav item or API client for the module. Missing in the product: the screens of REQ-898 (status pending). A runner scenario cannot exist for a screen; the API half is BP-MAINTENANCE-01..03.",
+    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. The request screens exist on main (web/src/modules/maintenance/maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id; REQ-898). Why it stays planned (re-checked 2026-11-26 on origin/main): REQ-898 is still pending in the register, the release flag :maintenance_enabled is off on QA (config/config.exs:179) so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.",
     "actors": [
       {
         "role": "TENANT_ADMIN",

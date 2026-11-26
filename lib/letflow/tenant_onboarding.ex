@@ -165,18 +165,41 @@ defmodule Letflow.TenantOnboarding do
   @spec provision_and_migrate(tenant_id :: Ecto.UUID.t()) ::
           {:ok, Registration.t()}
           | {:error, :tenant_not_found}
+          | {:error, :tenant_purged}
           | {:error, {:provisioning_failed, term()}}
           | {:error, {:migration_failed, Exception.t()}}
           | {:error, {:role_seeding_failed, term()}}
           | {:error, {:script_hmac_failed, term()}}
   def provision_and_migrate(tenant_id) do
-    with {:ok, registration} <- provision(tenant_id),
+    with :ok <- refuse_purged_tenant(tenant_id),
+         {:ok, registration} <- provision(tenant_id),
          {:ok, _applied_versions} <- TenantProvisioning.replay_migrations(tenant_id),
          {:ok, _tenant_roles} <- seed_platform_roles(registration.schema_name),
          :ok <- ensure_script_hmac(tenant_id) do
       activate_tenant(tenant_id)
       {:ok, Repo.get_by(Registration, tenant_id: tenant_id)}
     end
+  end
+
+  # REQ-580: a purged tenant's data is GONE -- the purge dropped its schema
+  # and its registration row, and marked the lifecycle row with `purged_at`
+  # (never cleared). Provisioning it again would re-create the schema the
+  # purge dropped (`CREATE SCHEMA IF NOT EXISTS`) and re-insert the
+  # registration row, and the status flip at the end of this function would
+  # make a purged tenant `:active` again -- a state the product forbids:
+  # `Letflow.Identity.reactivate_tenant/1` answers `{:error, :tenant_purged}`
+  # for exactly that tenant.
+  #
+  # The check comes FIRST, before `provision/1`: the very first act of the
+  # provisioning is `CREATE SCHEMA IF NOT EXISTS`, so a check placed after it
+  # would leave a resurrected schema behind. Every caller of this function
+  # carries the check with it -- the routes, the provisioner, the recovery
+  # path and the platform step (`Letflow.PlatformFunctions.Impl.
+  # TenantProvision`), which maps this answer to its own code.
+  defp refuse_purged_tenant(tenant_id) do
+    if Letflow.Identity.tenant_purged?(tenant_id),
+      do: {:error, :tenant_purged},
+      else: :ok
   end
 
   defp provision(tenant_id) do
@@ -252,6 +275,7 @@ defmodule Letflow.TenantOnboarding do
   @spec recover_provisioning(tenant_id :: Ecto.UUID.t()) ::
           {:ok, Registration.t()}
           | {:error, :tenant_not_found}
+          | {:error, :tenant_purged}
           | {:error, {:provisioning_failed, term()}}
           | {:error, {:migration_failed, Exception.t()}}
   def recover_provisioning(tenant_id), do: provision_and_migrate(tenant_id)

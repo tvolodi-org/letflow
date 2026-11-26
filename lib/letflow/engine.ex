@@ -519,7 +519,9 @@ defmodule Letflow.Engine do
   alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.InstanceDefinitionSnapshot
+  alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.SnapshotStore
+  alias Letflow.Definitions.StartPermission
   alias Letflow.Engine.Contention
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ExecutionError
@@ -556,6 +558,8 @@ defmodule Letflow.Engine do
   alias Letflow.EventStore.Registry, as: EventRegistry
   alias Letflow.Identity
   alias Letflow.Modules.StartGate
+  alias Letflow.PlatformFunctions.Dispatcher, as: PlatformDispatcher
+  alias Letflow.PlatformFunctions.Dispatcher.StepDispatch, as: PlatformStepDispatch
   alias Letflow.Repo
   alias Letflow.Repository.Attachments
   alias Letflow.Scheduler
@@ -578,7 +582,16 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type opts :: [prefix: String.t(), module_start: boolean()]
+  # `auth_context` is the server-side request context of the caller (T-2588,
+  # pilot gap G2): a definition that calls a platform function may be started
+  # only by a holder of the entry's permission, and the check needs the
+  # caller's roles and tenant.
+  @type opts :: [
+          prefix: String.t(),
+          module_start: boolean(),
+          auth_context: map() | nil,
+          system_start: Letflow.PlatformProcesses.SystemStart.t() | nil
+        ]
 
   @type create_error ::
           {:error, :tenant_id_not_accepted}
@@ -690,6 +703,7 @@ defmodule Letflow.Engine do
          :ok <- validate_scope_node(attrs, prefix),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
+      attrs = put_system_start(attrs, opts)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
     end
   end
@@ -697,6 +711,18 @@ defmodule Letflow.Engine do
   # ---------------------------------------------------------------------
   # Pre-transaction phase (design doc §4) -- zero DB writes attempted.
   # ---------------------------------------------------------------------
+
+  # T-2727: the system start's own audit marker travels with the attrs to the
+  # `instance.create` audit row; only the start path reads it.
+  defp put_system_start(attrs, opts) do
+    case Keyword.get(opts, :system_start) do
+      %Letflow.PlatformProcesses.SystemStart{} = system_start ->
+        Map.put(attrs, :system_start, system_start)
+
+      _none ->
+        Map.delete(attrs, :system_start)
+    end
+  end
 
   defp reject_tenant_id(attrs) do
     if Map.has_key?(attrs, :tenant_id) or Map.has_key?(attrs, "tenant_id") do
@@ -868,6 +894,7 @@ defmodule Letflow.Engine do
     |> Definitions.get_by_id(opts)
     |> gate_uninstalled_owner(opts)
     |> gate_module_only_start(opts)
+    |> gate_start_permission(opts)
     |> interpret_definition_lookup()
   end
 
@@ -876,6 +903,7 @@ defmodule Letflow.Engine do
     |> Definitions.get_active_by_name(opts)
     |> gate_uninstalled_owner(opts)
     |> gate_module_only_start(opts)
+    |> gate_start_permission(opts)
     |> interpret_definition_lookup()
   end
 
@@ -915,6 +943,43 @@ defmodule Letflow.Engine do
   end
 
   defp gate_module_only_start(lookup, _opts), do: lookup
+
+  # T-2588 (pilot gap G2; decision record
+  # docs/migration/decisions/0094-platform-call-authority.md, decision (e)): a definition
+  # that calls a platform function reads TRUSTED inputs from the start variables, so it
+  # may be started only by a caller that holds the entry's permission (`:TenantsManage`
+  # for the tenant family), in the platform tenant. Everybody else -- a company tenant's
+  # administrator, a platform user without the permission -- gets the answer for an
+  # UNKNOWN definition (INV-5), before the status case; the cause goes to the server log
+  # only. A definition with no platform call starts exactly as before.
+  #
+  # The SUB_PROCESS children the definition starts count with it: a child inherits the
+  # parent's start variables, so a child that calls a platform function needs the same
+  # authority as a direct start. Without this, a platform PROCESS_OPERATOR could start an
+  # ordinary parent whose sub-process child named an active definition carrying
+  # `tenant.create`, and the child -- started with the operator's own variables -- would
+  # run the platform call.
+  defp gate_start_permission({:ok, definition} = found, opts) do
+    children =
+      SubProcess.child_definitions(definition.graph, Keyword.get(opts, :prefix))
+
+    case StartPermission.check(
+           definition,
+           Keyword.get(opts, :auth_context),
+           children,
+           system_start: Keyword.get(opts, :system_start),
+           prefix: Keyword.get(opts, :prefix)
+         ) do
+      :ok ->
+        found
+
+      {:error, :not_found} ->
+        Logger.info("start refused: start permission definition_id=#{definition.id}")
+        {:error, :not_found}
+    end
+  end
+
+  defp gate_start_permission(lookup, _opts), do: lookup
 
   defp interpret_definition_lookup({:ok, definition}) do
     case definition do
@@ -1437,7 +1502,7 @@ defmodule Letflow.Engine do
           required(:token_id) => String.t(),
           required(:node_id) => String.t(),
           required(:arm_attrs) => map(),
-          optional(:kind) => :http | :script
+          optional(:kind) => :http | :script | :platform | :notify
         }
   # ISS-0917 (design D2) -- where the instance's effective pins come from and
   # which tenant's visibility applies when a `route_kind: :catalog_service`
@@ -1500,6 +1565,27 @@ defmodule Letflow.Engine do
                 node_id: node_id,
                 arm_attrs: arm_attrs,
                 kind: :script
+              }
+
+              {:cont, {:ok, [prepared | acc], ctx}}
+
+            {:ok_platform, arm_attrs, ctx} ->
+              prepared = %{
+                token_id: token_id,
+                node_id: node_id,
+                arm_attrs: arm_attrs,
+                kind: :platform
+              }
+
+              {:cont, {:ok, [prepared | acc], ctx}}
+
+            # T-2810: a notification step: the same durable row as a platform step.
+            {:ok_notify, arm_attrs, ctx} ->
+              prepared = %{
+                token_id: token_id,
+                node_id: node_id,
+                arm_attrs: arm_attrs,
+                kind: :notify
               }
 
               {:cont, {:ok, [prepared | acc], ctx}}
@@ -1604,6 +1690,21 @@ defmodule Letflow.Engine do
             {:catalog_resolution_error, node_id, reason}
         end
 
+      # T-2703 (pilot gap G1 remainder): a platform step. The engine resolves the step's
+      # arguments from the instance variables and ARMS the dispatch row (see
+      # `build_service_task_dispatch_multi/5`); the call itself runs outside every transaction.
+      {:ok, %ServiceTask.Config{route_kind: :platform_call} = config} ->
+        case resolve_platform_call_arm_attrs(config, instance_id, variables, ctx) do
+          {:ok, arm_attrs} -> {:ok_platform, arm_attrs, ctx}
+          {:error, reason} -> {:error, {:platform_call_unresolved, node_id, reason}}
+        end
+
+      # T-2810: a notification step. Nothing is resolved here (the address and the values are
+      # read from the instance at run time and never copied into a row, INV-4); the engine arms
+      # the row and the runner (`Letflow.Engine.NotifyStepRunner`) sends.
+      {:ok, %ServiceTask.Config{route_kind: :notify, notify: notify}} ->
+        {:ok_notify, %{instance_id: instance_id, declaration: notify}, ctx}
+
       # GH 2534 PR 7c-1 (design 4.4): the instance's OWN frozen :script pin for the node's
       # key (from the same pin source the catalog route uses). A missing pin, a pin whose
       # version differs from the node's, or a pin without sha256 is a typed binding error.
@@ -1639,6 +1740,64 @@ defmodule Letflow.Engine do
     |> Enum.filter(&(Map.get(ctx.variable_labels, &1, []) != []))
     |> Enum.sort()
   end
+
+  # T-2703: the arguments of a platform step, read from the instance variables the way the step
+  # declares them (`{"var": name}` or `{"const": value}`). A variable that carries a LABEL
+  # (a sensitive value the engine marked) never goes into a dispatch row (decision 0062 R12), and
+  # a name the catalogue entry does not declare is refused before anything is written. A variable
+  # that is absent is left out: the dispatcher's own input check refuses a missing required one.
+  defp resolve_platform_call_arm_attrs(
+         %ServiceTask.Config{platform_call: call},
+         instance_id,
+         variables,
+         ctx
+       ) do
+    with {:ok, entry} <- platform_call_entry(call),
+         {:ok, inputs} <- resolve_platform_call_inputs(call, entry, variables, ctx) do
+      {:ok, %{instance_id: instance_id, function: entry.name, inputs: inputs}}
+    end
+  end
+
+  defp platform_call_entry(call) do
+    case PlatformCalls.entry(call) do
+      {:ok, entry} -> {:ok, entry}
+      {:error, :not_found} -> {:error, :platform_function_unknown}
+    end
+  end
+
+  defp resolve_platform_call_inputs(%{"args" => args}, entry, variables, ctx) when is_map(args) do
+    declared = MapSet.new(entry.inputs, & &1.name)
+
+    Enum.reduce_while(args, {:ok, %{}}, fn {name, source}, {:ok, acc} ->
+      cond do
+        not MapSet.member?(declared, name) ->
+          {:halt, {:error, :platform_call_arg_unknown}}
+
+        match?(%{"const" => _value}, source) ->
+          {:cont, {:ok, Map.put(acc, name, Map.fetch!(source, "const"))}}
+
+        match?(%{"var" => key} when is_binary(key), source) ->
+          key = Map.fetch!(source, "var")
+
+          cond do
+            Map.get(ctx.variable_labels, key, []) != [] ->
+              {:halt, {:error, :platform_call_variable_restricted}}
+
+            Map.has_key?(variables, key) ->
+              {:cont, {:ok, Map.put(acc, name, Map.fetch!(variables, key))}}
+
+            true ->
+              {:cont, {:ok, acc}}
+          end
+
+        true ->
+          {:halt, {:error, :platform_call_arg_invalid}}
+      end
+    end)
+  end
+
+  defp resolve_platform_call_inputs(_call, _entry, _variables, _ctx),
+    do: {:error, :platform_call_arg_invalid}
 
   defp resolve_script_pin(%ServiceTask.Config{script_key: key, script_version: version}, ctx) do
     case catalog_pins(ctx.pin_source) do
@@ -2008,8 +2167,186 @@ defmodule Letflow.Engine do
             ScriptTaskDispatch.arm_changeset(%ScriptTaskDispatch{}, attrs),
             prefix: prefix
           )
+
+        # T-2703 (pilot gap G1 remainder): a platform step. The row is armed INSIDE this
+        # transaction (the hand-over point, `Dispatcher.arm/1`); the call runs later, outside
+        # every transaction, in `PlatformStepRunner`.
+        :notify ->
+          Multi.run(acc_multi, {:notify_step, token_record_id}, fn repo, _changes ->
+            arm_notify_step(
+              repo,
+              arm_attrs,
+              node_id_of(prepared),
+              prefix,
+              Map.get(prepared, :platform_applying_id)
+            )
+          end)
+
+        :platform ->
+          Multi.run(acc_multi, {:platform_step, token_record_id}, fn repo, _changes ->
+            arm_platform_step(
+              repo,
+              arm_attrs,
+              node_id_of(prepared),
+              prefix,
+              Map.get(prepared, :platform_applying_id)
+            )
+          end)
       end
     end)
+  end
+
+  defp node_id_of(%{node_id: node_id}), do: node_id
+
+  # The completion key of a platform step's apply: this prefix and the dispatch id.
+  @platform_step_completion_prefix "platform_step_dispatch:"
+
+  # The visit of a node is the number of its earlier visits that were APPLIED (their completion
+  # key, the dispatch id, is recorded). It is NOT the number of rows: a row that is still pending,
+  # running, or advanced-but-not-applied is the CURRENT visit, so arming it again gives the same
+  # key. Only a loop back that arrives after the previous visit was applied is a new visit (and a
+  # new call): the applied row would otherwise be replayed and leave the instance parked for good.
+  #
+  # `applying_id` is the platform row whose apply runs in THIS transaction (put on the prepared
+  # dispatches by `mark_platform_applying/2` in `do_persist_service_task_advance/10`). Its completion key
+  # is written later in the same transaction, after the hop chain armed the next nodes, so a loop
+  # that goes straight back to the same node (call -> gateway -> call) would not yet see it as
+  # applied: it is counted as applied here.
+  defp platform_step_visit(repo, instance_id, node_id, prefix, applying_id) do
+    rows =
+      from(d in PlatformStepDispatch,
+        as: :d,
+        where: d.instance_id == ^instance_id and d.node_id == ^node_id
+      )
+
+    applied =
+      case applying_id do
+        nil -> where(rows, [d], exists(platform_completion_key_query()))
+        id -> where(rows, [d], d.id == ^id or exists(platform_completion_key_query()))
+      end
+
+    repo.aggregate(applied, :count, prefix: prefix)
+  end
+
+  # The platform row an apply completes (`platform_completion/3`'s `:platform_dispatch_id`; nil on
+  # the HTTP and script routes) goes with every dispatch the apply's hop chain arms.
+  defp mark_platform_applying(prepared_dispatches, completion) do
+    case Map.get(completion, :platform_dispatch_id) do
+      nil -> prepared_dispatches
+      id -> Enum.map(prepared_dispatches, &Map.put(&1, :platform_applying_id, id))
+    end
+  end
+
+  defp platform_completion_key_query do
+    from(i in IdempotencyRecord,
+      where:
+        i.idempotency_key ==
+          fragment(
+            "? || ?::text",
+            ^@platform_step_completion_prefix,
+            parent_as(:d).id
+          ),
+      select: 1
+    )
+  end
+
+  # The arming of a platform step. The call key is the catalogue entry's own idempotency key plus
+  # the VISIT of the node, so a second arm of the same visit (a replay, a double entry) computes
+  # the same key and meets the `ON CONFLICT` replay of `Dispatcher.arm/1`: the existing row is
+  # accepted and not run twice. A key that belongs to ANOTHER instance or node is refused: the
+  # first result is not this instance's to resume.
+  @doc false
+  @spec arm_platform_step(module(), map(), String.t(), String.t(), Ecto.UUID.t() | nil) ::
+          {:ok, PlatformStepDispatch.t()} | {:error, term()}
+  def arm_platform_step(repo, arm_attrs, node_id, prefix, applying_id \\ nil) do
+    case repo.get_by(InstanceProjection, [instance_id: arm_attrs.instance_id], prefix: prefix) do
+      nil ->
+        {:error, :instance_not_found}
+
+      %InstanceProjection{definition_id: definition_id} ->
+        case given_up_platform_step(repo, arm_attrs.instance_id, node_id, prefix) do
+          %PlatformStepDispatch{} = row ->
+            # The current visit FAILED (`given_up`): a duplicate arm is the same call and never a
+            # second run. `Dispatcher.arm/1` would re-arm a given_up row (its contract for a direct
+            # caller); on the engine route only the DLQ retry (G7) runs a failed step again.
+            {:ok, row}
+
+          nil ->
+            do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix, applying_id)
+        end
+    end
+  end
+
+  # A `given_up` row of this node is always the CURRENT visit: an earlier visit that failed holds
+  # the instance in ERROR until its retry advanced (and applied) it.
+  defp given_up_platform_step(repo, instance_id, node_id, prefix) do
+    repo.one(
+      from(d in PlatformStepDispatch,
+        where: d.instance_id == ^instance_id and d.node_id == ^node_id and d.status == :given_up,
+        limit: 1
+      ),
+      prefix: prefix
+    )
+  end
+
+  # T-2810: the arming of a notification step -- the same visit rule and the same replay rule as
+  # `arm_platform_step/5` (a failed current visit is never armed twice; a second arm of the same
+  # visit meets the unique call key and returns the existing row).
+  @doc false
+  @spec arm_notify_step(module(), map(), String.t(), String.t(), Ecto.UUID.t() | nil) ::
+          {:ok, PlatformStepDispatch.t()} | {:error, term()}
+  def arm_notify_step(repo, arm_attrs, node_id, prefix, applying_id \\ nil) do
+    case repo.get_by(InstanceProjection, [instance_id: arm_attrs.instance_id], prefix: prefix) do
+      nil ->
+        {:error, :instance_not_found}
+
+      %InstanceProjection{definition_id: definition_id} ->
+        case given_up_platform_step(repo, arm_attrs.instance_id, node_id, prefix) do
+          %PlatformStepDispatch{} = row ->
+            {:ok, row}
+
+          nil ->
+            visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix, applying_id)
+
+            case Letflow.Engine.NotifyStepRunner.arm(
+                   repo,
+                   %{instance_id: arm_attrs.instance_id},
+                   node_id,
+                   definition_id,
+                   prefix,
+                   visit
+                 ) do
+              {:ok, row} -> {:ok, row}
+              {:error, reason} -> {:error, {:notify_step_unresolved, node_id, reason}}
+            end
+        end
+    end
+  end
+
+  defp do_arm_platform_step(repo, arm_attrs, node_id, definition_id, prefix, applying_id) do
+    visit = platform_step_visit(repo, arm_attrs.instance_id, node_id, prefix, applying_id)
+
+    opts = [
+      prefix: prefix,
+      instance_id: arm_attrs.instance_id,
+      definition_id: definition_id,
+      node_id: node_id,
+      function: arm_attrs.function,
+      inputs: arm_attrs.inputs,
+      visit: visit
+    ]
+
+    case PlatformDispatcher.arm(opts) do
+      {:ok, %{dispatch: %{instance_id: iid, node_id: nid} = row}}
+      when iid == arm_attrs.instance_id and nid == node_id ->
+        {:ok, row}
+
+      {:ok, _foreign_row} ->
+        {:error, {:platform_call_unresolved, node_id, :platform_call_key_in_use}}
+
+      {:error, reason} ->
+        {:error, {:platform_call_unresolved, node_id, reason}}
+    end
   end
 
   # design doc §8 -- attrs[:pin_lookup] surface: a caller-supplied
@@ -2461,17 +2798,46 @@ defmodule Letflow.Engine do
     Audit.append_multi(
       Multi.new(),
       :audit,
-      %{
-        actor_id: Map.get(attrs, :actor_id),
-        action: "instance.create",
-        resource_type: "instance",
-        resource_id: instance_id,
-        before_state: nil,
-        after_state: Audit.struct_state(finalized),
-        trace_id: nil
-      },
+      create_audit_attrs(
+        attrs,
+        instance_id,
+        # T-2727 (V9): in the platform tenant the registration values never reach the stored row.
+        Letflow.PlatformProcesses.RegistrationMask.scrub_stored(
+          Audit.struct_state(finalized),
+          prefix
+        )
+      ),
       prefix
     )
+  end
+
+  # T-2727 (C2): a system start has no person: actor nil, kind "system", and
+  # the calling route named in the after-state.
+  defp create_audit_attrs(attrs, instance_id, after_state) do
+    base = %{
+      action: "instance.create",
+      resource_type: "instance",
+      resource_id: instance_id,
+      before_state: nil,
+      trace_id: nil
+    }
+
+    case Map.get(attrs, :system_start) do
+      %Letflow.PlatformProcesses.SystemStart{} = system_start ->
+        Map.merge(base, %{
+          actor_id: nil,
+          actor_kind: "system",
+          after_state:
+            Map.put(
+              after_state,
+              :started_via,
+              Letflow.PlatformProcesses.SystemStart.started_via(system_start)
+            )
+        })
+
+      _none ->
+        Map.merge(base, %{actor_id: Map.get(attrs, :actor_id), after_state: after_state})
+    end
   end
 
   # req062 design doc §3.3 -- resolves each prepared child's own parent
@@ -5872,6 +6238,324 @@ defmodule Letflow.Engine do
     end
   end
 
+  # =========================================================================
+  # T-2703 (pilot gap G1 remainder): the result of a PLATFORM step.
+  #
+  # A platform step is armed inside the engine's transaction (`build_service_task_dispatch_multi/5`)
+  # and RUN outside every transaction by `Letflow.Engine.PlatformStepRunner`, which calls
+  # `Letflow.PlatformFunctions.Dispatcher`. The two functions below are the runner's way back into
+  # the instance:
+  #
+  #   * `apply_platform_step_result/3` -- the row is `advanced`: its declared outputs are merged
+  #     into the instance variables and the instance CONTINUES off the node. The completion key is
+  #     the dispatch id, so a second apply (a poller restart, a retry that finds the work done)
+  #     is `{:ok, :already_final}` and moves nothing.
+  #   * `fail_platform_step/2` -- the row is `given_up`: the instance goes to ERROR with an
+  #     EXECUTION_ERROR event and a DLQ entry of type `StepRetry.platform_step_entry_type/0`, which
+  #     the DLQ retry (G7) re-dispatches.
+  #
+  # Both run strictly after the dispatcher's own transactions have committed (the body may run
+  # DDL), so the row write and the instance write are two commits; both are idempotent, and the
+  # runner's sweep applies an `advanced` row whose instance has not moved yet.
+  # =========================================================================
+
+  @doc false
+  @spec apply_platform_step_result(Ecto.UUID.t(), String.t(), keyword()) ::
+          {:ok, :advanced | :error_set | :already_final | :not_advanced} | {:error, term()}
+  def apply_platform_step_result(dispatch_id, prefix, opts \\ []) when is_binary(prefix) do
+    resume? = Keyword.get(opts, :resume, false)
+
+    with {:ok, id} <- Ecto.UUID.cast(dispatch_id) do
+      Repo.transaction(fn ->
+        case advance_platform_step(id, resume?, prefix) do
+          {:ok, result} -> result
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    else
+      :error -> {:error, :platform_step_not_found}
+    end
+  rescue
+    exception ->
+      Logger.error("platform step apply raised: #{inspect(exception.__struct__)}")
+      {:error, :platform_step_apply_failed}
+  end
+
+  defp advance_platform_step(dispatch_id, resume?, prefix) do
+    completion_key = @platform_step_completion_prefix <> dispatch_id
+
+    case fetch_and_lock_platform_step(dispatch_id, prefix) do
+      nil ->
+        {:error, :platform_step_not_found}
+
+      %PlatformStepDispatch{status: status} when status != :advanced ->
+        {:ok, :not_advanced}
+
+      %PlatformStepDispatch{} = row ->
+        # The duplicate read comes BEFORE the projection and graph reads: a first apply moved the
+        # token and may have ended the instance.
+        if service_completion_key_present?(Repo, completion_key, prefix) do
+          {:ok, :already_final}
+        else
+          with {:ok, projection} <- lock_projection_for_platform_apply(row, resume?, prefix) do
+            apply_platform_outputs(row, projection, completion_key, resume?, prefix)
+          end
+        end
+    end
+  end
+
+  defp fetch_and_lock_platform_step(dispatch_id, prefix) do
+    PlatformStepDispatch
+    |> where([d], d.id == ^dispatch_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one(prefix: prefix)
+  end
+
+  # An ACTIVE instance is applied; an instance in ERROR only when this is the resume that follows a
+  # retry (the retry is the operator's deliberate act, so it is the one thing that lifts ERROR).
+  defp lock_projection_for_platform_apply(row, resume?, prefix) do
+    InstanceProjection
+    |> where([p], p.instance_id == ^row.instance_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one(prefix: prefix)
+    |> case do
+      nil -> {:error, :instance_not_found}
+      %InstanceProjection{status: :active} = projection -> {:ok, projection}
+      %InstanceProjection{status: :error} = projection when resume? -> {:ok, projection}
+      %InstanceProjection{status: status} -> {:error, {:instance_not_active, status}}
+    end
+  end
+
+  defp apply_platform_outputs(row, projection, completion_key, resume?, prefix) do
+    # The platform route plans no entity writes: a node that declares lines is refused fail-closed
+    # (the S4 guard of the HTTP and script routes).
+    with {:ok, graph} <- fetch_graph(row.instance_id, prefix),
+         :ok <- check_service_lines_planned(graph, row.node_id, nil) do
+      active_token_records = load_active_tokens(Repo, row.instance_id, prefix)
+      active_tokens = Enum.map(active_token_records, &to_pure_token/1)
+
+      case Enum.find(active_tokens, &(&1.node_id == row.node_id)) do
+        nil ->
+          {:error, {:unknown_token_id, row.node_id}}
+
+        own_token ->
+          pending_task_tokens = load_pending_task_tokens(Repo, row.instance_id, prefix)
+          seed_state = build_instance_state(projection, active_tokens, pending_task_tokens)
+          outputs = row.outputs || %{}
+
+          case VariableMerge.merge(
+                 seed_state.variables,
+                 seed_state.variable_labels,
+                 outputs,
+                 %{},
+                 nil
+               ) do
+            {:ok, merged_variables, merged_labels, _merge_events} ->
+              state_with_merged_variables =
+                VariableLabels.put_merged(seed_state, merged_variables, merged_labels)
+
+              if resume?, do: clear_projection_error(row.instance_id, prefix)
+
+              persist_service_task_advance(
+                Repo,
+                %{
+                  id: row.id,
+                  instance_id: row.instance_id,
+                  node_id: row.node_id,
+                  token_id: own_token.token_id
+                },
+                projection,
+                graph,
+                seed_state,
+                state_with_merged_variables,
+                active_token_records,
+                own_token,
+                platform_completion(row, outputs, completion_key),
+                prefix
+              )
+
+            # A step must never write the reserved engine namespace: a terminal, value-free
+            # ERROR instead of a silent stall (the same rule the HTTP route has).
+            # The refusal is LANDED by the runner as the platform failure
+            # (`fail_platform_step_apply/3`: ERROR + EXECUTION_ERROR + a DLQ entry of the platform
+            # step's type), never as an ordinary event DLQ entry that the G7 retry cannot resume.
+            {:rejected, _unchanged_variables,
+             [{:execution_error, _key, _value, :reserved_variable_key, _failures}]} ->
+              {:error, :reserved_variable_key}
+
+            {:rejected, _unchanged_variables, _events} = rejection ->
+              {:error, {:variable_merge_rejected, rejection}}
+          end
+      end
+    end
+  end
+
+  # The retry lifted the failure: the instance leaves ERROR in the same transaction as the advance.
+  defp clear_projection_error(instance_id, prefix) do
+    InstanceProjection
+    |> where([p], p.instance_id == ^instance_id)
+    |> Repo.update_all([set: [error_detail: nil]], prefix: prefix)
+  end
+
+  defp platform_completion(row, outputs, completion_key) do
+    %{
+      event_type: "SERVICE_TASK_COMPLETED",
+      event_payload: %{
+        dispatch_id: row.id,
+        node_id: row.node_id,
+        decoded_body: outputs
+      },
+      idempotency_key: completion_key,
+      platform_dispatch_id: row.id,
+      on_advanced: &Function.identity/1,
+      on_no_matching_edge: &Function.identity/1,
+      # A hop chain with no matching edge is a REFUSAL of the apply on this route: the whole apply
+      # rolls back (no SERVICE_TASK_COMPLETED, no completion key) and the runner lands it as the
+      # platform failure, so the G7 retry can resume it (`persist_service_task_no_matching_edge/7`).
+      refuse_no_matching_edge: true
+    }
+  end
+
+  @doc false
+  @spec fail_platform_step(Ecto.UUID.t(), String.t()) ::
+          {:ok, :error_set | :not_failed} | {:error, term()}
+  def fail_platform_step(dispatch_id, prefix) when is_binary(prefix) do
+    with {:ok, id} <- Ecto.UUID.cast(dispatch_id),
+         %PlatformStepDispatch{status: :given_up} = row <-
+           Repo.get(PlatformStepDispatch, id, prefix: prefix) do
+      code = row.last_failure_kind || "platform_step_failed"
+
+      land_platform_failure(
+        row,
+        code,
+        %{},
+        "platform_step_failed:#{row.id}:#{row.attempt_index}",
+        prefix
+      )
+    else
+      :error -> {:error, :platform_step_not_found}
+      nil -> {:error, :platform_step_not_found}
+      %PlatformStepDispatch{} -> {:ok, :not_failed}
+    end
+  rescue
+    exception ->
+      Logger.error("platform step failure landing raised: #{inspect(exception.__struct__)}")
+      {:error, :platform_step_fail_landing_failed}
+  end
+
+  @doc false
+  # T-2703: the engine REFUSED to apply an `advanced` row (`apply_platform_step_result/3` answered
+  # one of the refusals `platform_apply_refusal/1` classifies). The step ran, but the instance
+  # cannot continue: it goes to ERROR with an EXECUTION_ERROR (`failure_kind: "apply_refused"`)
+  # and a DLQ entry of the platform step's type, instead of staying parked on the node. The DLQ
+  # retry finds the row `advanced` (it never runs the function again) and tries the apply once
+  # more. Idempotent: the key is the row id, and a row whose apply landed is not touched.
+  @spec fail_platform_step_apply(Ecto.UUID.t(), String.t(), term()) ::
+          {:ok, :error_set | :not_failed} | {:error, term()}
+  def fail_platform_step_apply(dispatch_id, prefix, reason) when is_binary(prefix) do
+    with {:land, refusal} <- platform_apply_refusal(reason),
+         {:ok, id} <- Ecto.UUID.cast(dispatch_id),
+         %PlatformStepDispatch{status: :advanced} = row <-
+           Repo.get(PlatformStepDispatch, id, prefix: prefix),
+         false <-
+           service_completion_key_present?(Repo, @platform_step_completion_prefix <> id, prefix) do
+      land_platform_failure(
+        row,
+        "apply_refused",
+        %{apply_refusal: refusal},
+        "platform_step_apply_refused:#{row.id}",
+        prefix
+      )
+    else
+      :skip -> {:ok, :not_failed}
+      :error -> {:error, :platform_step_not_found}
+      nil -> {:error, :platform_step_not_found}
+      true -> {:ok, :not_failed}
+      %PlatformStepDispatch{} -> {:ok, :not_failed}
+    end
+  rescue
+    exception ->
+      Logger.error("platform step apply landing raised: #{inspect(exception.__struct__)}")
+      {:error, :platform_step_fail_landing_failed}
+  end
+
+  @doc false
+  # Which answers of `apply_platform_step_result/3` are a REFUSAL to land (the same answer comes
+  # back on every try), and which are not: a raise (a database fault: the next cycle tries again),
+  # a row or instance that is gone, an instance that is no longer active, a node that holds no
+  # token of this instance. The refusal is named by a closed code, never by the term (INV-4).
+  @spec platform_apply_refusal(term()) :: {:land, String.t()} | :skip
+  def platform_apply_refusal(:platform_step_apply_failed), do: :skip
+  def platform_apply_refusal(:platform_step_not_found), do: :skip
+  def platform_apply_refusal(:instance_not_found), do: :skip
+  def platform_apply_refusal({:instance_not_active, _status}), do: :skip
+  def platform_apply_refusal({:unknown_token_id, _node_id}), do: :skip
+
+  def platform_apply_refusal({:entity_write_failed, _index, _cause}),
+    do: {:land, "lines_not_planned"}
+
+  def platform_apply_refusal({:variable_merge_rejected, _}),
+    do: {:land, "variable_merge_rejected"}
+
+  def platform_apply_refusal({:transition_failed, _}), do: {:land, "transition_failed"}
+  def platform_apply_refusal(:reserved_variable_key), do: {:land, "reserved_variable_key"}
+  def platform_apply_refusal({:no_matching_edge, _node_id}), do: {:land, "no_matching_edge"}
+  def platform_apply_refusal(_other), do: {:land, "apply_refused"}
+
+  # T-2810: the EXECUTION_ERROR event REPLACES the instance's variables on replay, so a notification
+  # step's failure keeps the instance's own variables in it (its retry reads the recipient and the
+  # values back from them; they are the instance's own data, already in its start event). A
+  # platform step's failure keeps writing none (its inputs can be personal data too).
+  defp landing_variables(%PlatformStepDispatch{function_name: name} = row, prefix) do
+    with true <- name == Letflow.Engine.NotifyStepRunner.function_name(),
+         %InstanceProjection{variables: variables} when is_map(variables) <-
+           Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix) do
+      variables
+    else
+      _other -> %{}
+    end
+  end
+
+  # T-2810: a notification step's row lands its failure with the notification entry type.
+  defp step_entry_type(%PlatformStepDispatch{function_name: name}) do
+    if name == Letflow.Engine.NotifyStepRunner.function_name(),
+      do: Letflow.Instances.StepRetry.notify_step_entry_type(),
+      else: Letflow.Instances.StepRetry.platform_step_entry_type()
+  end
+
+  # No variable is copied into the event: the inputs of a platform step can be personal data (an
+  # e-mail address), and the failure kind is a CODE of a closed vocabulary.
+  defp land_platform_failure(row, code, extra_details, idempotency_key, prefix) do
+    attrs = %{
+      instance_id: row.instance_id,
+      error_type: :platform_step_failed,
+      affected: {:node, row.node_id},
+      reason: "platform step failed (#{code})",
+      variables: landing_variables(row, prefix),
+      details:
+        Map.merge(
+          %{
+            function: row.function_name,
+            failure_kind: code,
+            attempt_index: row.attempt_index
+          },
+          extra_details
+        ),
+      actor_id: EventStore.platform_actor_id(),
+      idempotency_key: idempotency_key,
+      dlq_entry_type: step_entry_type(row),
+      dlq_reference_id: row.node_id
+    }
+
+    case set_instance_error(attrs, prefix: prefix) do
+      {:ok, %{status: :error}} -> {:ok, :error_set}
+      {:error, {:instance_terminal, _status}} -> {:ok, :error_set}
+      {:error, {:instance_already_error, _detail}} -> {:ok, :error_set}
+      {:error, :idempotency_key_reuse} -> {:ok, :error_set}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # mirrors ServiceTaskDispatcher.fetch_and_lock_dispatch/2's own FOR UPDATE
   # shape, callable from this module.
   defp fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
@@ -5902,6 +6586,8 @@ defmodule Letflow.Engine do
            required(:idempotency_key) => String.t(),
            required(:on_advanced) => (Multi.t() -> Multi.t()),
            required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
+           optional(:refuse_no_matching_edge) => boolean(),
+           optional(:platform_dispatch_id) => Ecto.UUID.t(),
            optional(:incident_variables) => map(),
            optional(:incident_labels) => map()
          }
@@ -6077,6 +6763,20 @@ defmodule Letflow.Engine do
   # "service_task_dispatch:<id>", unchanged), and `on_no_matching_edge` appends the script
   # route's run record and terminal row status AFTER the ExecutionError steps, in the same
   # transaction (identity for HTTP).
+  # The platform route (T-2703) does not land here: it refuses, and its runner lands the refusal
+  # with the platform step's own DLQ entry type. The conditions are not carried (INV-4).
+  defp persist_service_task_no_matching_edge(
+         _repo,
+         _projection,
+         _state_with_merged_variables,
+         node_id,
+         _evaluated_conditions,
+         %{refuse_no_matching_edge: true},
+         _prefix
+       ) do
+    {:error, {:no_matching_edge, node_id}}
+  end
+
   defp persist_service_task_no_matching_edge(
          repo,
          %InstanceProjection{} = projection,
@@ -6306,7 +7006,7 @@ defmodule Letflow.Engine do
 
                 build_service_task_dispatch_multi(
                   Multi.new(),
-                  prepared_service_task_dispatches,
+                  mark_platform_applying(prepared_service_task_dispatches, completion),
                   id_map,
                   tenant_id,
                   prefix
@@ -10203,6 +10903,13 @@ defmodule Letflow.Engine do
       # apply_script_task_result/3 takes too; an ineligible cancel rolls it back.
       ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
     end)
+    |> Multi.run(:platform_step_dispatch_cancellations, fn repo, _changes ->
+      # T-2703: the platform route's pending AND running rows, same lock-order rule (dispatch row
+      # before the projection; the order apply_platform_step_result/3 and the dispatcher's claim
+      # take). The claim also refuses a row whose instance has ended, so a row this read misses
+      # never runs either.
+      PlatformDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
+    end)
     |> Multi.run(:instance_projection, fn repo, _changes ->
       # GH #2695: parent-side order: P then T, same as the cascade.
       fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)
@@ -10670,6 +11377,16 @@ defmodule Letflow.Engine do
         actor_id: Map.get(attrs, :actor_id),
         idempotency_key: idempotency_key
       }
+
+      # T-2703: a platform step's failure lands its DLQ entry under the step's own type, which
+      # the DLQ retry (`Letflow.Instances.StepRetry`) re-dispatches.
+      error_args =
+        Enum.reduce([:dlq_entry_type, :dlq_reference_id], error_args, fn key, acc ->
+          case Map.get(attrs, key) do
+            value when is_binary(value) -> Map.put(acc, key, value)
+            _none -> acc
+          end
+        end)
 
       dlq_landed_externally = Keyword.get(opts, :dlq_landed_externally, false)
       nested? = Repo.in_transaction?()

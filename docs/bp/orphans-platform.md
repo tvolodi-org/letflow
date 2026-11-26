@@ -2,6 +2,14 @@
 
 Inventory items of area `platform` that no process of this area uses. Not deleted, not judged by the writer.
 
+One orphan row: `GET /api/v1/platform-functions`, the read of the compiled platform-function catalogue. It was
+added on 2026-11-22 by the pilot G2 build and no process of this area names it yet: the designer that reads it (the
+platform-call editor, T-2599 / pilot gap G5a) is pilot work in flight. It is listed rather than given a process so
+that the route inventory of D-170 stays green on the real tree (`scripts/uat/check_routes.py`); the owner decides
+whether it later gets a task of its own.
+
+Decision (T-2559 review, D-169): `/verify/:handle -> VerifyCertificatePage` (web/src/router.tsx:116, added 2026-10-26 by a7332354b, BilimBaga study T4a, REQ-357 / decision 0028) is USED: it is the public certificate check. It sat here only because its route is in the core router file; it is now task 1 and 2 of BP-PLATFORM-23.
+
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
-| /verify/:handle -> VerifyCertificatePage | web/src/router.tsx:116 | public page, outside the login, that checks a certificate by its one-time public handle and reads `GET /api/public/certificate/:handle` | router comment "BilimBaga T4a" and REQ-357 / decision 0028 (named in `web/src/pages/VerifyCertificatePage.tsx` header); the API half `GET /api/public/certificate/:handle` is the generic `get "/:kind/:handle"` in `lib/letflow/routers/public_read.ex:59`, mounted at `lib/letflow/router.ex:167` (the exam router only issues the handle, `lib/letflow/modules/exam/router.ex:902`) | the exam application's certificate check; it sits in the platform inventory only because its route is in the core router file outside `/admin`, not because it is a platform function; the process belongs in area `exam` ("Verify a certificate by its public handle") | give a process |
+| GET /api/v1/platform-functions | lib/letflow/routers/platform_functions.ex:36 | reads the compiled catalogue of the platform functions a definition may call, for the caller's tenant | T-2599 (pilot gap G5a), commit 4e39e9cc6, 2026-11-22 | the designer's platform-call editor reads it to offer the functions a definition may call; the pilot work is in flight, so no process of this area names the route yet | keep as a platform function |

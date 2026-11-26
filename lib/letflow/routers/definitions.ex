@@ -375,10 +375,28 @@ defmodule Letflow.Routers.Definitions do
   end
 
   defp validate_with_optional_graph(conn, id, graph) when is_map(graph) do
-    render_validation(
-      conn,
-      Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
-    )
+    # T-2811: an optional `variable_schemas` list (the variables declared on the screen, not saved
+    # yet) is what the preview checks the graph against; a malformed one is a 422, never a 500.
+    case preview_variable_schema_entries(Map.get(conn.body_params, "variable_schemas")) do
+      {:ok, nil} ->
+        render_validation(
+          conn,
+          Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
+        )
+
+      {:ok, entries} ->
+        opts = Keyword.put(conn.assigns.scoped_opts, :declared_variables, entries)
+        render_validation(conn, Definitions.validate_graph_preview(id, graph, opts))
+
+      {:error, :invalid_variable_schemas} ->
+        Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      {:error, :variable_schemas_too_large} ->
+        Response.unprocessable(
+          conn,
+          "variable_schemas has too many entries or a variable_key exceeds the maximum length"
+        )
+    end
   end
 
   defp validate_with_optional_graph(conn, _id, _not_a_map) do
@@ -436,8 +454,31 @@ defmodule Letflow.Routers.Definitions do
   # inherit get_by_id/2's not-found collapse (OQ-2)".
 
   defp handle_get_by_id(conn, raw_id) do
-    render_get_by_id(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
+    render_get_by_id_with_variables(conn, Definitions.get_by_id(raw_id, conn.assigns.scoped_opts))
   end
+
+  # T-2811: the single-definition read also lists the DECLARED VARIABLES (key, json_schema, description)
+  # so the designer can show and extend them; the list and search reads stay as they were.
+  defp render_get_by_id_with_variables(conn, {:ok, definition}) do
+    declared =
+      case Definitions.variable_schema_entries(definition.id, conn.assigns.scoped_opts) do
+        {:ok, entries} ->
+          Enum.map(entries, fn e ->
+            %{
+              "variable_key" => e.variable_key,
+              "json_schema" => e.json_schema,
+              "description" => e.description
+            }
+          end)
+
+        _ ->
+          []
+      end
+
+    Response.ok(conn, Map.put(definition_map(definition), "variable_schemas", declared))
+  end
+
+  defp render_get_by_id_with_variables(conn, other), do: render_get_by_id(conn, other)
 
   defp render_get_by_id(conn, {:ok, definition}),
     do: Response.ok(conn, definition_map(definition))
@@ -641,11 +682,16 @@ defmodule Letflow.Routers.Definitions do
     %FieldConstraint{name: "graph", required: true, type: :object},
     %FieldConstraint{name: "stage", required: false, type: :string},
     %FieldConstraint{name: "variable_schemas", required: false, type: :array},
-    %FieldConstraint{name: "copy_variable_schemas_from", required: false, type: :string}
+    %FieldConstraint{name: "copy_variable_schemas_from", required: false, type: :string},
+    # T-2604 (pilot gap G16): the DECLARED TEST CASES of the version -- they run
+    # before it may be activated.
+    %FieldConstraint{name: "test_cases", required: false, type: :array}
   ]
 
   defp handle_create(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2, decision (d)): the caller's user id is the actor of the
+    # definition lifecycle audit row.
+    opts = Keyword.put(conn.assigns.scoped_opts, :actor_id, conn.assigns.auth_context.user_id)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
@@ -659,7 +705,9 @@ defmodule Letflow.Routers.Definitions do
         description: Map.get(attrs, "description"),
         graph: Map.fetch!(attrs, "graph"),
         stage: Map.get(attrs, "stage"),
-        created_by: actor_id
+        created_by: actor_id,
+        # T-2604 (pilot gap G16): the declared test cases of this version.
+        test_cases: Map.get(attrs, "test_cases")
       }
 
       render_write(
@@ -676,6 +724,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
 
       {:error, :copy_and_schemas} ->
         Response.unprocessable(
@@ -744,7 +797,10 @@ defmodule Letflow.Routers.Definitions do
           version: Map.fetch!(attrs, "version"),
           description: description,
           graph: Map.fetch!(attrs, "graph"),
-          stage: stage
+          stage: stage,
+          # T-2604 (pilot gap G16): PUT replaces the declaration, like the other
+          # optional columns -- an omitted key clears the declared cases.
+          test_cases: Map.get(body, "test_cases")
         }
         |> maybe_put_variable_schemas(entries)
 
@@ -761,6 +817,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
     end
   end
 
@@ -795,6 +856,11 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+      # write, with the same stable code the activation fence uses.
+      {:error, {:invalid_test_cases, reason}} ->
+        Response.test_cases_invalid(conn, reason)
     end
   end
 
@@ -811,6 +877,9 @@ defmodule Letflow.Routers.Definitions do
     |> maybe_put_present(:graph, attrs, "graph")
     |> maybe_put_present(:description, body, "description")
     |> maybe_put_present(:stage, body, "stage")
+    # T-2604 (pilot gap G16): PATCH touches the declared test cases only when
+    # the key is present (an explicit null clears them).
+    |> maybe_put_present(:test_cases, body, "test_cases")
   end
 
   defp maybe_put_present(map, atom_key, source, string_key) do
@@ -838,6 +907,30 @@ defmodule Letflow.Routers.Definitions do
   # own schema-version gate does.
   defp render_write(conn, {:error, {:unknown_schema_version, _actual}}, :created),
     do: Response.unprocessable(conn, "unknown bpm_export_schema_version")
+
+  # T-2588 (pilot gap G2): a company tenant's `platform_call` step is refused
+  # with the ONE fixed code on every write path (create, PUT, PATCH, import) --
+  # the same 422 the activation and the promotion answer, never a 500.
+  defp render_write(conn, {:error, {:platform_calls_invalid, violations}}, _success_status),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the notification
+  # fence's refusal at the draft/write path. The write path answers the graph rule's own
+  # violation today (the node attribute is checked before the row is written -- see
+  # `test/letflow/definitions/notify_calls_refused_activation_test.exs`), so this clause is
+  # the same typed 422 for a write path that runs the fence itself: the sibling answer of
+  # every path, never a 500.
+  defp render_write(conn, {:error, {:notify_calls_invalid, violations}}, _success_status),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2591 (pilot gap G3): the declared start permission of a definition is unknown.
+  defp render_write(conn, {:error, {:start_permission_invalid, violation}}, _success_status),
+    do: Response.start_permission_invalid(conn, violation)
+
+  # T-2604 (pilot gap G16): a malformed declared test case is refused by the
+  # write, with the same stable code the activation fence uses.
+  defp render_write(conn, {:error, {:invalid_test_cases, reason}}, _success_status),
+    do: Response.test_cases_invalid(conn, reason)
 
   defp render_write(conn, {:error, :not_found}, _success_status), do: Response.not_found(conn)
 
@@ -914,6 +1007,30 @@ defmodule Letflow.Routers.Definitions do
   defp optional_string(value) when is_binary(value), do: {:ok, value}
   defp optional_string(_invalid), do: {:error, :invalid_optional_string}
 
+  # SF-01 / INV-8 (T-2811): the preview feeds these keys to semantic validation (edit-distance
+  # suggestions) without storing them, so the stored path's 255-byte key cap and an entry-count
+  # cap are applied BEFORE normalising and before any per-character work.
+  @max_preview_variable_keys 200
+  @max_preview_variable_key_bytes 255
+
+  defp preview_variable_schema_entries(entries) when is_list(entries) do
+    cond do
+      length(entries) > @max_preview_variable_keys ->
+        {:error, :variable_schemas_too_large}
+
+      Enum.any?(entries, fn
+        %{"variable_key" => k} when is_binary(k) -> byte_size(k) > @max_preview_variable_key_bytes
+        _ -> false
+      end) ->
+        {:error, :variable_schemas_too_large}
+
+      true ->
+        normalise_variable_schema_entries(entries)
+    end
+  end
+
+  defp preview_variable_schema_entries(other), do: normalise_variable_schema_entries(other)
+
   # Per-element shape (variable_key present+string, json_schema present) has
   # no FieldConstraint vocabulary, so it is checked here -- mirrors
   # Letflow.Routers.Instances's normalise_entries/1 precedent exactly.
@@ -957,8 +1074,14 @@ defmodule Letflow.Routers.Definitions do
   # (reads `current.status` then dispatches) that is an existing race in
   # the underlying status model, not one this router introduces.
 
+  # T-2588 (pilot gap G2, decision (d)): the scoped opts plus the caller as the actor of
+  # the lifecycle audit row.
+  defp actor_opts(conn) do
+    Keyword.put(conn.assigns.scoped_opts, :actor_id, conn.assigns.auth_context.user_id)
+  end
+
   defp handle_delete(conn, raw_id) do
-    opts = conn.assigns.scoped_opts
+    opts = actor_opts(conn)
 
     case Definitions.get_by_id(raw_id, opts) do
       {:ok, %ProcessDefinition{status: :draft}} ->
@@ -1057,6 +1180,30 @@ defmodule Letflow.Routers.Definitions do
   defp render_reactivate(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  defp render_reactivate(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_reactivate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  # T-2604 (pilot gap G16): the declared test cases of the version run before
+  # it is (re)activated -- see render_activate/2's own clause.
+  defp render_reactivate(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_reactivate(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
+
+  defp render_reactivate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_reactivate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   defp render_activate(conn, {:ok, %{definition: definition}}),
@@ -1136,6 +1283,31 @@ defmodule Letflow.Routers.Definitions do
   defp render_activate(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  defp render_activate(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_activate(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
+  defp render_activate(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  # T-2604 (pilot gap G16): a declared test case of the version failed, so the
+  # version may not be activated. The body names the case and a closed reason
+  # code -- never a variable value (INV-4).
+  defp render_activate(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_activate(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
+
+  defp render_activate(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   # ── POST /definitions/:id/deprecate (REQ-082) ───────────────────────────
@@ -1143,7 +1315,7 @@ defmodule Letflow.Routers.Definitions do
   defp handle_deprecate(conn, raw_id) do
     render_transition(
       conn,
-      Definitions.deprecate(raw_id, conn.assigns.scoped_opts),
+      Definitions.deprecate(raw_id, actor_opts(conn)),
       "only an ACTIVE definition can be deprecated"
     )
   end
@@ -1153,7 +1325,7 @@ defmodule Letflow.Routers.Definitions do
   defp handle_archive(conn, raw_id) do
     render_transition(
       conn,
-      Definitions.archive(raw_id, conn.assigns.scoped_opts),
+      Definitions.archive(raw_id, actor_opts(conn)),
       "only a DEPRECATED definition can be archived"
     )
   end
@@ -1180,7 +1352,13 @@ defmodule Letflow.Routers.Definitions do
   # with that contract), plus REQ-082's own `variable_schemas` addition.
 
   defp handle_import(conn) do
-    opts = conn.assigns.scoped_opts
+    # T-2588 (pilot gap G2, decision (d)): the caller's user id is the actor of the
+    # definition lifecycle audit row the import writes. `actor_opts/1` is the same
+    # scoped-opts-plus-actor the create path uses -- the import's `imported_by`
+    # argument reaches only the definition's `created_by` column, so the opts must
+    # carry the caller too, or the `definition.create` row names nobody and claims
+    # the system did it.
+    opts = actor_opts(conn)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
@@ -1300,7 +1478,10 @@ defmodule Letflow.Routers.Definitions do
       # its authority. The reason is a closed code, never an id.
       "activation_state" => activation_state(definition),
       "needs_reactivation_reason" => definition.needs_reactivation_reason,
-      "needs_reactivation_at" => optional_iso8601(definition.needs_reactivation_at)
+      "needs_reactivation_at" => optional_iso8601(definition.needs_reactivation_at),
+      # T-2604 (pilot gap G16): the DECLARED TEST CASES of this version -- they run
+      # before it may be activated. Null for a version that declares none.
+      "test_cases" => definition.test_cases
     }
   end
 
@@ -1396,6 +1577,35 @@ defmodule Letflow.Routers.Definitions do
   # GH #2587 PR B1: the re-activated graph's entity_writes were refused.
   defp render_rollback(conn, {:error, {:entity_writes_invalid, violations}}),
     do: Response.entity_writes_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:platform_calls_invalid, violations}}),
+    do: Response.platform_calls_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:notify_calls_invalid, violations}}),
+    do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the tenant's allow-list.
+  defp render_rollback(conn, {:error, {:outbound_destinations_invalid, violations}}),
+    do: Response.outbound_destinations_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:step_mappings_invalid, violations}}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_rollback(conn, {:error, {:definition_test_cases_failed, failures}}),
+    do: Response.test_cases_failed(conn, failures)
+
+  defp render_rollback(conn, {:error, {:definition_test_cases_invalid, reason}}),
+    do: Response.test_cases_invalid(conn, reason)
+
+  defp render_rollback(conn, {:error, {:start_permission_invalid, violation}}),
+    do: Response.start_permission_invalid(conn, violation)
+
+  # G-14 (the refusal-mapping matrix): the rollback path runs the same fences
+  # as the activation path, and every one of them may refuse with a graph that
+  # does not parse. The refusal is the tenant's own graph, so it is a 422 --
+  # never the catch-all's 500.
+  defp render_rollback(conn, {:error, :graph_structure_invalid}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)

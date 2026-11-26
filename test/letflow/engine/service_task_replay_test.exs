@@ -70,6 +70,10 @@ defmodule Letflow.Engine.ServiceTaskReplayTest do
         display_name: "GH 2595 Service Task Replay Tenant"
       )
 
+    # T-2597 (pilot gap G14): the local listener this file's replay test
+    # reaches -- the tenant's outbound allow-list is empty by default.
+    TenantFixture.open_outbound_http!(schema_name, ["127.0.0.1"])
+
     assert {:ok, definition} =
              Definitions.create(
                %{

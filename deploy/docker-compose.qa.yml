@@ -10,6 +10,9 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:3201:4000"
+    networks:
+      - default
+      - provisioner_callers
     restart: unless-stopped
   db:
     image: postgres:16-alpine
@@ -27,5 +30,10 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+networks:
+  # Owned by infra (tenant-provisioner-qa); the app reaches the provisioner on it (T-2780).
+  provisioner_callers:
+    external: true
+    name: tenant-provisioner-qa_callers
 volumes:
   letflow_qa_pg:

@@ -1,0 +1,6 @@
+# QA tenants that get the safe module upgrade chain after each QA deploy (scripts/qa_upgrade_chain.sh, T-2746).
+# One line per tenant: <slug> <NAME of the env var holding THAT tenant's administrator token>. Never a token here.
+# cd.yml maps each variable from its own repository secret. Retired (do not add): qoimeks-qa, qoimeks-client1-qa.
+# Unused (out): sss-rehearsal.
+qoimeks-qa2 QA_UPGRADE_TOKEN_QOIMEKS_QA2
+sss-rehearsal2 QA_UPGRADE_TOKEN_SSS_REHEARSAL2

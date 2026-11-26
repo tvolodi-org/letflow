@@ -879,6 +879,64 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.entity_writes_invalid(conn, violations)
 
+  # T-2588 (pilot gap G2): the promoted graph's `platform_call` steps were refused in the
+  # TARGET tenant (a company tenant may not carry a platform call at all).
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:platform_calls_invalid, violations}}}
+       ),
+       do: Response.platform_calls_invalid(conn, violations)
+
+  # T-2592 (pilot gap G4; the file channel of T-2596, pilot gap G12): the promoted
+  # graph's NOTIFICATION step was refused in the target tenant (a path-like file
+  # name, an unknown channel, a value the template does not allow).
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:notify_calls_invalid, violations}}}
+       ),
+       do: Response.notify_calls_invalid(conn, violations)
+
+  # T-2597 (pilot gap G14): a destination is not on the TARGET tenant's allow-list.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:outbound_destinations_invalid, violations}}}
+       ),
+       do: Response.outbound_destinations_invalid(conn, violations)
+
+  # T-2594 (pilot gap G13): the promoted graph's TYPED STEP MAPPING was refused in the
+  # TARGET tenant (a declared read or write the target definition does not declare).
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:step_mappings_invalid, violations}}}
+       ),
+       do: Response.step_mappings_invalid(conn, violations)
+
+  # G-14 (the refusal-mapping matrix): the promoted graph is checked in the
+  # TARGET tenant by the same fences as an activation, and both may refuse. The
+  # refusals are the tenant's own graph, so they are 422 -- never the
+  # catch-all's 500.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:start_permission_invalid, violation}}}
+       ),
+       do: Response.start_permission_invalid(conn, violation)
+
+  defp render_apply(conn, {:error, {:promotion_failed, :graph_structure_invalid}}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
+
+  # T-2604 (pilot gap G16): the declared test cases of the promoted version failed or are malformed.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_failed, failures}}}
+       ),
+       do: Response.test_cases_failed(conn, failures)
+
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:definition_test_cases_invalid, reason}}}
+       ),
+       do: Response.test_cases_invalid(conn, reason)
+
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)
 

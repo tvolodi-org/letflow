@@ -1,0 +1,89 @@
+[
+  {
+    "id": "BP-DEMO-01",
+    "area": "demo",
+    "title": "Receive goods",
+    "description": "The storekeeper records goods received at a place; a tenant administrator posts it from My Tasks; the balance rises.",
+    "actors": [
+      {"role": "STOREKEEPER", "permission": "StockPost"},
+      {"role": "TENANT_ADMIN", "permission": "StockApprove"}
+    ],
+    "preconditions": ["the stock module is installed in the company"],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": ["admin/stock/documents/new"],
+        "functions": ["stock.post_document"],
+        "route": "POST /api/v1/modules/stock/documents",
+        "code_refs": ["lib/letflow/modules/stock/router.ex:120"],
+        "result": "a draft receipt with a document id"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": ["stock_receipt/post"],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": ["test/letflow/modules/stock/router_test.exs:40"],
+        "result": "the document is posted and one ledger entry is written"
+      }
+    ],
+    "inputs": ["item_code", "place_code"],
+    "outputs": ["doc_id"],
+    "refusals": [
+      "a role without StockPost is refused with 403",
+      "a second completion of the same post task writes nothing"
+    ],
+    "scenario": "test/uat/processes/DEMO-01.json",
+    "status": "implemented",
+    "executed_by": "definition:demo.receive_goods"
+  },
+  {
+    "id": "BP-DEMO-02",
+    "area": "demo",
+    "title": "Security: another company's card is not reachable",
+    "description": "Negative process (D-170). A token of company A against the ids of company B answers one uniform 404, and nothing is written.",
+    "actors": [
+      {"role": "STOREKEEPER", "permission": "none (refused)"},
+      {"role": "TENANT_ADMIN", "permission": "StockRead"}
+    ],
+    "preconditions": ["two companies with the module installed"],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/stock/documents/:id",
+        "code_refs": ["lib/letflow/modules/stock/router.ex:200"],
+        "result": "404 for a document of another company"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "a token of another company: 404, the same answer as an unknown id",
+      "no or wrong credential: 401"
+    ],
+    "scenario": null,
+    "status": "implemented",
+    "security": true,
+    "security_status": "automated in the API test"
+  },
+  {
+    "id": "BP-DEMO-03",
+    "area": "demo",
+    "title": "Export the balances of a place",
+    "description": "Planned: the workbook of the balances does not exist yet.",
+    "actors": [
+      {"role": "TENANT_ADMIN", "permission": "StockRead"}
+    ],
+    "preconditions": [],
+    "tasks": [],
+    "inputs": ["place_code"],
+    "outputs": [],
+    "refusals": [],
+    "scenario": null,
+    "status": "planned",
+    "requirement": "REQ-900",
+    "gap": "no screen and no route for the export yet"
+  }
+]

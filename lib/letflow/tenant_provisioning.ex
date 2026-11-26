@@ -1049,7 +1049,53 @@ defmodule Letflow.TenantProvisioning do
     # T-2415: the old Qoimeks empty-shelf count is a real zero count_set movement. The core validator
     # keeps zero refused for every other cause; the leg table's cause-blind CHECK is removed.
     {20_261_121_100_001, Letflow.Repo.Migrations.AllowZeroCountSetLegs,
-     "20261121100001_allow_zero_count_set_legs.exs"}
+     "20261121100001_allow_zero_count_set_legs.exs"},
+    # T-2588 (pilot gap G2, decision (d) of
+    # docs/migration/decisions/0094-platform-call-authority.md): audit_entries.actor_kind --
+    # "user" against "system". NULL for the rows written before this column existed.
+    {20_261_122_100_001, Letflow.Repo.Migrations.AddActorKindToAuditEntries,
+     "20261122100001_add_actor_kind_to_audit_entries.exs"},
+    # T-2589 (pilot gap G1a): the durable queue and per-step result row of a platform
+    # function call (the dispatcher that runs a platform step OUTSIDE the engine's
+    # transaction). Empty table for every existing tenant; no row altered.
+    {20_261_122_200_001, Letflow.Repo.Migrations.CreatePlatformStepDispatches,
+     "20261122200001_create_platform_step_dispatches.exs"},
+    # T-2591 (pilot gap G3, decision (e) of
+    # docs/migration/decisions/0094-platform-call-authority.md): process_definitions.start_permission
+    # -- the permission a caller must hold to START an instance of this version. NULL for every
+    # existing row (a definition that declares none starts as it always did).
+    {20_261_123_100_001, Letflow.Repo.Migrations.AddStartPermissionToProcessDefinitions,
+     "20261123100001_add_start_permission_to_process_definitions.exs"},
+    # T-2592 (pilot gap G4): the delivery log's reason set grows by `rate_limited`
+    # -- the notification step's send cap refuses a send over the cap and records the
+    # refusal in the log. No row is rewritten; the constraint on `reason` only widens.
+    {20_261_123_100_002, Letflow.Repo.Migrations.AddRateLimitedNotificationReason,
+     "20261123100002_add_rate_limited_notification_reason.exs"},
+    # T-2592 (pilot gap G4): the RESERVATION counter of the tenant's outbound send
+    # cap. The cap used to be counted over the delivery log, so a log row that could
+    # not be written was a send that was never counted -- and the send had already
+    # left the platform. The counter is written BEFORE the send, so a send is
+    # accounted for whether or not the outcome row can be written afterwards. The
+    # table starts empty: no existing row is altered.
+    {20_261_123_100_003, Letflow.Repo.Migrations.CreateNotificationOutboundCounters,
+     "20261123100003_create_notification_outbound_counters.exs"},
+    # T-2596 (pilot gap G12): the tenant-scoped NOTIFICATION FILE AREA -- the
+    # place the "file" channel of a notification step writes into. The bytes
+    # live in the tenant's own schema, so there is no file-system path at all.
+    # The table starts empty: no existing row is altered.
+    {20_261_123_100_004, Letflow.Repo.Migrations.CreateNotificationFiles,
+     "20261123100004_create_notification_files.exs"},
+    # T-2604 (pilot gap G16): process_definitions.test_cases -- the DECLARED TEST
+    # CASES of a definition version, the guardrail that runs them before the
+    # version may be activated. NULL for every existing row (a definition that
+    # declares no case activates exactly as it did before).
+    {20_261_124_100_001, Letflow.Repo.Migrations.AddTestCasesToProcessDefinitions,
+     "20261124100001_add_test_cases_to_process_definitions.exs"},
+    # T-2597 (pilot gap G14): the per-tenant OUTBOUND ALLOW-LIST -- the channels a tenant may
+    # use to reach outside itself and the destinations it may reach. The list starts empty for
+    # every tenant (deny by default); no existing row is altered.
+    {20_261_124_100_002, Letflow.Repo.Migrations.CreateOutboundDestinations,
+     "20261124100002_create_outbound_destinations.exs"}
   ]
 
   @doc """
@@ -1430,16 +1476,20 @@ defmodule Letflow.TenantProvisioning do
     },
     %{
       name: "SUB_PROCESS_COMPLETED",
-      schema_version: 2,
+      schema_version: 3,
       description:
         "Emitted by Letflow.Engine.SubProcess (M-series) on the parent instance's stream when " <>
           "a called sub-process instance completes and its output is merged back. " <>
           "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the optional " <>
-          "\"output_labels\" and the merged entries' \"old_labels\"/\"new_labels\" are declared.",
+          "\"output_labels\" and the merged entries' \"old_labels\"/\"new_labels\" are declared. " <>
+          "Bumped from 2 to 3 (pilot gap G6): the optional \"node_id\" -- the node of the " <>
+          "PARENT that ran the sub-process -- is declared, so a reader of the parent's history " <>
+          "(the instance step log) can close the parent's visit with this event.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
           "child_instance_id" => %{"type" => "string"},
+          "node_id" => %{"type" => "string"},
           "output_variables" => %{"type" => "object"},
           "output_labels" => %{"type" => "object"},
           "merged_variable_events" => %{

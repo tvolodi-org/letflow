@@ -12,7 +12,7 @@ server; it opens exactly five routes under `/admin/v1` and nothing else.
 |---|---|---|
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | unset: `/admin/v1` answers 404 | SHA-256 of the write credential (64 lowercase hex) |
 | `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256` | unset: no read class | SHA-256 of the read-only credential; it may call `GET /admin/v1/tenants/:id` only (the realm reaper) |
-| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | empty: every hostname refused | comma-separated suffixes; a tenant hostname is one non-reserved label plus the longest matching suffix; also governs company CORS origins and mail links |
+| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | empty: every hostname refused | comma-separated suffixes; a tenant hostname is one non-reserved label plus the longest matching suffix; also governs mail links (not CORS: see T-2621) |
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | default `expires_at` of a created tenant |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | days a deactivated tenant's data is kept before it is purged (0..3650; REQ-580) |
 | `LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET` | 0 (off) | most NEW demo tenants one create-body `source_key` may make in a rolling 24 h; deleted tenants still count (0..100000; T-1621) |
@@ -98,10 +98,13 @@ Keep every suffix that an existing stored company host uses in this list: login-
 mail refuses a message whose stored host is outside the list, so dropping an old suffix
 stops those mails for every member of that tenant.
 The setting is a list, without leading dots. Invalid members fail boot; unset or malformed
-runtime values enable no company hosts. This same policy governs provisioning, HTTPS CORS
-origins (default port, no path/query/userinfo) and login-directory mail. Exact
-`CORS_ALLOWED_ORIGINS` entries remain independently available; responses echo one origin,
-never a wildcard. No DNS, certificates or public access are changed by this setting.
+runtime values enable no company hosts. This same policy governs provisioning and
+login-directory mail. It grants NO CORS allowance: since T-2621 the CORS decision is taken
+PER HOST, so a company origin is allowed on that company's own host and on no other host
+(the platform host included), whatever this list says. The app's own origins — the platform
+host and the PWA host the SPA is served from — are listed in `CORS_ALLOWED_ORIGINS`; a
+listed origin is allowed on every host, so list the app's origins only. Responses echo one
+origin, never a wildcard. No DNS, certificates or public access are changed by this setting.
 
 Login-directory mail uses each company's registered host with HTTPS; only companies without
 a host fall back to `LETFLOW_PUBLIC_BASE_URL`. A present invalid host refuses the message.
