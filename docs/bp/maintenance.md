@@ -315,7 +315,7 @@ A tenant administrator lists the orders (filter by status or asset card, newest 
 
 ## BP-MAINTENANCE-09 -- Web screens for work requests
 
-Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only.
+Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. The request screens exist on main (web/src/modules/maintenance/maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id; REQ-898). Why it stays planned (re-checked 2026-11-26 on origin/main): REQ-898 is still pending in the register, the release flag :maintenance_enabled is off on QA (config/config.exs:179) so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.
 
 **Actors and their permissions.**
 
@@ -333,7 +333,7 @@ Report a problem from the asset card, the new-request form with photos, the requ
 
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 
-The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src.
+The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src. Why it stays planned (re-checked 2026-11-21): no order screen and no My work orders list in web/src; REQ-899 is pending and has no build. The API half is BP-MAINTENANCE-04..08; the technician works from the core task inbox today.
 
 **Actors and their permissions.**
 
@@ -352,7 +352,7 @@ The order form from a request or direct, the order list and page with Assign, an
 
 ## BP-MAINTENANCE-11 -- My work orders on the phone app and PWA
 
-The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen.
+The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen. Why it stays planned (re-checked 2026-11-21): `grep -rli maintenance apps/mobile/lib` is empty; REQ-900 is pending. The technician's completion is already BP-MAINTENANCE-06.
 
 **Actors and their permissions.**
 
@@ -704,7 +704,7 @@ Both mounts sit outside the API pipeline and accept only their own hash-configur
 
 ## BP-MAINTENANCE-21 -- Security: inputs that do not exist in this area (recorded, not applicable)
 
-The operator asked for voice, webhook and old-address inputs. The maintenance module has none: no voice route, no inbound webhook, no shared-access (old address) route, and the module is only on the new API path. The only outward notice is the task_assigned mail and bell, produced by the core task reassign. Recorded here so a later slice that adds one (the phone app, REQ-900) must add its own security process.
+The operator asked for voice, webhook and old-address inputs. The maintenance module has none: no voice route, no inbound webhook, no shared-access (old address) route, and the module is only on the new API path. The only outward notice is the task_assigned mail and bell, produced by the core task reassign. Recorded here so a later slice that adds one (the phone app, REQ-900) must add its own security process. Why it stays partial (re-checked 2026-11-21): the entry records absent inputs, so it has nothing to walk; its one positive claim (a path outside the twelve routes is refused as unmatched) has no test (grep -n unmatched in test/letflow/modules/maintenance is empty) and the release flag :maintenance_enabled is false in config/config.exs:179 (true only in config/test.exs:310), so a QA dry run could only see 404. Needed first: a QA tenant with the module on, a technician login, and an ExUnit test of the unmatched path.
 
 **Actors and their permissions.**
 
