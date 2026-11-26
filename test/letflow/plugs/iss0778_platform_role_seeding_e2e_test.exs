@@ -252,7 +252,9 @@ defmodule Letflow.Plugs.Iss0778PlatformRoleSeedingE2eTest do
 
       if projection.status == :error do
         assert projection.error_detail["affected"]["node_id"] == "notify"
-        assert projection.error_detail["details"]["failure_kind"] =~ ~r/\Anotify_/
+
+        assert projection.error_detail["details"]["failure_kind"] =~
+                 ~r/\A(platform_call_)?notify_/
       end
 
       %Tenant{id: new_tenant_id} = Repo.get_by!(Tenant, slug: slug)

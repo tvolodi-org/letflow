@@ -114,3 +114,63 @@ export function formatWhen(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/** The pill of a work order status. A status the screen does not know is shown as unknown, never as a code. */
+export function orderStatusTone(status: string): StatusTone {
+  if (status === 'open') return 'info'
+  if (status === 'in_work') return 'current'
+  if (status === 'done') return 'success'
+  if (status === 'closed') return 'neutral'
+  if (status === 'cancelled') return 'warning'
+  return 'neutral'
+}
+
+/** The message id of an order status; an unknown value gets the unknown text. */
+export function orderStatusMessageId(status: string): string {
+  return ['open', 'in_work', 'done', 'closed', 'cancelled'].includes(status)
+    ? `maintenance.orders.status.${status}`
+    : 'maintenance.orders.status.unknown'
+}
+
+/** The node of the process `maintenance_work_order` that the technician completes (REQ-897). */
+export const WORK_NODE_ID = 'maintenance_work'
+/** My work orders reads at most this many inbox pages of this size; beyond that the list is cut (UAT assumption). */
+export const INBOX_PAGE_SIZE = 200
+export const INBOX_MAX_PAGES = 5
+
+/** A row of My work orders: the task, and the order facts read from its instance (null when the read failed). */
+export interface MyOrderRow {
+  taskId: string
+  taskName: string
+  createdAt: string
+  number: string | null
+  inventoryNumber: string | null
+  assetName: string | null
+  urgency: string | null
+  description: string | null
+  instanceFailed: boolean
+}
+
+const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
+
+/** The order facts of an instance's variables; every field is optional (a missing one shows a dash). */
+export function orderFactsOf(variables: Record<string, unknown> | undefined | null) {
+  const v = variables ?? {}
+  return {
+    number: text(v['maintenance_order_number']),
+    inventoryNumber: text(v['asset_inventory_number']),
+    assetName: text(v['asset_name']),
+    urgency: text(v['urgency']),
+    description: text(v['description']),
+  }
+}
+
+/** Urgent first, then oldest first. A row with an unreadable time sorts last among equals. */
+export function sortMyOrders(rows: MyOrderRow[]): MyOrderRow[] {
+  const rank = (r: MyOrderRow) => (r.urgency === 'urgent' ? 0 : 1)
+  const time = (r: MyOrderRow) => {
+    const t = new Date(r.createdAt).getTime()
+    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+  }
+  return [...rows].sort((a, b) => rank(a) - rank(b) || time(a) - time(b))
+}

@@ -222,6 +222,8 @@ The existing rehearsal below must be updated by the parity designs and T-2039 be
 
 The real extract is converted and loaded only at the move, onto the Letflow production tenant, with the check-only run first. That one step is covered by the production go (C6), which the owner announces before it runs.
 
+What the engine's QA runs have and have not shown so far (dates, build shas, durations, the six checks as "not run", the tasks still waiting): `docs/status/qoimeks-rehearsal-record.md`.
+
 | Step | What | Done when |
 |---|---|---|
 | RH-0 | Preconditions: G1 tasks merged and on QA; an empty QA tenant with `org`, `catalog_items`, `codes`, `locations`, `stock` (`pilot-rollout.md` order); org unit and responsible employee created | the tenant shows the modules active and no records |

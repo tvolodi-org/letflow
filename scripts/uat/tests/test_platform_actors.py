@@ -268,6 +268,39 @@ class AllowCreate(TwoServers):
         self.assertIn("already created today", row["error"])
         self.assertEqual(self.platform_state.calls("POST", "/tenants"), [])
 
+    def test_a_refusal_step_runs_without_the_flag(self):
+        process = proc("PLAT", [call("s1", "POST", "/api/v1/tenants", {}, {"status": 403}, actor="platform-admin")])
+        self.platform_state.platform_roles = set()
+        code, _ = self.run_process(process, inputs={}, actors=self.actors(base_url=self.platform_base))
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual(row["verdict"], "pass", row)
+        self.assertEqual(len(self.platform_state.calls("POST", "/tenants")), 1)
+
+    def test_a_refusal_step_that_creates_fails_and_the_tenant_is_retired(self):
+        slug = f"uat-tmp-{TODAY}-7"
+        process = proc("PLAT", [call("s1", "POST", "/api/v1/tenants", {}, {"status": 403}, actor="platform-admin")])
+        # a fake that wrongly ACCEPTS the POST: the answer names the slug, the request body did not
+        process["steps"][0]["do"]["body"] = {"slug": slug}
+        code, _ = self.run_process(process, inputs={}, actors=self.actors(base_url=self.platform_base))
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual(row["verdict"], "fail")
+        self.assertIn(slug, row["error"])
+        self.assertEqual(row["created_tenant"], slug)
+        self.assertTrue(row["created_tenant_retired"])
+        self.assertEqual(len(self.platform_state.calls("POST", f"/tenants/{slug}/deactivate")), 1)
+        self.assertEqual([t["status"] for t in self.platform_state.tenants if t["slug"] == slug], ["inactive"])
+        self.assertNotEqual(code, 0)
+
+    def test_an_accepted_refusal_step_without_a_request_slug_is_retired_by_the_answer(self):
+        self.platform_state.tenants.clear()
+        process = proc("PLAT", [call("s1", "POST", "/api/v1/tenants", {}, {"status": 403}, actor="platform-admin")])
+        code, _ = self.run_process(process, inputs={}, actors=self.actors(base_url=self.platform_base))
+        row = next(x for x in self.lines() if x["step"] == "s1")
+        self.assertEqual(row["verdict"], "fail")
+        # the fake answers slug null here: the runner says it cannot retire, it does not guess
+        self.assertIn("names no slug", row["error"])
+        self.assertNotEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

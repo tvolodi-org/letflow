@@ -380,14 +380,14 @@
     {
       "id": "B3",
       "actor": "admin",
-      "says": "B. A failing run: the start variable slug is too short, so platform.validate_registration refuses it (platform_call_invalid_slug). No provisioner, no tenant is created.",
+      "says": "B. A failing run: the start variable slug is invalid (uppercase, and unique per run because the call key is the slug: a fixed slug is a key reuse on the second run, T-2897), so platform.validate_registration refuses it (platform_call_invalid_slug). No provisioner, no tenant is created.",
       "do": {
         "api": "POST",
         "path": "/api/v1/instances",
         "body": {
           "definition_name": "uat-tmp-designer-${run_id}-1",
           "initial_variables": {
-            "slug": "x",
+            "slug": "X-${uuid2}",
             "display_name": "UAT designer ${run_id}",
             "email": "dg-${uuid1}@uat.letflow.internal"
           }
@@ -504,7 +504,7 @@
     {
       "id": "B8",
       "actor": "admin",
-      "says": "B. DLQ RETRY: the entry is retried (bounded; the slug stays too short, so it fails again).",
+      "says": "B. DLQ RETRY: the entry is retried (bounded; the slug stays invalid, so it fails again).",
       "do": {
         "api": "POST",
         "path": "/api/v1/dlq/${dlq_id}/retry",
@@ -752,6 +752,34 @@
           200,
           404
         ]
+      }
+    },
+    {
+      "id": "c9",
+      "actor": "admin",
+      "says": "Sweep the throwaway definitions of EARLIER failed runs (T-2898): every definition whose name starts with uat-tmp-designer- and does not contain this run's id is deleted through the product's own call (draft 204, active and deprecated 200, archived 409 / gone 404 accepted); one line per definition. A cleanup only knows its own ids, so without this a failed run leaves a draft that turns BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "prefix": "uat-tmp-designer-",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c10",
+      "actor": "admin",
+      "says": "Sweep the leftover DRAFT versions of platform.register_tenant (T-2917): a version starting with uat- (not this run's, not active, not the seeded version) is retired through the same delete call; one line per version. Without this an earlier run's draft file-step version keeps BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "draft_versions_of": "platform.register_tenant",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
       }
     }
   ],

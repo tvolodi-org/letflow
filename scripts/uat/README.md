@@ -121,6 +121,7 @@ Remember the id of the document as `doc_id`."*
 | the person takes the task of a document in My Tasks and completes it | `"do": {"wait_task": {"for_document": "${doc_id}", "step": "post", "within_s": 30}, "claim": true, "complete": {"body": {}}}`. `step` is `post` for a receipt, issue or transfer and `reverse` for a reversal |
 | the system must send a mail and the process waits for it | `"do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}}` and `"expect": {"status": 200}`. See "Waiting for a mail" below |
 | a user of a realm made DURING the run signs in (the new tenant admin of a sign-up) | a step `"do": {"login": {"realm": "${tenant_realm}", "username": "...", "password": "${signup_password}"}}` (password grant of the identity provider, `BPM_IDP_BASE_URL`, default QA; the realm is the one the provisioner issued (save it from the registry's `idp_realm_id`), the password must be a `${name}` reference, `BPM_IDP_BASE_URL` must be https; the token stays a secret, never in the log) with actor `anonymous`; later steps name it with `"bearer": "session"` (the API of the run, that token; `"bearer_base": "<saved name>"` sends the call to a URL an earlier step saved, such as the new tenant's `tenant_url`) |
+| a file goes up (the Excel load of Client 1) | `"do": {"upload": {"api": "POST", "path": "/api/v1/...?dry_run=true", "field": "file", "file": "generated/client1/03-items-01.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "fields": {"mode": "check"}}}` with `expect` and `save` as any step. See "Uploading a file" below |
 | only look and check (no change) | `"do": {"assert_only": {"path": "/api/v1/..."}}` and an `expect`. A read, never a body |
 | the same request twice (a retry: the system must not do it twice) | `"do": {"repeat": {"api": "POST", "path": "...", "body": {...}}}`, `"expect"` for the first answer and `"expect_repeat"` for the second (default: the same as the first) |
 | two people press at the same moment (concurrency) | `"do": {"parallel": [{...call 1...}, {...call 2...}]}` and `"expect": {"unordered": [{"status": 201}, {"status": 409}]}`: one wins, one is refused, in any order. A list `"expect": [e1, e2]` fixes the order |
@@ -179,6 +180,24 @@ printed.
 `http_as: shared_access` sends the step to the old address (`--old-base-url`, for example
 `https://qa.bizdala.com/qoimeks/<slug>/api`) with the value as the bearer. Such a step has no `actor`. The path is
 the path of the old app (`/movements`), checked against `lib/letflow/routers/shared_stock_access.ex`.
+
+### Uploading a file (T-2864)
+
+An `upload` step sends one file as `multipart/form-data`: `field` (the form field name), `file` (a relative name under
+`test/uat/fixtures`; no absolute path, no `..`), `content_type`, optional `fields` (one-line text parts), `api` POST
+(default) or PUT. The run log records the field, the file name, the byte count and the file's **SHA-256**, never the
+content. Refusals before anything is sent carry a class at the start of the error: `upload_fixture_missing`,
+`upload_fixture_path_invalid`, `upload_fixture_too_big` (over 25 MiB, the server's cap). A refusal by the server (wrong
+type, too big) is an expected negative: `"expect": {"status": 415}` as for any step.
+
+**The Client 1 workbook set** is synthetic (D-050: no real data) and is generated, not committed: a file named
+`generated/client1/<name>` is built on first use under `<run dir>/generated-fixtures/client1` by `client1_workbook.py`,
+which runs `scripts/pilot/qoimeks_gen.py` (seed 42: 134 places, 666 items, 600 balances) and
+`scripts/pilot/qoimeks_convert.py` (the same converter a real load uses). The set is byte-identical for one seed
+(`expected_counts.txt` in it lists 666 items, 142 location nodes, 603 opening lines). Build it by hand with
+`python3 -I scripts/uat/client1_workbook.py --out DIR`. The check-only run, the load and the reconciliation read-backs
+are ordinary steps around the upload; cleanup of what a load wrote is the process file's `cleanup` (a throwaway tenant
+needs none).
 
 ### An actor of another tenant (the platform administrator)
 
@@ -552,6 +571,10 @@ How to run the RC:
 `{wait_task: {for_document, step, within_s?, interval_s?}, claim?, complete?: {body}}`,
 `{wait_mail: {recipient, subject, within_s?, interval_s?, subject_contains?, trap_url?}}`,
 `{assert_only: {path, headers?}}`,
+`{sweep: {prefix, exclude_contains: "${run_id}", accept?}}` (T-2898: DELETEs the definitions on the platform tenant
+whose name starts with the throwaway prefix `uat-tmp-<kind>-` and does not contain this run's id, listed through
+`GET /api/v1/definitions?name=<prefix>` paged; one line per definition, `accept` default 200/204/404/409, any other
+status fails; give it `expect: {status: 200}`),
 `{repeat: {api, path, body?}, times?: 2}`, `{parallel: [call, call, ...]}` (2 to 6 calls; a call may name its own
 `actor`). `save` values: a path (`"$.id"`), `{pick, default?, if_unset?, optional?}`, `{api, path, pick}`, `{secret: path}`
 (memory only), or a literal / `${...}` expression. `${a + 5}`, `${(a - b) * 2}`: numbers with `+ - * /` and
@@ -569,6 +592,7 @@ python3 -B -m unittest -v scripts/uat/tests/test_runner.py          # M0: one pr
 python3 -B -m unittest -v scripts/uat/tests/test_chain.py           # chains, cleanup replay, preflight, step kinds, log
 python3 -B -m unittest -v scripts/uat/tests/test_issues.py          # --file-issues with a fake gh
 python3 -B -m unittest -v scripts/uat/tests/test_check_processes.py # the static check
+python3 -B -m unittest -v scripts/uat/tests/test_upload.py          # upload step, Client 1 workbook set
 python3 -B -m unittest -v scripts/uat/tests/test_dryrun.py          # dry-run --changed in a temp git repository
 python3 -B -m unittest -v scripts/uat/tests/test_fixtures.py        # fixtures: order, idempotent reuse, cleanup, static check
 python3 -B -m unittest -v scripts/uat/tests/test_platform_actors.py # an actor of another tenant: its address, its token, the residue
@@ -674,3 +698,14 @@ interrupted run and runs the same comparison after it. The watch of the run (the
 instances the run started are kept in `platform_watch.json` of the run directory, so the replay does not pass while
 an instance of that run is still open: the row `tenant residue check` says `instance <id> is still open` and the
 replay FAILS.
+
+## residue-sweep (T-2869, D-208)
+
+One-shot removal of the residue of a discarded walk from ONE QA tenant, by a reviewed list file (no SQL, no clicks):
+
+    python3 -B scripts/uat/runner.py residue-sweep test/uat/sweeps/residue-sweep-qoimeks-qa2.json --tenant qoimeks-qa2
+
+The list file names the tenant, its admin user, the documents to reverse (reason "D-208 discarded walk") and the tasks
+to complete. Exit 2 and no request for a retired tenant, a tenant other than the list file's, or a base url that is not
+the tenant's QA host. One line per item (done / already gone / refused (status)); "already gone" never fails the run.
+It ends by re-reading the residue baseline and printing its sha256. Run it ONCE before the next RC regression.

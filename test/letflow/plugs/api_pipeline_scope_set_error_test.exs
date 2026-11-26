@@ -79,30 +79,33 @@ defmodule Letflow.Plugs.ApiPipelineScopeSetErrorTest do
     end
   end
 
-  describe "every other error leaves the conn untouched" do
-    test "plain exceptions, throws and exits get no response from the handler" do
-      for {kind, reason} <- [
-            {:error, %RuntimeError{message: "boom"}},
-            {:error, %ArgumentError{message: "bad"}},
-            {:error, %KeyError{key: :scope, term: []}},
-            {:error, :undef},
-            {:throw, :ball},
-            {:exit, :shutdown}
-          ] do
-        c = conn()
-        result = ApiPipeline.handle_errors(c, %{kind: kind, reason: reason, stack: []})
+  describe "every other unhandled exception answers the typed 500 (T-2890, INV-8)" do
+    test "plain exceptions get the same constant problem document, never an empty body" do
+      expected = Response.internal_error(conn())
 
-        assert result.state == :unset, inspect(reason)
-        assert result.resp_body == nil
-        assert result == c
+      for reason <- [
+            %RuntimeError{message: "boom"},
+            %ArgumentError{message: "bad"},
+            %KeyError{key: :scope, term: []},
+            %Postgrex.Error{message: "relation missing"}
+          ] do
+        result = ApiPipeline.handle_errors(conn(), %{kind: :error, reason: reason, stack: []})
+
+        assert result.status == 500, inspect(reason)
+        assert result.resp_body == expected.resp_body
+
+        assert %{"status" => 500, "trace_id" => "trace-518-aaaa"} =
+                 Jason.decode!(result.resp_body)
+
+        refute result.resp_body =~ "boom"
       end
     end
 
-    test "a Postgrex.Error (the database error of a scope read) is NOT mapped here: it propagates as before (SEC F-1, 2c-i-b follow-up)" do
-      c = conn()
-      error = %Postgrex.Error{message: "relation missing"}
-
-      assert ApiPipeline.handle_errors(c, %{kind: :error, reason: error, stack: []}) == c
+    test "throws and exits (not an exception) are left alone" do
+      for {kind, reason} <- [{:throw, :ball}, {:exit, :shutdown}] do
+        c = conn()
+        assert ApiPipeline.handle_errors(c, %{kind: kind, reason: reason, stack: []}) == c
+      end
     end
   end
 

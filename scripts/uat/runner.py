@@ -74,7 +74,7 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel")
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -587,6 +587,28 @@ def trap_problem(url: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
+UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
+UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
+CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
+
+
+class Multipart:
+    """A multipart/form-data body, built from bytes. Only `data` goes on the wire; the log gets `summary`."""
+
+    def __init__(self, fields: dict, field: str, filename: str, content: bytes, content_type: str):
+        self.boundary = "----uat" + secrets.token_hex(12)
+        parts = []
+        for name, value in fields.items():
+            parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+        parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+                     f"Content-Type: {content_type}\r\n\r\n".encode())
+        self.data = b"".join(parts) + content + f"\r\n--{self.boundary}--\r\n".encode()
+        self.content_type = f"multipart/form-data; boundary={self.boundary}"
+        self.summary = {"upload": {"field": field, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
     """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
 
@@ -595,7 +617,10 @@ def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S
     data = None
     hdrs = {"Accept": "application/json", "User-Agent": "uat-runner/0"}
     hdrs.update(headers)
-    if body is not None:
+    if isinstance(body, Multipart):
+        data = body.data
+        hdrs["Content-Type"] = body.content_type
+    elif body is not None:
         data = json.dumps(body).encode()
         hdrs.setdefault("Content-Type", "application/json")
     try:
@@ -663,9 +688,10 @@ class Runner:
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
                  overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
-                 password_factory=None):
+                 password_factory=None, upload_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -1055,7 +1081,8 @@ class Runner:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
             create = None if step.get("refusal_probe") else self._tenant_create(step)
-            if create is not None:
+            refusal = create is not None and self._is_refusal_step(step)
+            if create is not None and not refusal:
                 reason = self._create_skip_reason(step, create)
                 if reason:
                     record.update(verdict="skipped", error=reason)
@@ -1083,6 +1110,9 @@ class Runner:
                             break
                 if reason:
                     label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
+                if refusal and 200 <= status < 300:
+                    # a refusal test that got a 2xx: a tenant WAS created, name it
+                    label += self._retire_created_tenant(step, create, body, record)
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1162,6 +1192,43 @@ class Runner:
             return None  # a name nobody gave: the step itself fails with that error
         return None
 
+    def _retire_created_tenant(self, step, create, body, record) -> str:
+        """A refusal step got a 2xx: a tenant WAS created. Read its slug from the ANSWER (the request body of a
+        probe such as {} names none), record it on the step line and deactivate it right away (the same route the
+        cleanup of BP-PLATFORM-01 uses); the residue check stays the second net. Returns the text for the label."""
+        slug = None
+        if isinstance(body, dict):
+            inner = body.get("tenant") if isinstance(body.get("tenant"), dict) else {}
+            for cand in (body.get("slug"), inner.get("slug"), create.get("slug")):
+                if isinstance(cand, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", cand):
+                    slug = cand
+                    break
+        if slug is None:
+            return " (a tenant was created but the answer names no slug: it cannot be retired, find it in the registry)"
+        record["created_tenant"] = slug
+        try:
+            status, _, _ = self.request(step.get("actor"), "POST", f"{TENANT_REGISTRY_PATH}/{slug}/deactivate", {})
+            retired = 200 <= status < 300
+        except RunnerError:
+            retired = False
+        record["created_tenant_retired"] = retired
+        return f" (a tenant was created: slug {slug}; " + ("retired by the runner (deactivated)" if retired else
+                                                           "the deactivate FAILED: it is residue") + ")"
+
+    @staticmethod
+    def _is_refusal_step(step) -> bool:
+        """A step that expects only a 4xx and saves nothing cannot create a tenant: --allow-create is not needed."""
+        if step.get("save"):
+            return False
+        if "expect_refused" in step:
+            return True
+        expect = step.get("expect")
+        if not isinstance(expect, dict) or "status" not in expect:
+            return False
+        wanted = expect["status"]
+        wanted = wanted if isinstance(wanted, list) else [wanted]
+        return bool(wanted) and all(isinstance(w, int) and not isinstance(w, bool) and 400 <= w < 500 for w in wanted)
+
     def _create_skip_reason(self, step, body: dict) -> str:
         """Why a tenant must not be created now (empty: it may run)."""
         if not self.allow_create:
@@ -1217,6 +1284,12 @@ class Runner:
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
             return self._repeat(role, do["repeat"], times, http_as, record)
+        if "sweep" in do:
+            return [self._sweep(role, do["sweep"], http_as, record)]
+        if "upload" in do:
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            record.update(method=info["method"], path=info["path"], request=info["request"])
+            return [info["result"]]
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
@@ -1425,7 +1498,10 @@ class Runner:
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "body" in spec:
+        if "file" in spec and "field" in spec:  # an upload step: the call is a multipart body
+            body = self._multipart(spec)
+            redacted = body.summary
+        elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
@@ -1433,6 +1509,95 @@ class Runner:
         result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
                               bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _upload_file(self, rel: str) -> Path:
+        """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("upload_fixture_path_invalid: the file is a relative name under test/uat/fixtures")
+        if rel.startswith(UPLOAD_GENERATED_PREFIX):
+            import client1_workbook  # stdlib only; next to this file
+            out = self.run_dir / "generated-fixtures"
+            if not (out / "client1").is_dir():
+                client1_workbook.build(out / "client1")
+            path = out / rel[len("generated/"):]
+        else:
+            path = Path(self.upload_dir) / rel
+        if not path.is_file():
+            raise RunnerError(f"upload_fixture_missing: no fixture file {rel}")
+        return path
+
+    def _multipart(self, spec) -> Multipart:
+        field = substitute(spec["field"], self.ctx)
+        if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
+            raise RunnerError("upload: field is a plain form field name")
+        ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
+        if not isinstance(ctype, str) or not CONTENT_TYPE_RE.match(ctype):
+            raise RunnerError("upload: content_type is not a media type")
+        rel = substitute(spec["file"], self.ctx)
+        path = self._upload_file(rel)
+        if path.stat().st_size > UPLOAD_MAX_BYTES:
+            raise RunnerError(f"upload_fixture_too_big: {rel} is over {UPLOAD_MAX_BYTES} bytes")
+        fields = substitute(spec.get("fields") or {}, self.ctx)
+        if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
+                                                   "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
+            raise RunnerError("upload: fields is a map of plain names to one-line values")
+        return Multipart(fields, field, path.name, path.read_bytes(), ctype)
+
+    def _sweep(self, role, spec, http_as, record):
+        """T-2898: retire the throwaway definitions an EARLIER failed run left (a cleanup only knows its own ids).
+        List GET /api/v1/definitions (name filter, paged), keep the names that start with the scenario's throwaway
+        prefix and do not contain this run's marker, DELETE each (the product's own call: draft 204, active and
+        deprecated 200, archived 409, gone 404). One line per definition. A status outside `accept` fails the step;
+        nothing to sweep is '0 swept'. -> (200, {"swept": n, "already_gone": m, "lines": [...]}, text)."""
+        spec = substitute(spec, self.ctx)
+        prefix, marker = spec.get("prefix"), spec.get("exclude_contains")
+        versions_of = spec.get("draft_versions_of")
+        if versions_of is not None:  # T-2917: DRAFT uat-* VERSIONS of one named definition, not uat-tmp-* names
+            sweep_versions_problem(versions_of, marker)
+            prefix = versions_of
+        else:
+            sweep_prefix_problem(prefix, marker)
+        accept = spec.get("accept", SWEEP_ACCEPT)
+        found, cursor = [], None
+        for _ in range(SWEEP_MAX_PAGES):
+            path = "/api/v1/definitions?page_size=200&name=" + urllib.parse.quote(prefix, safe="")
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, _ = self.request(role, "GET", path, http_as=http_as)
+            if status != 200 or not isinstance(body, dict) or not isinstance(body.get("items"), list):
+                raise RunnerError(f"sweep: the list answered {status}, expected 200 with items")
+            for item in body["items"]:
+                name = item.get("name") if isinstance(item, dict) else None
+                if versions_of is not None:
+                    version = item.get("version") if isinstance(item, dict) else None
+                    if name == versions_of and isinstance(version, str) and version.startswith("uat-") \
+                            and marker not in version and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                        found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
+                elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
+                    found.append((str(item["id"]), name, item.get("status")))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+        else:
+            raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
+        lines, swept, gone = [], 0, 0
+        for def_id, name, state in found:
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
+                raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept:
+                raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
+            outcome = "already gone" if status in (404, 409) else "swept"
+            swept += outcome == "swept"
+            gone += outcome != "swept"
+            line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
+            lines.append(line)
+            print(self.scrub(line), file=self.out, flush=True)
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        print(self.scrub(summary), file=self.out, flush=True)
+        record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
+        result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
 
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
@@ -2022,7 +2187,9 @@ class Runner:
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
-                raise RunnerError(f"the platform_residue block names an unknown instance: {name}") from None
+                # a step that saves it never ran (an earlier step failed): there is nothing to watch, say so
+                print(f"not saved: {name}", file=self.out, flush=True)
+                continue
             if instance_id and instance_id not in [i["instance_id"] for i in out]:
                 out.append({"instance_id": instance_id, "tenant": tenant, "base_url": None, "role": None})
         return out
@@ -2568,6 +2735,32 @@ def refuse_placeholders(text: str, source) -> None:
         raise ConfigError(f"{source}: placeholder {match.group()!r} is not allowed; use an input or a fixture")
 
 
+SWEEP_ACCEPT = [200, 204, 404, 409]
+SWEEP_MAX_PAGES = 50
+SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
+
+
+def sweep_prefix_problem(prefix, marker):
+    """Refuse a sweep that could reach a real definition: the prefix is a whole uat-tmp-<kind>- and this run's
+    marker is a real run id (never empty, or the sweep would also take this run's own definitions)."""
+    if not isinstance(prefix, str) or not SWEEP_PREFIX_RE.fullmatch(prefix):
+        raise RunnerError("sweep: prefix must be a throwaway prefix of the form uat-tmp-<kind>-")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
+SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platform.register_tenant
+
+
+def sweep_versions_problem(name, marker):
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions starting with uat- are
+    retired (never an active/seeded version, never a version without the uat- prefix)."""
+    if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
+        raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
@@ -2581,6 +2774,13 @@ def validate_step(step, where) -> None:
     kind = kinds[0]
     if kind == "api":
         validate_call(do, where)
+    elif kind == "upload":
+        spec = do["upload"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("path", "field", "file")):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file")
+        if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
+            raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
@@ -2626,6 +2826,21 @@ def validate_step(step, where) -> None:
         times = do.get("times", 2)
         if not isinstance(times, (int, str)) or (isinstance(times, int) and times < 2):
             raise ConfigError(f"{where}: repeat needs times of at least 2")
+    elif kind == "sweep":
+        spec = do["sweep"]
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
+                                            or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
+            raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
+        if "draft_versions_of" not in spec and isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
+                not SWEEP_PREFIX_RE.fullmatch(spec["prefix"]):
+            raise ConfigError(f"{where}: sweep prefix must be of the form uat-tmp-<kind>-")
+        if spec.get("exclude_contains") != "${run_id}":
+            raise ConfigError(f"{where}: sweep exclude_contains must be ${{run_id}}")
+        if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
+                                      and all(isinstance(c, int) for c in spec["accept"])):
+            raise ConfigError(f"{where}: sweep accept is a list of status codes")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:
@@ -3157,6 +3372,12 @@ def build_parser():
                      help="let a step create a tenant (POST /api/v1/tenants); without it the step is skipped")
     dry.add_argument("--mail-trap-url", help="the mail trap (Mailpit) a wait_mail step reads "
                                             "(default env MAIL_TRAP_URL or " + MAIL_TRAP_URL_DEFAULT + ")")
+    sweep = sub.add_parser("residue-sweep", help="reverse the documents and complete the tasks of a reviewed list on ONE QA tenant (T-2869)")
+    sweep.add_argument("list_file", help="e.g. test/uat/sweeps/residue-sweep-qoimeks-qa2.json")
+    sweep.add_argument("--tenant", required=True)
+    sweep.add_argument("--base-url")
+    sweep.add_argument("--base-url-template")
+    sweep.add_argument("--run-dir")
     return parser
 
 
@@ -3271,6 +3492,10 @@ def main(argv=None) -> int:
         return main_cleanup(args)
     if args.command == "dry-run":
         return cmd_dry_run(args)
+    if args.command == "residue-sweep":
+        import residue_sweep
+
+        return residue_sweep.main(args, sys.modules[__name__])
     return main_run(args)
 
 

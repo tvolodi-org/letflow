@@ -60,6 +60,40 @@ export interface CreateRequestBody {
   urgency: Urgency
 }
 
+export const ORDER_STATUSES = ['open', 'in_work', 'done', 'closed', 'cancelled'] as const
+export type OrderStatus = (typeof ORDER_STATUSES)[number]
+
+/** One work order as the server shows it (`Letflow.Modules.Maintenance.Orders`). `status` may also be `unknown`. */
+export interface MaintenanceOrder {
+  id: string
+  number: string | null
+  status: string
+  assignee_user_id: string | null
+  asset: RequestAsset
+  request: RequestOrderRef | null
+  description: string
+  urgency: Urgency
+  work_done: string | null
+  done_by: string | null
+  done_at: string | null
+  closed_by: string | null
+  closed_at: string | null
+  created_at: string
+}
+
+export interface OrderListPage {
+  rows: MaintenanceOrder[]
+  next_cursor: string | null
+}
+
+export interface CreateOrderBody {
+  request_id?: string
+  asset_card_id?: string
+  description?: string
+  urgency?: Urgency
+  assignee_user_id?: string
+}
+
 export const maintenanceApi = {
   /** The requests newest first; `status` is the server-side filter (all, new, ordered, rejected). */
   list: (status: string, cursor?: string) => {
@@ -73,6 +107,21 @@ export const maintenanceApi = {
   create: (body: CreateRequestBody, key: string) =>
     client.post<MaintenanceRequest>(`${BASE}/requests`, { ...body, idempotency_key: key }),
   reject: (id: string, reason: string) => client.post<MaintenanceRequest>(`${BASE}/requests/${seg(id)}/reject`, { reason }),
+  /** REQ-896: the orders newest first; `status` and `asset_card_id` are server-side filters. */
+  listOrders: (filters: { status: string; assetCardId: string }, cursor?: string) => {
+    const q = new URLSearchParams()
+    if (filters.status !== '') q.set('status', filters.status)
+    if (filters.assetCardId !== '') q.set('asset_card_id', filters.assetCardId)
+    if (cursor) q.set('cursor', cursor)
+    const query = q.toString()
+    return client.get<OrderListPage>(`${BASE}/orders${query === '' ? '' : `?${query}`}`)
+  },
+  getOrder: (id: string) => client.get<MaintenanceOrder>(`${BASE}/orders/${seg(id)}`),
+  /** One POST with exactly the keys of the source: `request_id`, or the card, description and urgency. */
+  makeOrder: (body: CreateOrderBody, key: string) =>
+    client.post<MaintenanceOrder>(`${BASE}/orders`, { ...body, idempotency_key: key }),
+  assignOrder: (id: string, userId: string) =>
+    client.post<MaintenanceOrder>(`${BASE}/orders/${seg(id)}/assign`, { user_id: userId }),
   /** REQ-896: the work order made from a request; the order copies its card, description and urgency. */
   createOrder: (requestId: string, key: string) =>
     client.post<{ id: string; number: string | null }>(`${BASE}/orders`, { request_id: requestId, idempotency_key: key }),

@@ -339,6 +339,50 @@ def check_area(root: Path, area: str, entries: list[dict], orphans: list[dict], 
             "missing": [{"id": m["id"], "path": m["path"], "line": m["line"], "name": m["name"]} for m in missing]}
 
 
+CHAINS = ("rc-sss", "rc-sec")
+
+
+def check_chain_coverage(root: Path, errors: list[str]) -> None:
+    """Every test/uat/processes/SEC-*.json is listed in exactly one of the two release-candidate chains.
+
+    An entry is a string or an object with a `process` key; it names a file by its id or by the id plus `-<slug>`
+    (the same resolution the chain runner uses). A chain entry that names no process file fails too.
+    """
+    proc_dir = root / "test/uat/processes"
+    chain_dir = root / "test/uat/chains"
+    sec = sorted(f.stem for f in proc_dir.glob("SEC-*.json")) if proc_dir.is_dir() else []
+    if not sec and not any((chain_dir / f"{c}.json").is_file() for c in CHAINS):
+        return
+    all_stems = sorted(f.stem for f in proc_dir.glob("*.json")) if proc_dir.is_dir() else []
+    listed: dict[str, list[str]] = {s: [] for s in sec}
+    for chain in CHAINS:
+        path = chain_dir / f"{chain}.json"
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            errors.append(f"ERROR test/uat/chains/{chain}.json: unreadable ({exc})")
+            continue
+        entries = doc.get("processes") if isinstance(doc, dict) else None
+        for e in entries if isinstance(entries, list) else []:
+            name = e if isinstance(e, str) else (e.get("process") if isinstance(e, dict) else None)
+            if not isinstance(name, str):
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {e!r} names no process")
+                continue
+            hits = [s for s in all_stems if s == name or s.startswith(name + "-")]
+            if not hits:
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {name} names no file in test/uat/processes")
+            for s in hits:
+                if s in listed:
+                    listed[s].append(chain)
+    for s, chains in listed.items():
+        if not chains:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in none of {', '.join(CHAINS)} (exactly one required)")
+        elif len(chains) > 1:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in more than one chain ({', '.join(chains)}); exactly one required")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("areas", nargs="*", help="area names, or `all` (default: areas that have a file)")
@@ -379,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
                 if eid in ids:
                     errors.append(f"ERROR docs/bp/{a}.json: id {eid} is already used in {ids[eid]}")
                 ids[eid] = f"docs/bp/{a}.json"
+    check_chain_coverage(root, errors)
     every_entry = [e for es in all_entries.values() for e in es]
     for a in areas:
         orphans = parse_orphans(root, a, errors)
