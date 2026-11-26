@@ -984,7 +984,7 @@
     "scenario": null,
     "uat": "planned: irreversible",
     "status": "partial",
-    "gap": "the EventRetentionPage screen has no web test"
+    "gap": "stays partial: the EventRetentionPage screen has no web test; no runner scenario because retirement is irreversible (cleanup cannot restore the start state); scenario belongs to the follow-up task (owner order D-173)"
   },
   {
     "id": "BP-PLATFORM-10",
@@ -1565,7 +1565,7 @@
     "scenario": null,
     "uat": "planned",
     "status": "partial",
-    "gap": "demo module: its tests are checked by name only here"
+    "gap": "stays partial: the demo module's tests are checked by name only; runner scenario belongs to the follow-up task (owner order D-173)"
   },
   {
     "id": "BP-PLATFORM-16",
@@ -1969,7 +1969,7 @@
           "lib/letflow/plugs/auth_pipeline.ex:69",
           "lib/letflow/plugs/auth_pipeline.ex:219"
         ],
-        "result": "a missing header, unknown slug, garbage, revoked, expired or inactive-owner token all get the byte-identical 401 'invalid or expired bearer token'; a PLATFORM_ADMIN token of another tenant presented to a platform route gets the fixed 403 (BP-PLATFORM-16). Status: planned for the runner (it always sends one valid token); covered by test/letflow/plugs/auth_pipeline_test.exs"
+        "result": "a missing header, unknown slug, garbage, revoked, expired or inactive-owner token all get the byte-identical 401 'invalid or expired bearer token'; a PLATFORM_ADMIN token of another tenant presented to a platform route gets the fixed 403 (BP-PLATFORM-16). Runner coverage today: the other-company token (SEC-ID-02, entry BP-TENANT-ADMIN-43) and the tenant administrator on platform routes (BP-PLATFORM-16, SEC-ID-05). Not covered by the runner: missing, garbage, revoked or expired token, because the runner has no per-step Authorization (a runner feature, not written here); covered by test/letflow/plugs/auth_pipeline_test.exs"
       },
       {
         "actor": "anyone",
@@ -1984,14 +1984,14 @@
           "lib/letflow/routers/tenant_config.ex:231",
           "lib/letflow/routers/tenant_config.ex:275"
         ],
-        "result": "unknown host: the standard answer, no tenant information; per-address 429 on repeated lookups. Status: planned (runner scenario for an unknown host is a plain GET; to be written with the first runner extension); covered by test/letflow/routers/tenant_config_host_test.exs"
+        "result": "unknown host: the standard answer, no tenant information; per-address 429 on repeated lookups. Runner coverage today: SEC-ID-01 (entry BP-TENANT-ADMIN-42) walks the unknown host, the bare host and the unknown company code and compares them with the default answer; the per-address 429 is not walked (it would lock the QA address). Unit coverage: test/letflow/routers/tenant_config_host_test.exs"
       }
     ],
     "inputs": [],
     "outputs": [],
     "refusals": [
-      "token lookup: wrong, expired, other-tenant token: 401 identical body (task 1); status planned",
-      "unknown host: standard tenant-config answer (task 2); status planned",
+      "token lookup: other-company token walked by SEC-ID-02; wrong, expired or revoked token only in test/letflow/plugs/auth_pipeline_test.exs (runner lacks a per-step Authorization)",
+      "unknown host: walked by SEC-ID-01 (BP-TENANT-ADMIN-42); the 429 limit is covered by test/letflow/routers/tenant_config_host_test.exs only",
       "upload types and limits: the platform area's own upload is the problem-report attachment (BP-PLATFORM-12, lib/letflow/routers/platform_problem_reports.ex); other uploads belong to areas assets, maintenance, tenant-admin (record attachments, documents) and are listed there",
       "old-address access: not a platform route; belongs to area stock (old-app compatibility address, lib/letflow/modules/stock/old_app_voice.ex)",
       "voice and webhook inputs: belong to area stock (voice) and area tenant-admin (webhooks, lib/letflow/routers/webhooks.ex)",
@@ -2002,9 +2002,9 @@
       "test/letflow/routers/tenant_config_host_test.exs"
     ],
     "scenario": null,
-    "uat": "planned (see tasks); the other kinds are owned by the named areas",
+    "uat": "token (other company) and host kinds are walked by SEC-ID-02 and SEC-ID-01 (owned by area tenant-admin); the other kinds are owned by the named areas (stock SEC-OLD-*, SEC-STOCK-*). This coverage list has no scenario of its own on purpose",
     "status": "partial",
-    "gap": "no runner scenario yet for token lookup and unknown host"
+    "gap": "stays partial: the missing/garbage/revoked/expired-token case needs a runner step kind with its own Authorization header (runner feature, not in this task); the host rate limit is not walked on purpose"
   },
   {
     "id": "BP-PLATFORM-23",
@@ -2070,7 +2070,7 @@
     "scenario": null,
     "uat": "planned: a runner scenario needs an issued certificate (BP-EXAM) and a public GET step without a token",
     "status": "partial",
-    "gap": "no runner scenario yet; web page covered only by component tests if any"
+    "gap": "stays partial: a runner scenario needs an issued certificate (BP-EXAM) and a public GET step without a token; scenario belongs to the follow-up task (owner order D-173)"
   },
   {
     "id": "BP-PLATFORM-24",
@@ -2178,7 +2178,10 @@
           "POST /api/v1/dlq/:id/retry",
           "DELETE /api/v1/definitions/:id"
         ],
-        "code_refs": ["lib/letflow/routers/definitions.ex:627", "lib/letflow/routers/dlq.ex:113"],
+        "code_refs": [
+          "lib/letflow/routers/definitions.ex:627",
+          "lib/letflow/routers/dlq.ex:113"
+        ],
         "result": "the exported graph equals the imported one; a failed step is in the step log and the dead-letter list and can be retried"
       }
     ],
