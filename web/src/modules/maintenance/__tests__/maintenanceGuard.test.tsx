@@ -63,6 +63,17 @@ describe('AC5 the install guard', () => {
     await waitFor(() => expect(screen.getByTestId('not-found-page')).toBeInTheDocument())
   })
 
+  it.each([
+    '/admin/maintenance/orders',
+    '/admin/maintenance/orders/new',
+    '/admin/maintenance/orders/o-1',
+    '/maintenance/my-orders',
+  ])('REQ-899: %s is the not-found page where the module is not installed', async (path) => {
+    fakeServer(client, { installed: [] })
+    renderAt(path)
+    await waitFor(() => expect(screen.getByTestId('not-found-page')).toBeInTheDocument())
+  })
+
   it('the requests route renders the screen where the module is installed', async () => {
     renderAt('/admin/maintenance/requests')
     await waitFor(() => expect(screen.getByTestId('page-header')).toBeInTheDocument())
