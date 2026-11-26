@@ -14,8 +14,10 @@ import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { ACTIVE_TRUE, DELETED_FALSE, assetsApi, fetchAllRecords, fetchCardsPage, searchCards } from './assets.api'
 import { ASSETS_READ } from './assetsPermissions'
+import { MAINTENANCE_MODULE_ID, MAINTENANCE_REQUEST_CREATE } from './maintenanceCardAction'
 import type { CardFacts } from './cardActions'
 import { assetRegisterApi } from './register/assetRegister.api'
 import { assetsQueryKeys } from './assetsQueryKeys'
@@ -168,6 +170,8 @@ export function useCardFacts(card: EntityRecord, enabled: boolean): CardFacts {
   const tenantId = session?.tenant_id ?? ''
   const canRead = can(ASSETS_READ)
   const on = enabled && canRead
+  const { data: installed } = useInstalledModules()
+  const canReport = can(MAINTENANCE_REQUEST_CREATE)
   const id = card.record_id
   const params = { asset: id }
   const lock = useQuery({
@@ -189,6 +193,8 @@ export function useCardFacts(card: EntityRecord, enabled: boolean): CardFacts {
     rows: balances.data?.rows,
     canRead,
     failed: lock.isError || balances.isError,
+    maintenanceInstalled: (installed ?? []).some((m) => m.module_id === MAINTENANCE_MODULE_ID),
+    canReport,
   }
 }
 
@@ -228,6 +234,9 @@ export function useCardsFacts(cards: EntityRecord[], enabled: boolean): CardFact
   const tenantId = session?.tenant_id ?? ''
   const canRead = can(ASSETS_READ)
   const on = enabled && canRead
+  const { data: installed } = useInstalledModules()
+  const canReport = can(MAINTENANCE_REQUEST_CREATE)
+  const maintenanceInstalled = (installed ?? []).some((m) => m.module_id === MAINTENANCE_MODULE_ID)
   const lockQs = useQueries({
     queries: cards.map((c) => ({
       queryKey: assetsQueryKeys.cardLock(tenantId, c.record_id),
@@ -251,5 +260,7 @@ export function useCardsFacts(cards: EntityRecord[], enabled: boolean): CardFact
     rows: balanceQs[i]?.data?.rows,
     canRead,
     failed: lockQs[i]?.isError || balanceQs[i]?.isError,
+    maintenanceInstalled,
+    canReport,
   }))
 }

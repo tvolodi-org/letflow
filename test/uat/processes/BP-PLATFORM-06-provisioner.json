@@ -1,0 +1,60 @@
+{
+  "id": "BP-PLATFORM-06-provisioner",
+  "bp_entry": "BP-PLATFORM-06",
+  "title": "Provision a tenant through the provisioner interface: NOT RUN, blocked by qa-provisioner-config",
+  "description": "BLOCKED (PM 22:4x): the provisioner credential is missing on QA (no LETFLOW_PROVISIONER_*; /admin/v1 answers 404) and the runner cannot send a provisioner credential or call a path outside /api/ (check_processes.py: 'must start with /api/'). The scenario of the map entry is create (201, then 200 on the replay), read, suspend, resume, expire and delete (202, then 200) of a demo tenant, and the refusals (401 no or wrong credential, 403 read credential on a write route); it is written here only as the platform-side observation that must hold after the provisioner call (the registry shows the tenant and its status), and every step carries blocked_by qa-provisioner-config. Runner tasks to open when the QA provisioner is configured: (a) a step bearer that sends a named provisioner credential (an input, never in the log); (b) /admin/v1 paths in check_processes.py. The provisioner steps are then added to this file and the marker removed.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "provisioned_slug"
+  ],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {
+      "provisioned_slug": "<set by the starter at run time>"
+    },
+    "blocked_by": "qa-provisioner-config: the QA provisioner credential is not configured (infra, scheduled with the operator), and the runner cannot yet call /admin/v1"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "After the provisioner created the demo tenant, the platform registry shows it, active.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${provisioned_slug}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "active"
+        }
+      },
+      "blocked_by": "qa-provisioner-config"
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "After the provisioner suspended it, the registry shows it inactive.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${provisioned_slug}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "inactive"
+        }
+      },
+      "blocked_by": "qa-provisioner-config"
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

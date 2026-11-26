@@ -100,6 +100,8 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_OWNER_LIST_SHA256` | no; QA only for the owner list import (T-1963) | nothing written; the `/maintenance/v1` owner-list import answers 404 | `config/runtime.exs`, `Letflow.Routers.MaintenanceOwnerListV1`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROBLEM_REPORT_EXPORT_SHA256` | no; QA only for the problem-report handoff (T-1948) | nothing written; the `/maintenance/v1` export answers 404 | `config/runtime.exs`, `Letflow.Plugs.ReportExportAuth`, `docs/runbooks/problem-report-handoff.md` |
 | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | no; the provisioner credential stays unset in production until the owner approves production provisioning (D-019 item 9); this suffix list alone opens no provisioner route and is set to `ai-letflow.com` at the production go for the company host (D-158: `PUT /api/v1/tenants/:slug/hostname`, login mail) | nothing written; the list grants no CORS allowance (T-2621: the CORS decision is per host) | `config/runtime.exs`, `Letflow.TenantProvisioner.Config`, `docs/runbooks/tenant-provisioner-credential.md` |
+| `LETFLOW_PROVISIONER_CREATE_VIA_PROCESS` | no; stays unset in production until the owner approves production provisioning (D-019 item 9). Switching it on outside QA/runner tenants is the owner's step after T-2610 is green twice, never a task's | default false: the old synchronous create path; with it on and the platform step runner off the old path is used | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
+| `LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 30: seconds a process create holds the request before it answers 202 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | nothing written; the `/admin/v1` provisioner routes answer 404 | `config/runtime.exs`, `docs/runbooks/tenant-provisioner-credential.md` |
 | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value: a built-in module list | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | no; stays unset in production until the owner approves production provisioning (D-019 item 9) | default value 25 | `config/runtime.exs`, `Letflow.TenantProvisioner.Config` |
@@ -152,6 +154,12 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `POOL_SIZE` | no | default value 30 (prod block) | `config/runtime.exs` (ISS-0908) |
 | `PORT` | no | default value 4000 (prod block) | `config/runtime.exs` (ISS-0015) |
 | `RESERVED_HEADROOM` | no | default value 2 (prod block) | `config/runtime.exs` (ISS-0908) |
+
+### QA deploy wiring
+
+| Wiring | What | Why | Owner | Rollback |
+|---|---|---|---|---|
+| Network join (T-2780) | `deploy/docker-compose.qa.yml`: service `app` is on `default` and `provisioner_callers`, the external network `tenant-provisioner-qa_callers` | `platform.register_tenant` must reach the tenant-provisioner (`http://10.203.118.2:8080`); inside the app container 127.0.0.1 is the container itself. No port is published, no host network; sign-up stays off | the external network belongs to infra (tenant-provisioner-qa); the compose lines belong to the product | remove the `networks:` lines of `app` and the top-level `provisioner_callers` block, then redeploy (`deploy/redeploy-qa.sh`) |
 
 ## Open owner questions
 

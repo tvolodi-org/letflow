@@ -1,0 +1,140 @@
+{
+  "id": "BP-PLATFORM-08-migration-fanout-read-only",
+  "bp_entry": "BP-PLATFORM-08",
+  "title": "Run a tenant-schema migration across all tenants: READ-ONLY on QA, only the refusals that start nothing",
+  "description": "The platform administrator is refused, before anything runs: an unknown rollout id on the read (404) and on the resume (404), a start without its fields (422), a start with an entity type that is not an identifier (422, field entity_type, constraint identifier_format) and a start without the column type (400). A company administrator is refused the start and the read. NOT automated, on purpose: a real start adds a column to the schema of EVERY tenant and there is no undo (the rule of the migrations is additive only); the real run and its per-tenant outcomes are covered by test/letflow/routers/platform_migrations_test.exs. Nothing is created, so there is no cleanup and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "An unknown rollout id on the read: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-migrations/rollouts/00000000-0000-4000-8000-0000000000a1"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "An unknown rollout id on the resume: 404, nothing is applied.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-migrations/rollouts/00000000-0000-4000-8000-0000000000a1/resume",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "A start without its fields: 422 with field errors, nothing starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-migrations/rollouts",
+        "body": {}
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "An entity type that is not a lowercase identifier: 422, field entity_type, constraint identifier_format, nothing starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-migrations/rollouts",
+        "body": {
+          "entity_type": "Uat-Bad-Type",
+          "attribute": "uat_attr",
+          "column_spec": {
+            "pg_type": "text"
+          }
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "entity_type",
+          "$.errors[0].constraint": "identifier_format"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "A start without the column type: 400, nothing starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-migrations/rollouts",
+        "body": {
+          "entity_type": "uat_type",
+          "attribute": "uat_attr",
+          "column_spec": {
+            "generated_as": ""
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "says": "A company administrator may not start a migration rollout (403 or the uniform 404; the body would be refused anyway).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-migrations/rollouts",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "says": "A company administrator may not read a rollout (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-migrations/rollouts/00000000-0000-4000-8000-0000000000a1"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

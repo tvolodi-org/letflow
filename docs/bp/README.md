@@ -107,7 +107,7 @@ The file is a JSON list. One entry per business process, written in the user's w
 | `tasks` | list | see below; at least one unless the status is `planned` |
 | `scenario` | text or `null` | repo-relative path of the runner script (`test/uat/processes/<id>.json`); must exist when not null |
 | `status` | `implemented` \| `partial` \| `planned` | `implemented` only when code **and** a test exist; `planned` needs the extra field `requirement` (a REQ id) |
-| `executed_by` | text | optional: `direct` (a hard-coded route or function) or `definition:<process_key>` (the process runs as a BPM definition of the engine, e.g. `definition:platform.register_tenant`); a missing field means `direct` (D-175) |
+| `executed_by` | text | optional: `direct` (a hard-coded route or function) `n/a` (a proof experiment, not a process the engine runs; counted apart) or `definition:<process_key>` (the process runs as a BPM definition of the engine, e.g. `definition:platform.register_tenant`); a missing field means `direct` (D-175) |
 
 ### Who runs a process (`executed_by`, D-175)
 

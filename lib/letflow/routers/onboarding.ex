@@ -240,9 +240,9 @@ defmodule Letflow.Routers.Onboarding do
     %FieldConstraint{name: "idp_realm_id", required: true, type: :string, max_length: 64}
   ]
 
-  @runbook "docs/runbooks/onboarding-new-tenant-realm.md"
-  @not_loginable_next_step "Create the realm and its first administrator (#{@runbook}), " <>
-                             "then bind it with POST /api/v1/onboarding/{id}/bind-realm."
+  @not_loginable_next_step "The process creates the realm and its first administrator; follow its progress and step log. " <>
+                             "Only if that step failed or the realm was lost, use the exception procedure " <>
+                             "(docs/runbooks/onboarding-new-tenant-realm.md) and bind it with POST /api/v1/onboarding/{id}/bind-realm."
 
   defp handle_create(conn) do
     body = conn.body_params

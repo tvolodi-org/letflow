@@ -190,6 +190,13 @@ class TheInstances(PlatformRun):
         self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
         self.assertEqual(self.residue_row()["verdict"], "pass")
 
+    def test_a_name_that_was_never_saved_is_skipped_and_said(self):
+        doc = proc([start(), cancel()], {"instances": ["${instance_id_never}"]})
+        code, r = self.run_it(doc)
+        self.assertEqual(code, 0, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(self.residue_row()["verdict"], "pass")
+        self.assertIn("not saved: ${instance_id_never}", r.out.getvalue())
+
     def test_without_the_block_an_open_instance_is_not_reported(self):
         doc = proc([start()])
         code, _ = self.run_it(doc)

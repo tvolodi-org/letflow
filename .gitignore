@@ -45,6 +45,13 @@ letflow-*.tar
 # UAT request/response excerpts are run output and may carry tenant data.
 /uat-runs/
 
+# The agent team's engine state. `state/team.db` is the team's task database (a SQLite
+# file), not product code: it was tracked here by mistake since PR #3801 (2026-11-04)
+# and four commits wrote to it. It was removed from the tree in T-2706; the team
+# repository keeps its own copy under its own (already ignored) `state/` directory,
+# and this repository's product code reads nothing from that path.
+/state/
+
 # ── Frontend (web/) — Node / Vite / Playwright ───────────────────────────────
 # web/ is Letflow's own React SPA as of the S8 re-scope (2026-08-21); see
 # docs/migration/decisions/0011-frontend-ownership.md.
