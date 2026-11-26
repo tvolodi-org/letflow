@@ -1727,10 +1727,12 @@
     ],
     "refusals": [
       "unknown kind or handle, revoked, expired, wrong kind: uniform 404",
-      "rate limit 429"
+      "rate limit 429",
+      "a role without PublicReadHandlesIssue (storekeeper, process designer) gets 403: played by the scenario"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-DESIGNER-22.json",
+    "status": "partial",
+    "gaps": "Stays partial: the scenario plays only the refusal. Issuing a handle writes a row with no revoke route (no undo for cleanup), and the runner has no step kind for the unauthenticated public address (GET /api/public/:kind/:handle). Missing: a handle revoke route or a runner public-read step. The only registered production kind is 'certificate' (config/config.exs:15)."
   },
   {
     "id": "BP-DESIGNER-23",
@@ -1751,7 +1753,8 @@
         "functions": [],
         "route": "GET /api/v1/services",
         "code_refs": [
-          "lib/letflow/routers/services.ex:96"
+          "lib/letflow/routers/services.ex:96",
+          "lib/letflow/service_catalog.ex:692"
         ],
         "result": "the services usable by the tenant"
       }
@@ -1763,8 +1766,8 @@
     "refusals": [
       "a caller without DefinitionsRead gets 403"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-DESIGNER-23.json",
+    "status": "implemented"
   },
   {
     "id": "BP-DESIGNER-24",
