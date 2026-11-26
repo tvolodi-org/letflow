@@ -45,6 +45,8 @@ export interface DiagramEditorProps {
   initialSelected?: Sel
   /** The tenant the platform function catalogue read is scoped to (T-2599); the page resolves it. */
   tenantId?: string | null
+  /** T-2847: the `owner_module` stamp of the definition being edited (the sub-process picker's rule). */
+  parentOwnerModule?: string | null
 }
 
 export type Sel = { kind: 'node' | 'edge'; id: string } | null
@@ -59,7 +61,7 @@ export default function DiagramEditor(props: DiagramEditorProps) {
   )
 }
 
-function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected, tenantId }: DiagramEditorProps) {
+function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected, tenantId, parentOwnerModule }: DiagramEditorProps) {
   const intl = useIntl()
   const e = useEditText()
   const t = useDiagramText()
@@ -277,6 +279,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
         onSelectEdge={(id) => setSel({ kind: 'edge', id })}
         problems={problemsFor('node', sel.id)}
         tenantId={tenantId}
+        parentOwnerModule={parentOwnerModule}
       />
     ) : sel?.kind === 'edge' ? (
       <EdgeEditPanel graph={graph} edgeId={sel.id} onApply={apply} onClose={() => setSel(null)} problems={problemsFor('edge', sel.id)} />

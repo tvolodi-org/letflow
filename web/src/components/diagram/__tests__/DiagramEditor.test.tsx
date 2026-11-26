@@ -24,6 +24,9 @@ expect.extend(jestDomMatchers)
 // T-2599: the step panel reads the platform function catalogue (a tenant-scoped query), so the tree needs a
 // session and a query client. The catalogue itself is answered empty: the picker's own tests cover its content.
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ session: { tenant_id: 'tenant-1' } }) }))
+// T-2847: the sub-process picker reads the active definitions; here that read fails, which keeps the plain name field
+// this test types into (the picker's own tests are in NodeEditPanel.subProcess.test.tsx).
+vi.mock('@/api/definitions', () => ({ definitionsApi: { list: vi.fn(() => Promise.reject({ status: 500 })) } }))
 vi.mock('@/api/platformFunctions', () => ({ platformFunctionsApi: { list: vi.fn(() => Promise.resolve({ items: [] })) } }))
 
 let width = 1200
@@ -329,7 +332,7 @@ describe('T-1563 diagram editor', () => {
     expect('assignee_ref' in a).toBe(false)
   })
 
-  it('P4 timer duration, assignee and sub-process name are edited per type', () => {
+  it('P4 timer duration, assignee and sub-process name are edited per type', async () => {
     renderEditor({
       seed: {
         nodes: [
@@ -345,6 +348,7 @@ describe('T-1563 diagram editor', () => {
     fireEvent.change(screen.getByTestId('edit-field-duration'), { target: { value: 'PT5M' } })
     expect(readAttrs(latest.graph.nodes.find((x) => x.id === 't')!).duration_iso8601).toBe('PT5M')
     openNode('s')
+    await screen.findByTestId('sub-error')
     fireEvent.change(screen.getByTestId('edit-field-sub-definition'), { target: { value: 'child_flow' } })
     expect(readAttrs(latest.graph.nodes.find((x) => x.id === 's')!).definition_name).toBe('child_flow')
   })

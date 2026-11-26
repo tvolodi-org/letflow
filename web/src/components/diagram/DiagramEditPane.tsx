@@ -311,6 +311,7 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
           check={check}
           initialSelected={demo?.selected}
           tenantId={tenantId}
+          parentOwnerModule={def.owner_module ?? null}
           toolbar={{
             onSave: () => void save(),
             onDiscard: () => {
