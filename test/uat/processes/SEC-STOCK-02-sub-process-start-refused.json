@@ -265,6 +265,5 @@
       }
     }
   ],
-  "status": "planned",
-  "note": "Planned, not in the dry-run set: step s4 expects 404 (the answer of an unknown definition, as the Engine moduledoc 'refused alike' and lib/letflow/engine/sub_process.ex promise) and QA answers 500 internal_error today. It fails until the p1 defect fix (500 on a SUB_PROCESS child naming stock_receipt, lib/letflow/routers/instances.ex render_create catch-all) lands; then move this file back to test/uat/processes/ and set BP-STOCK-38 automation to scripted."
+  "status": "planned"
 }

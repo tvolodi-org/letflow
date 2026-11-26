@@ -43,7 +43,7 @@ A tenant administrator reports a fault on one asset card with a text and an urge
 
 **Steps.**
 
-1. **TENANT_ADMIN**: call `POST /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.create`
+1. **TENANT_ADMIN**: screen `requests/new -> MaintenanceRequestFormPage`, call `POST /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.create`
    Result: 201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied
 
 **Refusals.**
@@ -117,9 +117,9 @@ A tenant administrator lists the requests (newest first, filter by status, pagin
 
 **Steps.**
 
-1. **TENANT_ADMIN**: call `GET /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.list`
+1. **TENANT_ADMIN**: screen `requests -> MaintenanceRequestsPage`, call `GET /api/v1/modules/maintenance/requests`, function `Letflow.Modules.Maintenance.Requests.list`
    Result: 200 with rows and next_cursor
-2. **TENANT_ADMIN**: call `GET /api/v1/modules/maintenance/requests/:id`, function `Letflow.Modules.Maintenance.Requests.get`
+2. **TENANT_ADMIN**: screen `requests/:id -> MaintenanceRequestsPage`, call `GET /api/v1/modules/maintenance/requests/:id`, function `Letflow.Modules.Maintenance.Requests.get`
    Result: 200 with the request view (status, order reference, photo_count)
 3. **TENANT_ADMIN**: call `POST /api/v1/modules/maintenance/requests/:id/reject`, function `Letflow.Modules.Maintenance.Requests.reject`
    Result: 200 with status rejected and the reason; audited
@@ -733,7 +733,9 @@ The operator asked for voice, webhook and old-address inputs. The maintenance mo
 
 ## Orphans (docs/bp/orphans-maintenance.md)
 
-The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-maintenance.md`).
+| function | file:line | what it does | history | why it exists | proposed action |
+|---|---|---|---|---|---|
+| route `admin/maintenance` (container) | `web/src/modules/maintenance/maintenanceRoutes.tsx:16` | parent route of the three request screens; it has no page of its own, it only groups `requests`, `requests/new`, `requests/:id` | REQ-898, commit 6e6c35f7c (#5099) | route nesting in the router, not a user task | keep as a platform function |
 
 ## Gaps of the area
 
