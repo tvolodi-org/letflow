@@ -106,7 +106,7 @@ See [`.env.example`](.env.example) for every environment variable the app reads.
 | `npm run lint` | ESLint, zero-warning gate |
 | `npm test` | vitest unit/component suite (excludes e2e + guards) |
 | `npm run guards` | the three static-analysis guard specs (see below) |
-| `npm run test:e2e` | Playwright, needs a running backend |
+| `npm run test:e2e` | Playwright, needs a running backend. Specs that write data refuse a non-local backend or `E2E_BASE_URL` (QA is not a target); `E2E_ALLOW_REMOTE=1` lifts it, only on a throwaway stack (`E2E_LOCAL_HOSTS` adds a CI service host) |
 
 ## Design-system style guide (`/design-system/`)
 
