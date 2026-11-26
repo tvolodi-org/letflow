@@ -94,6 +94,43 @@ class SweepCase(FakeServerCase):
         code, _ = self.go(self.write(), base="https://qoimeks-qa.letflow.qa.bizdala.com")
         self.assertEqual(code, 2)
 
+    def test_retires_an_older_shared_access_and_logs_it(self):
+        self.state.shared_status = True
+        self.state.shared_value = "v"
+        self.state.shared_created_at = "2020-01-01T00:00:00.000000Z"
+        code, text = self.go(self.write(shared_stock_access=True))
+        self.assertEqual(code, 0, text)
+        self.assertIn("retired shared-stock-access (created_at 2020-01-01T00:00:00.000000Z", text)
+        self.assertIsNone(self.state.shared_value)
+        code, text = self.go(self.write(shared_stock_access=True))  # second run: nothing to retire, no failure
+        self.assertEqual(code, 0, text)
+        self.assertIn("nothing to retire", text)
+
+    def test_keeps_a_shared_access_younger_than_the_sweep(self):
+        self.state.shared_status = True
+        self.state.shared_value = "v"
+        self.state.shared_created_at = "2999-01-01T00:00:00.000000Z"
+        code, text = self.go(self.write(shared_stock_access=True))
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.state.shared_value, "v")
+
+    def test_run_start_retires_it_only_on_the_sweep_tenants(self):
+        self.state.shared_status = True
+        self.state.shared_value = "v"
+        self.state.shared_created_at = "2020-01-01T00:00:00.000000Z"
+        out = io.StringIO()
+        r = runner.Runner([{"id": "P", "steps": []}], base_url=self.base, tenant="other-qa", actors={"admin": "other-admin"},
+                          run_dir=str(Path(self.tmp.name) / "r1"), poll_interval=0.5, out=out)
+        self.assertEqual(r.retire_stale_shared_access("2026-11-27T00:00:00Z"), "")
+        self.assertEqual(self.state.shared_value, "v")
+        r = runner.Runner([{"id": "P", "steps": []}], base_url=self.base, tenant="qoimeks-qa2", actors={"admin": "qoimeks-qa2-admin"},
+                          run_dir=str(Path(self.tmp.name) / "r2"), poll_interval=0.5, out=out)
+        self.assertIn("retired shared-stock-access", r.retire_stale_shared_access("2026-11-27T00:00:00Z"))
+        self.assertIsNone(self.state.shared_value)
+
+    def test_shipped_list_retires_shared_access(self):
+        self.assertIs(residue_sweep.load_list(SHIPPED, runner)["shared_stock_access"], True)
+
     def test_shipped_list_file_is_for_qa2_only(self):
         doc = residue_sweep.load_list(SHIPPED, runner)
         self.assertEqual(doc["tenant"], "qoimeks-qa2")
