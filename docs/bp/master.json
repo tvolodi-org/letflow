@@ -981,8 +981,8 @@
       }
     ],
     "preconditions": [
-      "two tenants with the modules installed and one record of each type in tenant B",
-      "an administrator token of tenant A"
+      "two tenants with the modules installed: home qoimeks-qa2 and foreign sss-rehearsal2 (stock tenant, holds locations and org units)",
+      "an administrator of each"
     ],
     "tasks": [
       {
@@ -1013,14 +1013,19 @@
       "an id of another tenant, a deleted record or an unknown id: the same 404 (INV-5)",
       "a code assigned to a scoped or undeclared target type: the scan lookup answers the 404 of an unknown code (fail closed)"
     ],
-    "scenario": null,
-    "status": "partial",
+    "scenario": "test/uat/processes/SEC-MASTER-02-cross-tenant-refused.json",
+    "status": "implemented",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "token of tenant A on tenant B's ids, per route",
+        "name": "rename of the other company's location and org unit refused, both directions (SEC-MASTER-02)",
+        "status": "automated",
+        "scenario": "SEC-MASTER-02"
+      },
+      {
+        "name": "codes cross-tenant",
         "status": "planned",
-        "note": "the runner holds the actors of one tenant; needs a second tenant in the dry-run block. Covered at API level by the Elixir tests (codes router_test T1, locations router_test, org router_test)"
+        "note": "no foreign code guaranteed; Elixir codes router_test T1 covers it"
       }
     ]
   },
@@ -1124,14 +1129,19 @@
       "no credential or a wrong token: 401",
       "a path that no route of the module has: the ordinary unmatched answer (authz_unmatched)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/SEC-MASTER-03-no-credential-refused.json",
     "status": "partial",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "no/wrong/expired/other-tenant token, unknown host",
+        "name": "no credential: 401 on one write route per module and on the two codes reads (SEC-MASTER-03)",
+        "status": "automated",
+        "scenario": "SEC-MASTER-03"
+      },
+      {
+        "name": "wrong, expired or other-tenant token, unknown host",
         "status": "planned",
-        "note": "the runner always sends the actor's own token; a credential-less call needs a runner step kind. Covered by the Elixir tests of the auth pipeline."
+        "note": "needs a per-step bearer in the runner; Elixir auth pipeline tests cover it"
       }
     ]
   },
@@ -1240,6 +1250,182 @@
         "name": "scoped target hidden",
         "status": "planned",
         "note": "needs a scoped target type on the tenant; Elixir resolve_router_test covers it"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-17",
+    "area": "master",
+    "title": "Security: the master data modules have no process to start or complete",
+    "description": "The four master data modules own no process definition, no task node and no write handler (inventory of the area: no pack node, no handler). A start of a process named after a module, with start values chosen by the caller, is the 404 of a process that does not exist; the role that may not start processes gets 403. Crafted completion, write-target refusal (output_refused) and sub-process start do not apply to this area: there is no task and no module_writes line to target.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "InstancesStart"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "none (refused 403)"
+      }
+    ],
+    "preconditions": [
+      "modules org, locations, catalog_items and codes installed"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.create"
+        ],
+        "route": "POST /api/v1/instances",
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:407",
+          "lib/letflow/routers/instances.ex:601",
+          "lib/letflow/engine.ex:671",
+          "priv/modules/org/pack.json:1",
+          "priv/modules/locations/pack.json:1",
+          "priv/modules/catalog_items/pack.json:1",
+          "priv/modules/codes/pack.json:1"
+        ],
+        "result": "404 with the answer of an unknown process for each module name; STOREKEEPER 403; nothing started"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "start by the name of a master data module: 404 (no such definition)",
+      "STOREKEEPER on the start route: 403"
+    ],
+    "scenario": "test/uat/processes/SEC-MASTER-01-no-process-start-routes.json",
+    "status": "implemented",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "start by module name refused; storekeeper 403",
+        "status": "automated",
+        "scenario": "SEC-MASTER-01"
+      },
+      {
+        "name": "crafted completion, sub-process start",
+        "status": "not_applicable",
+        "note": "no process definition in the four packs (definitions: [] in each pack.json)"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-18",
+    "area": "master",
+    "title": "Security: a repeated write with the same key gives the same record",
+    "description": "Every master data write carries an idempotency key. The same key with the same body returns the first result and creates one record; the same key with another body is 409 idempotency_key_reuse. Walked on a location and on a received code; the cleanup retires both.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LocationsWrite, CodesWrite"
+      }
+    ],
+    "preconditions": [
+      "modules locations and codes installed"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.RouterKit.pop_key",
+          "Letflow.Modules.Locations.create_node",
+          "Letflow.Modules.Codes.receive_codes"
+        ],
+        "route": [
+          "POST /api/v1/modules/locations/nodes",
+          "POST /api/v1/modules/codes/receive"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/router_kit.ex:73",
+          "lib/letflow/modules/locations/router.ex:48",
+          "lib/letflow/modules/codes/router.ex:59",
+          "test/letflow/modules/locations/router_test.exs:297"
+        ],
+        "result": "replay: same record id, one record; same key other body: 409 idempotency_key_reuse"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "same key, other body: 409 idempotency_key_reuse"
+    ],
+    "scenario": "test/uat/processes/SEC-MASTER-04-idempotency-replay.json",
+    "status": "implemented",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "replay and key reuse on a location and on a code batch",
+        "status": "automated",
+        "scenario": "SEC-MASTER-04"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-19",
+    "area": "master",
+    "title": "Security: master data business rules hold (tree, codes)",
+    "description": "Rules of the area, each refused with a fixed reason and nothing written: a location cannot be moved under its own descendant (cycle); a location with a live child cannot be retired (has_active_descendants); a child cannot be put under a retired parent (parent_inactive); an unknown parent is the 404 of an unknown id; a code value that already exists, or repeats inside a batch, is refused entry_invalid; an empty batch is refused batch_size. Org unit cycle and depth rules (org.ex moduledoc, :cycle, :depth_exceeded) are covered by the Elixir org tests only.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LocationsWrite, CodesWrite"
+      }
+    ],
+    "preconditions": [
+      "modules locations and codes installed"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.Tree.move_node",
+          "Letflow.Modules.Locations.Tree.retire_node",
+          "Letflow.Modules.Codes.Writes.receive_codes"
+        ],
+        "route": [
+          "POST /api/v1/modules/locations/nodes",
+          "POST /api/v1/modules/locations/nodes/:id/move",
+          "POST /api/v1/modules/locations/nodes/:id/retire",
+          "POST /api/v1/modules/codes/receive"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/locations/tree.ex:145",
+          "lib/letflow/modules/locations/tree.ex:311",
+          "lib/letflow/modules/locations/tree.ex:448",
+          "lib/letflow/modules/codes/writes.ex:52",
+          "lib/letflow/modules/codes/writes.ex:152",
+          "lib/letflow/modules/codes/writes.ex:153"
+        ],
+        "result": "422 cycle / has_active_descendants / parent_inactive / entry_invalid / batch_size; 404 unknown parent; nothing written"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "cycle",
+      "has_active_descendants",
+      "parent_inactive",
+      "entry_invalid (value_taken, duplicate_in_batch)",
+      "batch_size"
+    ],
+    "scenario": "test/uat/processes/SEC-MASTER-05-area-rules-refused.json",
+    "status": "implemented",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "tree and code rules",
+        "status": "automated",
+        "scenario": "SEC-MASTER-05"
       }
     ]
   }

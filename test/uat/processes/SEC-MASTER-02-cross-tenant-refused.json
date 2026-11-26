@@ -1,0 +1,288 @@
+{
+  "id": "SEC-MASTER-02",
+  "bp_entry": "BP-MASTER-12",
+  "title": "Master data of another company is neither visible nor changeable: the uniform 404, both directions",
+  "description": "SECURITY. Home tenant qoimeks-qa2 and the FOREIGN tenant sss-rehearsal2 (stock tenant, so it holds locations and org units; its administrator signs in to its own company). Each administrator reads one real location and one real org unit of their own company at run time. The home administrator then asks to rename the foreign location and the foreign org unit, and the foreign administrator asks the same of the home ones; the rename sends the record's own current name, so a leak would change nothing visible. Every answer is the 404 of an id that does not exist (same title and detail as an unknown id). The records are then read back: the foreign id is invisible to the home administrator and the home id to the foreign one; the home location still has its name. Codes are not walked cross-tenant here (no foreign code is guaranteed to exist; the Elixir router tests of the codes module cover it). Nothing is changed, so there is nothing to clean up.",
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper",
+      "sss-rehearsal2-admin": "sss-rehearsal2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/00000000-0000-4000-8000-0000000000d1/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-02s1"
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": []
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "home_node": "$.items[0].record_id",
+        "home_node_name": "$.items[0].field_values.name"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "org_unit",
+          "filters": []
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "home_unit": "$.items[0].record_id",
+        "home_unit_name": "$.items[0].field_values.name"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": []
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "foreign_node": "$.items[0].record_id",
+        "foreign_node_name": "$.items[0].field_values.name"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "org_unit",
+          "filters": []
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "foreign_unit": "$.items[0].record_id",
+        "foreign_unit_name": "$.items[0].field_values.name"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${foreign_node}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-02s6",
+          "name": "${foreign_node_name}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/org/units/${foreign_unit}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-02s7",
+          "name": "${foreign_unit_name}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/locations/nodes/${home_node}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-02s8",
+          "name": "${home_node_name}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "PATCH",
+        "path": "/api/v1/modules/org/units/${home_unit}",
+        "body": {
+          "idempotency_key": "uat-${run_id}-02s9",
+          "name": "${home_unit_name}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": [
+            {
+              "field": "record_id",
+              "op": "eq",
+              "value": "${foreign_node}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0]": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "sss-rehearsal2-admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": [
+            {
+              "field": "record_id",
+              "op": "eq",
+              "value": "${home_node}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0]": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {
+          "entity_type": "location_node",
+          "filters": [
+            {
+              "field": "record_id",
+              "op": "eq",
+              "value": "${home_node}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].record_id": "${home_node}",
+          "$.items[0].field_values.name": "${home_node_name}"
+        }
+      }
+    }
+  ],
+  "cleanup": [],
+  "tenant": "${tenant}",
+  "inputs": [],
+  "outputs": {}
+}

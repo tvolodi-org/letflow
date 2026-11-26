@@ -1,0 +1,188 @@
+{
+  "id": "SEC-MASTER-04",
+  "bp_entry": "BP-MASTER-18",
+  "title": "A repeated write with the same key gives the same record; the same key with other data is refused",
+  "description": "SECURITY / idempotency, on qoimeks-qa2. The administrator creates a location with a key; the same request again answers with the same record id (one record, not two); the same key with another name is refused 409 idempotency_key_reuse. The same three steps for receiving a code. The cleanup retires the code and the location.",
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k1",
+          "code": "UAT-${run_id}-i",
+          "name": "UAT idem A",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "node": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k1",
+          "code": "UAT-${run_id}-i",
+          "name": "UAT idem A",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "record_id": "${node}"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k1",
+          "code": "UAT-${run_id}-i",
+          "name": "UAT idem B",
+          "node_kind": "zone"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "idempotency_key_reuse"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k2",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-ic",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "code_id": "$[0].code_id"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k2",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-ic",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$[0].code_id": "${code_id}"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04k2",
+          "entries": [
+            {
+              "value": "UAT-${run_id}-ic2",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "idempotency_key_reuse"
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "code_id"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-04c2"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node"
+      ]
+    }
+  ],
+  "tenant": "${tenant}",
+  "inputs": [],
+  "outputs": {}
+}

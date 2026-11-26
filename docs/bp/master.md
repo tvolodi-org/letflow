@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `master` has 16 process(es): 12 implemented, 4 partial. Executed by: 16 direct, 0 definition.
+The area `master` has 19 process(es): 16 implemented, 3 partial. Executed by: 19 direct, 0 definition.
 
 ## The processes of the area
 
@@ -22,11 +22,14 @@ The area `master` has 16 process(es): 12 implemented, 4 partial. Executed by: 16
 | BP-MASTER-09 | Receive, assign, release and retire a code | Barcodes, QR codes and RFID tags are first received into the tenant (a batch of values with a kind), then assigned to one place, item or... | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | no | see report |
 | BP-MASTER-10 | Print code labels | A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
 | BP-MASTER-11 | Security: permission matrix of the master data routes | Who may do what in org, locations, catalog lots and codes, and who is refused. | STOREKEEPER, TENANT_ADMIN | implemented | direct | yes | yes | see report |
-| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-12 | Security: another tenant's data is never reachable (uniform 404) | A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that do... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 | BP-MASTER-13 | Security: crafted write requests are refused and change nothing | Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key wit... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
-| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | no | yes | see report |
+| BP-MASTER-14 | Security: token, host and old-address lookups | A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. | TENANT_ADMIN | partial | direct | yes | yes | see report |
 | BP-MASTER-15 | Security: import types, size and format limits | The generic import loads master data from files. | STOREKEEPER, TENANT_ADMIN | partial | direct | no | yes | see report |
 | BP-MASTER-16 | Security: the scan lookup fails closed | A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the... | STOREKEEPER | partial | direct | no | yes | see report |
+| BP-MASTER-17 | Security: the master data modules have no process to start or complete | The four master data modules own no process definition, no task node and no write handler (inventory of the area: no pack node, no handler). | TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
+| BP-MASTER-18 | Security: a repeated write with the same key gives the same record | Every master data write carries an idempotency key. | TENANT_ADMIN | implemented | direct | yes | yes | see report |
+| BP-MASTER-19 | Security: master data business rules hold (tree, codes) | Rules of the area, each refused with a fixed reason and nothing written: a location cannot be moved under its own descendant (cycle); a l... | TENANT_ADMIN | implemented | direct | yes | yes | see report |
 
 ## BP-MASTER-01 -- Maintain legal entities and sites
 
@@ -424,12 +427,12 @@ A token of tenant A used on an id that belongs to tenant B, on every master rout
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/SEC-MASTER-02-cross-tenant-refused.json` (runner id `SEC-MASTER-02`)
 
 **Status.**
 
-- implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 
 ## BP-MASTER-13 -- Security: crafted write requests are refused and change nothing
@@ -482,12 +485,12 @@ A call with no credential, a wrong or expired token, a token of another tenant n
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/SEC-MASTER-03-no-credential-refused.json` (runner id `SEC-MASTER-03`)
 
 **Status.**
 
 - implementation: `partial`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 
 ## BP-MASTER-15 -- Security: import types, size and format limits
@@ -548,11 +551,102 @@ A scan of an unknown code, or of a code assigned to a record type whose scope is
 - UAT: planned -- no runner scenario yet.
 - security: yes
 
+## BP-MASTER-17 -- Security: the master data modules have no process to start or complete
+
+The four master data modules own no process definition, no task node and no write handler (inventory of the area: no pack node, no handler). A start of a process named after a module, with start values chosen by the caller, is the 404 of a process that does not exist; the role that may not start processes gets 403. Crafted completion, write-target refusal (output_refused) and sub-process start do not apply to this area: there is no task and no module_writes line to target.
+
+**Actors and their permissions.**
+
+- `TENANT_ADMIN` -- InstancesStart
+- `STOREKEEPER` -- none (refused 403)
+
+**Steps.**
+
+1. **TENANT_ADMIN**: call `POST /api/v1/instances`, function `Letflow.Engine.create`
+   Result: 404 with the answer of an unknown process for each module name; STOREKEEPER 403; nothing started
+
+**Refusals.**
+
+- start by the name of a master data module: 404 (no such definition)
+- STOREKEEPER on the start route: 403
+
+**Runner scenario.**
+
+- `test/uat/processes/SEC-MASTER-01-no-process-start-routes.json` (runner id `SEC-MASTER-01`)
+
+**Status.**
+
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
+- security: yes
+
+## BP-MASTER-18 -- Security: a repeated write with the same key gives the same record
+
+Every master data write carries an idempotency key. The same key with the same body returns the first result and creates one record; the same key with another body is 409 idempotency_key_reuse. Walked on a location and on a received code; the cleanup retires both.
+
+**Actors and their permissions.**
+
+- `TENANT_ADMIN` -- LocationsWrite, CodesWrite
+
+**Steps.**
+
+1. **TENANT_ADMIN**: screen `LocationTreePage`, call `POST /api/v1/modules/locations/nodes`, `POST /api/v1/modules/codes/receive`, function `Letflow.Modules.RouterKit.pop_key`, `Letflow.Modules.Locations.create_node`, `Letflow.Modules.Codes.receive_codes`
+   Result: replay: same record id, one record; same key other body: 409 idempotency_key_reuse
+
+**Refusals.**
+
+- same key, other body: 409 idempotency_key_reuse
+
+**Tests.**
+
+- `test/letflow/modules/locations/router_test.exs`
+
+**Runner scenario.**
+
+- `test/uat/processes/SEC-MASTER-04-idempotency-replay.json` (runner id `SEC-MASTER-04`)
+
+**Status.**
+
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
+- security: yes
+
+## BP-MASTER-19 -- Security: master data business rules hold (tree, codes)
+
+Rules of the area, each refused with a fixed reason and nothing written: a location cannot be moved under its own descendant (cycle); a location with a live child cannot be retired (has_active_descendants); a child cannot be put under a retired parent (parent_inactive); an unknown parent is the 404 of an unknown id; a code value that already exists, or repeats inside a batch, is refused entry_invalid; an empty batch is refused batch_size. Org unit cycle and depth rules (org.ex moduledoc, :cycle, :depth_exceeded) are covered by the Elixir org tests only.
+
+**Actors and their permissions.**
+
+- `TENANT_ADMIN` -- LocationsWrite, CodesWrite
+
+**Steps.**
+
+1. **TENANT_ADMIN**: screen `LocationTreePage`, call `POST /api/v1/modules/locations/nodes`, `POST /api/v1/modules/locations/nodes/:id/move`, `POST /api/v1/modules/locations/nodes/:id/retire`, `POST /api/v1/modules/codes/receive`, function `Letflow.Modules.Locations.Tree.move_node`, `Letflow.Modules.Locations.Tree.retire_node`, `Letflow.Modules.Codes.Writes.receive_codes`
+   Result: 422 cycle / has_active_descendants / parent_inactive / entry_invalid / batch_size; 404 unknown parent; nothing written
+
+**Refusals.**
+
+- cycle
+- has_active_descendants
+- parent_inactive
+- entry_invalid (value_taken, duplicate_in_batch)
+- batch_size
+
+**Runner scenario.**
+
+- `test/uat/processes/SEC-MASTER-05-area-rules-refused.json` (runner id `SEC-MASTER-05`)
+
+**Status.**
+
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
+- security: yes
+
 ## Orphans (docs/bp/orphans-master.md)
 
 The orphan file of the area lists no orphan row (the file itself explains why: `docs/bp/orphans-master.md`).
 
 ## Gaps of the area
 
-- 12 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10, BP-MASTER-12, BP-MASTER-14, BP-MASTER-15, BP-MASTER-16
-- 4 process(es) are not implemented: BP-MASTER-12, BP-MASTER-14, BP-MASTER-15, BP-MASTER-16
+- 10 process(es) have no runner scenario: BP-MASTER-01, BP-MASTER-02, BP-MASTER-03, BP-MASTER-05, BP-MASTER-06, BP-MASTER-07, BP-MASTER-08, BP-MASTER-10, BP-MASTER-15, BP-MASTER-16
+- 3 process(es) are not implemented: BP-MASTER-14, BP-MASTER-15, BP-MASTER-16

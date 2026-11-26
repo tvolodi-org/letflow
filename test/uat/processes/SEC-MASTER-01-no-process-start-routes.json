@@ -1,0 +1,150 @@
+{
+  "id": "SEC-MASTER-01",
+  "bp_entry": "BP-MASTER-17",
+  "title": "The master data modules own no process: a start by their name is the 404 of a process that does not exist",
+  "description": "SECURITY, read-and-refuse only, on qoimeks-qa2 (modules org, locations, catalog_items and codes installed). The four master data modules have no process definition, no task node and no write handler (area inventory: 0 pack nodes, 0 handlers), so there is nothing to start or to complete from outside. A tenant administrator tries to start a process named after each module with start values chosen by the caller: every answer is the 404 of a process that does not exist (same title and detail). The storekeeper, who may not start processes, is refused 403. Nothing is started. Crafted completion is not applicable to this area for the same reason (no task of these modules exists). Nothing is created, so there is nothing to clean up.",
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-sec-no-such-process-${run_id}",
+          "initial_variables": {}
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "org",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000d1",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "locations",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000d1",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "catalog_items",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000d1",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "codes",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000d1",
+            "posting": {
+              "lines": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-sec-no-such-process-${run_id}",
+          "initial_variables": {}
+        }
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    }
+  ],
+  "cleanup": [],
+  "tenant": "${tenant}",
+  "inputs": [],
+  "outputs": {}
+}
