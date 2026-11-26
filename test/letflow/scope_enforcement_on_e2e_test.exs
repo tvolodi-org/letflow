@@ -352,7 +352,13 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
         assert scoped.status == 200, scoped.resp_body
         assert wide.status == 200, wide.resp_body
         assert shape(json(scoped)) == shape(json(wide)), path
-        assert Map.keys(json(scoped)) |> Enum.sort() == @single_keys, path
+        # T-2811: only GET /:id also lists the declared variables.
+        expected_keys =
+          if String.contains?(path, "/active/"),
+            do: @single_keys,
+            else: Enum.sort(["variable_schemas" | @single_keys])
+
+        assert Map.keys(json(scoped)) |> Enum.sort() == expected_keys, path
       end
 
       assert forbidden?(get(fx, "r546-worker", "/api/v1/definitions/#{definition.id}/export"))

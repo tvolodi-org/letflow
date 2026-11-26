@@ -137,4 +137,48 @@ defmodule Letflow.Routers.PlatformCallStartRouteTest do
     refute conn.resp_body =~ "tenant.create"
     assert instance_count(ctx.company.schema_name) == before
   end
+
+  # T-2897 (BP-PLATFORM-25 B3): the call key of platform.validate_registration is its slug, so a
+  # second start with the same slug and other arguments is a key reuse: a typed 422, never a 500.
+  test "a second start with the same call key and other arguments answers 422, not 500", ctx do
+    call =
+      Fx.call("platform.validate_registration", %{
+        "slug" => %{"var" => "slug"},
+        "display_name" => %{"var" => "display_name"},
+        "email" => %{"var" => "email"}
+      })
+
+    draft = Fx.definition!(ctx.platform.schema_name, Fx.graph(call), "pcf-start-reuse")
+
+    activator =
+      Activator.from_auth_context(%{user_id: ctx.admin.id, roles: ["PLATFORM_ADMIN"]}, true)
+
+    assert {:ok, _} =
+             Definitions.activate(draft.id,
+               prefix: ctx.platform.schema_name,
+               activator: activator
+             )
+
+    token = PlatformFx.mint_token!(ctx.platform, ["PLATFORM_ADMIN"])
+
+    start = fn display_name ->
+      PlatformFx.api_conn(:post, "/api/v1/instances", token, ctx.platform.tenant.slug, %{
+        "definition_name" => draft.name,
+        "initial_variables" => %{
+          "slug" => "x",
+          "display_name" => display_name,
+          "email" => "a@b.test"
+        }
+      })
+      |> PlatformFx.dispatch_api()
+    end
+
+    assert start.("first").status == 201
+    before = instance_count(ctx.platform.schema_name)
+
+    conn = start.("second")
+    assert conn.status == 422, conn.resp_body
+    assert Jason.decode!(conn.resp_body)["type"] =~ "idempotency"
+    assert instance_count(ctx.platform.schema_name) == before
+  end
 end

@@ -121,6 +121,8 @@ STANDARD_BP_DOC_TEST = [
 # expiry; a cursor-paged listing shows every row exactly once.
 # G-08: the UAT runner and its cleanup replay must judge the same safety checks.
 # G-09: a migration change shifts the manifest positions the tenant tests pin.
+# G-10: every environment variable, application key, flag, secret and URL the product reads
+# must be in the config/env/flag registry, with its owner, its reason and its default.
 # G-03: the generated source-provenance matrix of the platform-call authority
 # rule: the catalogue validator refuses a write-like entry with a person input,
 # the activation refuses the foreign sources and the dual-route nodes, and the
@@ -128,6 +130,7 @@ STANDARD_BP_DOC_TEST = [
 # G-13: the generated malformed-input / no-5xx matrix over every mutating route
 # (body shapes, content types, caps), the SUB_PROCESS child and start refusals
 # and the cursor codec fallback.
+# G-04: the canary/taint harness (detector with seeded failing cases; HTTP surfaces).
 # G-11: the route inventory and the secret scanner must run on the REAL tree, not only on the
 # fake checkouts their own tests use.
 STANDARD_SECURITY_PROBE_TESTS = [
@@ -137,6 +140,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g01_matrix_shard_3_test.exs",
     "test/letflow/security_probe/g01_route_role_matrix_test.exs",
     "test/letflow/security_probe/g02_writer_start_inventory_test.exs",
+    "test/letflow/security_probe/g03_source_provenance_test.exs",
     "test/letflow/security_probe/g05_audit_writer_matrix_test.exs",
     "test/letflow/security_probe/g05_audit_row_schema_test.exs",
     "test/letflow/security_probe/g06_outbound_http_inventory_test.exs",
@@ -145,11 +149,17 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g09_migration_impact_test.exs",
-    "test/letflow/security_probe/g03_source_provenance_test.exs",
+    "test/letflow/security_probe/g10_config_registry_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",
     "test/letflow/security_probe/g11_route_inventory_probe_test.exs",
     "test/letflow/security_probe/g11_secret_scan_probe_test.exs",
+    "test/letflow/security_probe/g04_canary_detector_test.exs",
+    "test/letflow/security_probe/g04_http_surfaces_test.exs",
+    "test/letflow/security_probe/g04_outbound_surfaces_test.exs",
+    "test/letflow/security_probe/g04_dlq_surface_test.exs",
+    "test/letflow/security_probe/g04_artifact_surfaces_test.exs",
+    "test/letflow/security_probe/g14_refusal_mapping_matrix_test.exs",
 ]
 # T-2691: the whole-tree source scans (the "real tree" scans): a test that reads a whole
 # tree of the backend source and pins it (an allowlist, a ledger or a count). A diff that

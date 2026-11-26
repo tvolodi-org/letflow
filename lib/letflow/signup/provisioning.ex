@@ -42,7 +42,7 @@ defmodule Letflow.Signup.Provisioning do
   # The steps the timer sweep resumes (decision 0085 addendum): `tenant_created` is left to the operator path.
   @resume_steps ["ready_for_provisioning", "realm_created", "credential_sent"]
   @sweep_limit 50
-  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal welcome_mail_failed)
+  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal tenant_pending welcome_mail_failed)
 
   @doc "True when the flag is on and the provisioner URL, token and hostname domain are all set."
   @spec configured?() :: boolean()
@@ -272,13 +272,20 @@ defmodule Letflow.Signup.Provisioning do
       "source_key" => source_key(row.ip_key)
     }
 
+    # T-2728: route 4 starts the registration process (setting-guarded inside `create/2`) and never
+    # waits: a running instance is a retry of the sweep, a failed one maps to the closed codes.
     with {:ok, request} <- TenantProvisioner.Request.parse(body),
-         {:ok, _kind, _body} <- TenantProvisioner.create(request) do
+         {:ok, kind, answer} <-
+           TenantProvisioner.create(request, route: :signup_provisioning, wait_ms: 0),
+         :ok <- settled(kind, answer) do
       row
       |> Ecto.Changeset.change(step: "tenant_created", last_error: nil)
       |> Repo.update!()
       |> send_welcome(cfg)
     else
+      {:pending, :running} -> {:retry, :tenant_pending, nil}
+      {:pending, "conflict"} -> {:permanent, :tenant_conflict}
+      {:pending, _failed} -> {:retry, :tenant_internal, nil}
       {:error, :internal} -> {:retry, :tenant_internal, nil}
       {:error, :conflict} -> {:permanent, :tenant_conflict}
       {:error, {:limit, :demo_cap, _language}} -> {:permanent, :demo_cap_reached}
@@ -287,6 +294,11 @@ defmodule Letflow.Signup.Provisioning do
       {:error, _invalid_field} -> {:permanent, :invalid_tenant}
     end
   end
+
+  # `:accepted` is the process create that has not finished: running, or failed with a closed reason.
+  defp settled(:accepted, %{status: "failed", reason: reason}), do: {:pending, reason}
+  defp settled(:accepted, _running), do: {:pending, :running}
+  defp settled(_created_or_existing, _answer), do: :ok
 
   # T-2748: the visitor's chosen slug is the host label; a row without one keeps the derived `t-<hex>` label.
   @doc "The tenant host of a sign-up row: `<slug or derived label>.<hostname domain>`."

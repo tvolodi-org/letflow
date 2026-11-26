@@ -366,7 +366,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   #
   # Cleanup plumbing: returns conn unchanged for every error EXCEPT
   # Letflow.Api.Scope.ScopeSetError (REQ-518 SEC C-1), which gets the constant
-  # detail-free 500 (respond_scope_set_error/2 below). Plug.ErrorHandler's own
+  # detail-free 500 (respond_unhandled_error/2 below). Plug.ErrorHandler's own
   # generated call/2 unconditionally re-raises after this returns, so Bandit's
   # existing crash-response path is unaffected.
   @impl Plug.ErrorHandler
@@ -388,7 +388,7 @@ defmodule Letflow.Plugs.ApiPipeline do
       %Plug.Parsers.ParseError{} -> respond_parse_error(conn)
       %Plug.Parsers.BadEncodingError{} -> respond_parse_error(conn)
       %Plug.Parsers.UnsupportedMediaTypeError{} -> respond_unsupported_media_type(conn)
-      _ -> respond_scope_set_error(conn, reason)
+      _ -> respond_unhandled_error(conn, kind)
     end
   end
 
@@ -448,17 +448,14 @@ defmodule Letflow.Plugs.ApiPipeline do
     end
   end
 
-  # REQ-518 SEC C-1: a failed allowed-node-set computation answers the SAME detail-free 500
-  # body as `Letflow.Api.Scope.Enforce`'s fail-closed path, not Bandit's crash response; the
-  # exception still propagates (Plug.ErrorHandler re-raises). Only for this one exception, and
-  # only while no response has been sent.
-  defp respond_scope_set_error(
-         %Plug.Conn{state: state} = conn,
-         %Letflow.Api.Scope.ScopeSetError{}
-       )
+  # REQ-518 SEC C-1 / T-2890 (INV-8): ANY unhandled exception answers the same constant, detail-free
+  # typed 500 problem document (code + trace_id from the conn), never Bandit's empty-body crash
+  # response (QA saw a bare 500 for DELETE /definitions/:id). Only while no response has been sent;
+  # the exception still propagates (Plug.ErrorHandler re-raises), so logging and capture are unchanged.
+  defp respond_unhandled_error(%Plug.Conn{state: state} = conn, :error)
        when state in [:unset, :set] do
     Letflow.Api.Response.internal_error(conn)
   end
 
-  defp respond_scope_set_error(conn, _reason), do: conn
+  defp respond_unhandled_error(conn, _kind), do: conn
 end

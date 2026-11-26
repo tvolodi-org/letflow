@@ -73,6 +73,9 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/assets/balances': 'Asset balances',
       '/admin/assets/movements': 'Asset movements',
       '/admin/assets/counts': 'Asset counts',
+      '/admin/maintenance/requests': 'Maintenance requests',
+      '/admin/maintenance/orders': 'Maintenance orders',
+      '/maintenance/my-orders': 'My maintenance orders',
     },
   },
   ru: {
@@ -132,6 +135,9 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/assets/balances': 'Остатки активов',
       '/admin/assets/movements': 'Движения активов',
       '/admin/assets/counts': 'Инвентаризация активов',
+      '/admin/maintenance/requests': 'Заявки на обслуживание',
+      '/admin/maintenance/orders': 'Наряды на обслуживание',
+      '/maintenance/my-orders': 'Мои наряды на обслуживание',
     },
   },
   kk: {
@@ -191,6 +197,9 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/assets/balances': 'Активтер қалдығы',
       '/admin/assets/movements': 'Активтер қозғалысы',
       '/admin/assets/counts': 'Активтерді түгендеу',
+      '/admin/maintenance/requests': 'Қызмет көрсету өтініштері',
+      '/admin/maintenance/orders': 'Қызмет көрсету тапсырмалары',
+      '/maintenance/my-orders': 'Менің қызмет көрсету тапсырмаларым',
     },
   },
 }

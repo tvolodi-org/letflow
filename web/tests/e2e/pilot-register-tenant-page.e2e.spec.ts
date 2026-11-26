@@ -60,4 +60,59 @@ test.describe('the real designer page opens platform.register_tenant', () => {
     await expect(page.getByTestId('details-notify-template')).toContainText('tenant_registered')
     await expect(page.getByTestId('draft-banner')).toHaveCount(0)
   })
+
+  // T-2811 (designer D1): a notification step names a recipient the definition does not declare. The error says how to
+  // fix it, the user declares the variable on the same screen, and the problem goes. Real browser, real page.
+  test('the user declares the recipient variable on the Edit-diagram screen', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-variables-page')
+    await page.getByTestId('definition-view-edit').click()
+    await expect(page.getByTestId('variables-panel')).toBeVisible()
+    await expect(page.getByTestId('variable-row-tenant_name')).toBeVisible()
+
+    const violation = page.getByTestId('edit-violation')
+    await expect(violation).toContainText('Declare this variable under "Process variables"', { timeout: 10_000 })
+
+    await page.getByTestId('variables-add-name').fill('admin_email')
+    await page.getByTestId('variables-add-submit').click()
+    await expect(page.getByTestId('variable-row-admin_email')).toContainText('Added here')
+    await expect(violation).toHaveCount(0, { timeout: 10_000 })
+
+    // The recipient field of the step is a picker of the declared variables.
+    await page.getByTestId('diagram-editor').getByTestId('rf__node-notify').click()
+    await expect(page.getByTestId('notify-step-recipient').locator('select')).toHaveValue('admin_email')
+    await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)
+  })
+
+  // T-2812 (designer D2): a draft with an open problem cannot be published: Publish is disabled with the reason as its
+  // tooltip and as text next to it, and pressing it never reaches the server. Same page and fixture as T-2811 above.
+  test('a draft with a problem cannot be published', async ({ page }) => {
+    const activations: string[] = []
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().endsWith('/activate')) activations.push(r.url())
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-variables-page')
+    await page.getByTestId('definition-view-edit').click()
+    await expect(page.getByTestId('edit-violation')).toBeVisible({ timeout: 10_000 })
+
+    const publish = page.getByTestId('btn-publish-diagram')
+    await expect(publish).toBeDisabled()
+    await expect(publish).toHaveAttribute('title', /Open problems in the saved draft: 1/)
+    await expect(page.getByTestId('publish-blocked-reason')).toContainText('Open problems in the saved draft: 1')
+    await expect(page.getByTestId('edit-saved')).toHaveCount(0)
+    await publish.click({ force: true })
+    expect(activations).toEqual([])
+  })
+
+  // T-2805: the Guide entry of the designer page opens the guide inside the product (text from docs/designer-guide.md).
+  test('the Guide entry opens the designer guide in a side panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/__harness/pd-register-tenant-page')
+    await page.getByTestId('btn-guide').click()
+    await expect(page.getByTestId('designer-guide-panel')).toBeVisible()
+    await expect(page.getByTestId('guide-sec-notification-step')).toBeAttached()
+    await page.getByTestId('designer-guide-close').click()
+    await expect(page.getByTestId('designer-guide-panel')).toHaveCount(0)
+  })
 })

@@ -57,6 +57,14 @@ class FakeStock:
         self.fx = {}  # fixture records by reference: the fx/find, fx/make, fx/drop routes
         self.fx_log = []  # (verb, name)
         self.fx_make_status = 201
+        self.modules = {}  # installed module_id -> version (the /me/modules and /tenant/modules routes)
+        self.module_catalog = {"org": "0.3.0", "assets": "0.31.0", "stock": "0.24.0"}  # what the product knows
+        self.module_hidden_reads = 0  # the first N /me/modules reads show nothing (an install that raced ours)
+        self.module_needs = {"assets": ["org"]}  # unmet dependency -> 422
+        self.legal_entities = []  # the org_legal_entity rows a query finds
+        self.app_name = None  # tenant_settings.app_name of the config-bundle
+        self.access = {"admin": {"roles": ["TENANT_ADMIN"], "permissions": ["TenantSettingsManage"]},
+                       "storekeeper": {"roles": ["STOREKEEPER"], "permissions": ["StockQuickCount", "CodesRead"]}}
         self.location_nodes = {}  # record id -> field values, for the real second_place fixture
         self.location_links = {}
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
@@ -174,6 +182,9 @@ def make_handler(state):
                 return self.reply(200, {"rows": rows})
             if method == "POST" and path == "/api/v1/entities/query":
                 entity = body.get("entity_type") if isinstance(body, dict) else None
+                if entity == "org_legal_entity":
+                    return self.reply(200, {"items": [{"record_id": "le-1", "code": e} for e in state.legal_entities
+                                                      if not body["filters"] or e == body["filters"][0]["value"]]})
                 if entity == "location_node":
                     records = state.location_nodes
                 elif entity == "location_org_unit_link":
@@ -343,10 +354,16 @@ def make_handler(state):
                         state.qty -= doc["qty"]
                 return self.reply(200, {"status": "ok"})
             if path == "/api/v1/identity/shared-stock-access":
+                if method == "GET" and getattr(state, "shared_status", False):
+                    exists = state.shared_value is not None
+                    return self.reply(200, {"enabled": True, "exists": exists, "created_at": state.shared_created_at if exists else None,
+                                            "created_by": "u1", "rotated_at": None})
                 if method == "POST":
                     state.shared_value = SHARED_VALUE
                     return self.reply(201, {"value": SHARED_VALUE})
                 if method == "DELETE":
+                    if state.shared_value is None and getattr(state, "shared_status", False):
+                        return self.reply(404, {"title": "Not Found"})
                     state.revoked += 1
                     state.shared_value = None
                     return self.reply(204)
@@ -359,6 +376,25 @@ def make_handler(state):
             if method == "POST" and path == "/api/v1/race":  # the first of two concurrent calls wins
                 state.race_hits += 1
                 return self.reply(201 if state.race_hits == 1 else 409, {"title": "conflict", "detail": "already_taken"})
+            if method == "GET" and path == "/api/v1/me/modules":
+                if state.module_hidden_reads > 0:
+                    state.module_hidden_reads -= 1
+                    return self.reply(200, {"installed_modules": []})
+                return self.reply(200, {"installed_modules": [{"module_id": m, "version": v} for m, v in state.modules.items()]})
+            if method == "POST" and path == "/api/v1/tenant/modules":
+                name = body["module_id"]
+                if name not in state.module_catalog:
+                    return self.reply(422, {"error": "unknown_module"})
+                if name in state.modules:
+                    return self.reply(409, {"error": "already_installed"})
+                if any(d not in state.modules for d in state.module_needs.get(name, [])):
+                    return self.reply(422, {"error": "dependency_unmet"})
+                state.modules[name] = state.module_catalog[name]
+                return self.reply(201, {"module_id": name})
+            if method == "GET" and path == "/api/v1/tenant/config-bundle":
+                return self.reply(200, {"tenant_settings": {"app_name": state.app_name} if state.app_name else {}})
+            if method == "GET" and path == "/api/v1/me/access":
+                return self.reply(200, dict(state.access[who], platform_tenant=False))
             if method == "POST" and path == "/api/v1/fx/find":
                 found = state.fx.get(body["name"])
                 return self.reply(200, {"items": [{"record_id": found}] if found else []})

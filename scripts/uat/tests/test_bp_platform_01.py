@@ -1,6 +1,6 @@
 """Tests of the BP-PLATFORM-01 scenario file, step A (T-2744): the expectations of the file judge a good answer as
 good and a defective one (definition missing, not active, a service step without its function, a notify step
-without recipient, a registry without the entry) as failed. No network, no model: the answers are canned.
+without its function, a registry without the entry) as failed. No network, no model: the answers are canned.
 
 Run: python3 -B -m unittest -v scripts/uat/tests/test_bp_platform_01.py   (from the repository root)
 """
@@ -26,8 +26,11 @@ CALLS = [
     ("validate", "tenant.validate"),
     ("create", "tenant.create"),
     ("provision", "tenant.provision"),
+    ("record_lifecycle", "tenant.record_lifecycle"),
+    ("record_onboarding", "tenant.record_onboarding"),
     ("bind_realm", "tenant.bind_realm"),
     ("grant_first_admins", "tenant.grant_first_admins"),
+    ("install_default_modules", "tenant.install_default_modules"),
 ]
 FUNCTIONS = [
     "platform.validate_registration",
@@ -35,7 +38,10 @@ FUNCTIONS = [
     "tenant.create",
     "tenant.grant_first_admins",
     "tenant.install_default_modules",
+    "tenant.notify_admin",
     "tenant.provision",
+    "tenant.record_lifecycle",
+    "tenant.record_onboarding",
     "tenant.validate",
 ]
 
@@ -44,10 +50,12 @@ def definition():
     nodes = [{"id": "start", "node_type": "START"}]
     for node_id, fn in CALLS:
         nodes.append({"id": node_id, "node_type": "SERVICE_TASK", "attributes": {"platform_call": {"function": fn}}})
+    nodes.append({"id": "notify_gate", "node_type": "EXCLUSIVE_GATEWAY"})
+    # T-2727 V8: the notify step is a platform step of tenant.notify_admin.
     nodes.append({"id": "notify", "node_type": "SERVICE_TASK", "attributes": {
-        "notify": {"template_key": "tenant_registered", "recipient": {"var": "admin_email"}}}})
+        "platform_call": {"function": "tenant.notify_admin"}}})
     nodes.append({"id": "end", "node_type": "END"})
-    return {"id": "d1", "name": "platform.register_tenant", "version": "1", "status": "ACTIVE", "graph": {"nodes": nodes}}
+    return {"id": "d1", "name": "platform.register_tenant", "version": "2", "status": "ACTIVE", "graph": {"nodes": nodes}}
 
 
 def registry():
@@ -99,15 +107,15 @@ class StepA(unittest.TestCase):
         d["graph"]["nodes"][3]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_notify_without_recipient_or_template_fails(self):
+    def test_a2_notify_without_its_function_fails(self):
         d = definition()
-        del d["graph"]["nodes"][6]["attributes"]["notify"]["recipient"]
+        d["graph"]["nodes"][10]["attributes"] = {}
         self.assertFalse(self.verdict("A2", d))
         d = copy.deepcopy(definition())
-        d["graph"]["nodes"][6]["attributes"]["notify"]["template_key"] = None
+        d["graph"]["nodes"][10]["attributes"]["platform_call"]["function"] = "tenant.provision"
         self.assertFalse(self.verdict("A2", d))
 
-    def test_a2_node_count_is_eight(self):
+    def test_a2_node_count_is_twelve(self):
         d = definition()
         d["graph"]["nodes"].append({"id": "extra", "node_type": "END"})
         self.assertFalse(self.verdict("A2", d))
@@ -144,12 +152,14 @@ class StepsBToH(unittest.TestCase):
                 for n in nodes]
         return {"items": [], "steps": rows}
 
-    V1 = ["start", "validate", "create", "provision", "bind_realm", "grant_first_admins", "notify", "end"]
-    V2 = V1[:-1] + ["notify_file", "end"]
+    V1 = ["start", "validate", "create", "provision", "record_lifecycle", "record_onboarding", "bind_realm",
+          "grant_first_admins", "install_default_modules", "notify_gate", "notify", "end"]
+    DRAFT = ["start", "validate", "create", "provision", "bind_realm", "grant_first_admins", "notify"]
+    V2 = DRAFT + ["notify_file", "end"]
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
-        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "D1", "E1", "E2",
+        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
                  "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
@@ -161,7 +171,7 @@ class StepsBToH(unittest.TestCase):
             body = self.steps[sid]["do"]["body"]
             self.assertTrue(body["slug"].startswith("uat-tmp-"), sid)
             self.assertTrue(body["hostname"].startswith(body["slug"]), sid)
-            self.assertTrue(body["admin_email"].endswith("@uat.letflow.internal"), sid)
+            self.assertTrue(body["admin_email"].endswith("uat.letflow.internal"), sid)
             slugs.add(body["slug"])
         self.assertEqual(4, len(slugs))
         for i in (1, 2, 3, 4):
@@ -203,24 +213,25 @@ class StepsBToH(unittest.TestCase):
         self.assertFalse(self.verdict("B2", {"steps": []}))
 
     def test_e3_the_failed_step_is_named(self):
-        rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][4]["last_failure_kind"] = "refused"
+        rows = self.log(self.V1, {"notify": "failed"})
+        rows["steps"][10]["last_failure_kind"] = "refused"
         self.assertTrue(self.verdict("E3", rows))
         self.assertFalse(self.verdict("E3", self.log(self.V1)))
         self.assertTrue(self.verdict("E2", {"status": "ERROR"}))
         self.assertFalse(self.verdict("E2", {"status": "COMPLETED"}))
 
     def test_e6_a_second_attempt_is_shown(self):
-        rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][4]["attempts"] = 2
+        rows = self.log(self.V1, {"notify": "failed"})
+        rows["steps"][10]["attempts"] = 2
         self.assertTrue(self.verdict("E6", rows))
-        self.assertFalse(self.verdict("E6", self.log(self.V1, {"bind_realm": "failed"})))
+        self.assertFalse(self.verdict("E6", self.log(self.V1, {"notify": "failed"})))
 
     def test_f_the_edited_version_has_the_file_step_and_g_the_rollback_does_not(self):
         self.assertTrue(self.verdict("F8", self.log(self.V2)))
         self.assertFalse(self.verdict("F8", self.log(self.V1)))
         self.assertTrue(self.verdict("G5", self.log(self.V1)))
         self.assertFalse(self.verdict("G5", self.log(self.V2)))
+        self.assertFalse(self.verdict("G5", self.log(self.DRAFT + ["end"])))
 
     def test_f1_the_draft_graph_is_the_shipped_one_plus_a_file_step_without_a_path(self):
         graph = self.steps["F1"]["do"]["body"]["graph"]
@@ -278,19 +289,29 @@ class StepsBToH(unittest.TestCase):
         self.assertTrue(self.verdict("B2", pending))
         self.assertFalse(self.verdict("B3", pending))  # armed but never run: the runner is off
 
-    def test_the_realms_are_distinct_per_tenant_and_the_forced_failure_is_a_duplicate(self):
-        realms = [self.steps[sid]["do"]["body"]["idp_realm_id"] for sid in ("B1", "F6", "G3")]
-        self.assertEqual(["uat-tmp-${uuid1}", "uat-tmp-${uuid3}", "uat-tmp-${uuid4}"], realms)
-        # E1 reuses the realm B1 bound: the bind refuses a realm bound to another tenant (duplicate_realm)
-        self.assertEqual("uat-tmp-${uuid1}", self.steps["E1"]["do"]["body"]["idp_realm_id"])
-        self.assertEqual("uat-tmp-${uuid1}", self.steps["C3"]["expect"]["json"]["$.idp_realm_id"])
+    def test_the_process_creates_the_realm_and_the_unknown_realm_is_a_negative(self):
+        # /onboarding probes a realm that is SENT; the registrations send none, the process creates it
+        for sid in ("B1", "F6", "G3"):
+            self.assertNotIn("idp_realm_id", self.steps[sid]["do"]["body"], sid)
+        neg = self.steps["B1n"]
+        self.assertEqual("/api/v1/onboarding", neg["do"]["path"])
+        self.assertIn("idp_realm_id", neg["do"]["body"])
+        self.assertEqual(422, neg["expect"]["status"])
+        self.assertEqual("idp_realm_id", neg["expect"]["json"]["$.errors[0].field"])
+        self.assertNotIn("save", neg)
+        # E1 sends no realm (realm1 is null without Keycloak, smoke T-2946) and forces the failure with an
+        # administrator address off the email allow-list: the notify step is refused (ERROR + DLQ)
+        self.assertEqual("$.idp_realm_id", self.steps["C3"]["save"]["realm1"])
+        self.assertNotIn("idp_realm_id", self.steps["E1"]["do"]["body"])
+        email = self.steps["E1"]["do"]["body"]["admin_email"]
+        self.assertTrue(email.endswith("@refused.uat.letflow.internal"))
+        self.assertNotEqual("uat.letflow.internal", email.split("@")[1])
         self.assertNotIn("realm", self.process["inputs"])
 
-    def test_the_file_and_sign_in_gaps_are_named_in_the_description(self):
+    def test_the_description_names_the_setting_and_no_marker_is_left(self):
         text = self.process["description"]
-        self.assertIn("is NOT RUN", text)
-        self.assertIn("sign-in as the new tenant's administrator at C3", text)
-        self.assertIn("observation of the notification file at F8", text)
+        self.assertIn("LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true", text)
+        self.assertIn("No step carries a blocked_by marker now", text)
         self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
@@ -359,8 +380,11 @@ class H2IsPlayed(FakeServerCase):
         self.assertEqual(0, code)
 
     def test_the_same_step_without_the_mark_is_stopped_by_the_gate(self):
+        # T-2620: a step that expects a 4xx needs no flag; the same call expecting a 2xx is still guarded
         step = self.h2()
         del step["refusal_probe"]
+        step.pop("expect_refused", None)
+        step["expect"] = {"status": 201}
         code, row = self.play(step)
         self.assertEqual([], self.handler.seen)
         self.assertEqual("skipped", row["verdict"])
@@ -382,15 +406,21 @@ class BlockedSteps(H2IsPlayed):
         self.assertIn("steps not run (blocked_by): 1", summary)
         self.assertIn("1 steps NOT RUN", summary)
 
-    def test_every_realm_dependent_step_of_the_scenario_is_marked(self):
+    def test_no_step_of_the_scenario_is_parked_any_more(self):
+        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason."""
         process = json.loads(FILE.read_text())
         marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
-        for sid in ("B1", "E1", "F6", "G3", "C3", "F8"):
-            self.assertIn(sid, marked)
-        for x in process["steps"]:  # a step that saves a name used by a blocked step is blocked too
-            if x["id"] in marked:
-                continue
-            self.assertNotIn("instance_id", " ".join((x.get("requires") or [])), x["id"])
+        self.assertEqual(set(), marked)
+
+    def test_fresh_tenant_module_install_ends_active(self):
+        """G14 finding: no shipped definition of a fresh tenant stays a draft; an empty install does not pass."""
+        steps = {x["id"]: x for x in json.loads(FILE.read_text())["steps"]}
+        c4, c5 = steps["C4"], steps["C5"]
+        self.assertIn("status=draft", c4["do"]["path"])
+        self.assertIn("name=platform.register_tenant", c4["do"]["path"])
+        self.assertEqual({"absent": True}, c4["expect"]["json"]["$.items[0]"])
+        self.assertIn("status=active", c5["do"]["path"])
+        self.assertEqual("ACTIVE", c5["expect"]["json"]["$.items[0].status"])
 
     def test_blocked_by_and_refusal_probe_are_validated(self):
         base = {"id": "X", "actor": "admin", "do": {"api": "GET", "path": "/x"}}
@@ -445,12 +475,14 @@ class BlockedNeverFails(H2IsPlayed):
         self.assertIn("(X)", rows["S"]["error"])
 
     def test_the_residue_watch_ignores_an_instance_of_a_blocked_step(self):
+        out = io.StringIO()
         r = runner.Runner({"id": "H", "steps": []}, base_url=self.base, tenant="t", actors={}, run_dir=self.run_dir,
-                          inputs={}, poll_interval=0.01, out=io.StringIO())
+                          inputs={}, poll_interval=0.01, out=out)
         r.blocked_saves["inst"] = "why"
         self.assertEqual([], r._watched_instances("t", {"instances": ["${inst}"]}))
-        with self.assertRaises(runner.RunnerError):
-            r._watched_instances("t", {"instances": ["${other}"]})
+        # a name never saved is skipped and said (T-2855), no longer fatal
+        self.assertEqual([], r._watched_instances("t", {"instances": ["${other}"]}))
+        self.assertIn("not saved: ${other}", out.getvalue())
 
     def test_the_scenario_keeps_no_document_check_on_the_platform_tenant(self):
         self.assertIs(False, json.loads(FILE.read_text())["residue_check"])

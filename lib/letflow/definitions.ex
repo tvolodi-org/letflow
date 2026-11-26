@@ -1441,13 +1441,20 @@ defmodule Letflow.Definitions do
     end
   end
 
+  defp declared_fields_for(definition, prefix, nil),
+    do: VariableSchema.fetch_schemas(Repo, definition.id, prefix: prefix)
+
+  defp declared_fields_for(_definition, _prefix, entries), do: declared_override(entries)
+
   @doc """
   The same five validators as `validate_definition_graph/2`, run over a CALLER-SUPPLIED
   graph map (the process designer's live validation, T-1563) instead of the stored one.
 
   Persists nothing: `get_by_id/2` first (tenant-scoped, absent and foreign ids are both
   `{:error, :not_found}`, INV-5), then `convert_graph/1`, then `run_validators/3` against
-  the variable schemas of the STORED definition. No Repo write.
+  the variable schemas of the STORED definition, or, when `opts[:declared_variables]` is a
+  list of `%{variable_key:, json_schema:}` entries (T-2811: variables declared on the screen
+  and not saved yet), against those. No Repo write.
   """
   @spec validate_graph_preview(id :: Ecto.UUID.t(), graph_map :: map(), opts :: opts()) ::
           {:ok, graph_validation_result()}
@@ -1461,8 +1468,18 @@ defmodule Letflow.Definitions do
 
     with {:ok, %ProcessDefinition{} = definition} <- get_by_id(id, opts),
          {:ok, graph} <- convert_graph(graph_map) do
-      run_validators(definition, graph, prefix)
+      run_validators(definition, graph, prefix, Keyword.get(opts, :declared_variables))
     end
+  end
+
+  # T-2811: the designer's DECLARED-but-not-yet-saved variables. An entry list (`variable_key`,
+  # `json_schema`) replaces the stored schemas for this one preview only; nothing is written.
+  defp declared_override(entries) when is_list(entries) do
+    {:ok,
+     Map.new(entries, fn entry ->
+       schema = Map.get(entry, :json_schema)
+       {Map.fetch!(entry, :variable_key), if(is_map(schema), do: schema, else: %{})}
+     end)}
   end
 
   # T-2588 (pilot gap G2): the designer's validate route refuses a company
@@ -1532,9 +1549,8 @@ defmodule Letflow.Definitions do
   defp step_mapping_reason(_other),
     do: "the typed mapping of the step is refused"
 
-  defp run_validators(definition, graph, prefix) do
-    with {:ok, declared_fields} <-
-           VariableSchema.fetch_schemas(Repo, definition.id, prefix: prefix) do
+  defp run_validators(definition, graph, prefix, declared_override \\ nil) do
+    with {:ok, declared_fields} <- declared_fields_for(definition, prefix, declared_override) do
       violations =
         Graph.validate_graph(graph).violations ++
           Graph.validate_node_attributes(graph).violations ++
@@ -2166,6 +2182,19 @@ defmodule Letflow.Definitions do
 
   defp run_hard_delete(id, prefix) do
     Repo.transaction(fn ->
+      # T-2890: variable_schemas.definition_id is ON DELETE RESTRICT, so a draft made by
+      # create-with-schemas or by import could not be deleted (FK violation -> 500). Its
+      # declared schemas go first, in this transaction, only for a row that is still DRAFT.
+      VariableSchema
+      |> where(
+        [v],
+        v.definition_id in subquery(
+          from(d in ProcessDefinition, where: d.id == ^id and d.status == :draft, select: d.id)
+          |> Map.put(:prefix, prefix)
+        )
+      )
+      |> Repo.delete_all(prefix: prefix)
+
       ProcessDefinition
       |> where([d], d.id == ^id and d.status == :draft)
       |> Repo.delete_all(prefix: prefix)

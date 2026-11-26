@@ -148,7 +148,8 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
   # The two identical engine.ex rows are distinct initial-start and continuation call sites; the two
   # prepare_child_activation rows are the distinct child-activation call sites. The platform row is
   # the one start of a platform definition: it carries the caller's auth_context, so the engine's
-  # own start-permission gate judges it.
+  # own start-permission gate judges it. The second row is the system start
+  # (`start_register_tenant_system/3`): no caller auth_context, the narrow SystemStart authority.
   @expected_starts [
     {"lib/letflow/engine.ex", "Letflow.Engine.SubProcess", :append_start_multi, :call},
     {"lib/letflow/engine.ex", "Letflow.Engine.SubProcess", :append_start_multi, :call},
@@ -157,6 +158,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {"lib/letflow/modules/assets/documents/posting.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/modules/maintenance/orders.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/modules/stock/documents/posting.ex", "Letflow.Engine", :create, :call},
+    {"lib/letflow/platform_processes.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/platform_processes.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/routers/instances.ex", "Letflow.Engine", :create, :call},
     {"lib/letflow/scheduler/scheduled_job_sweep.ex", "Letflow.Engine", :create, :capture},

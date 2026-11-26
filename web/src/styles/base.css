@@ -456,3 +456,19 @@ samp {
 .lf-signup__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .lf-signup__url { overflow-wrap: anywhere; }
 .lf-signup form { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* T-2805: the designer guide side panel. */
+.lf-guide-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(32rem, 100vw); /* GAP for the design-system owner: no side-panel width token or component for a help panel yet */ z-index: 40; display: flex; flex-direction: column; background: var(--paper-raised); border-left: 1px solid var(--line); }
+.lf-guide-panel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+.lf-guide-panel__head h2 { margin: 0; }
+.lf-guide-panel__body { overflow-y: auto; padding: var(--space-3) var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.lf-guide-panel { color: var(--ink); }
+.lf-guide-panel__body section { margin-block-end: var(--space-4); }
+.lf-guide-panel__body ul, .lf-guide-panel__body ol { padding-inline-start: var(--space-6); }
+.lf-guide-panel__body ul { list-style: disc; }
+.lf-guide-panel__body ol { list-style: decimal; }
+.lf-guide-panel__body table { border-collapse: collapse; }
+.lf-guide-panel__body th, .lf-guide-panel__body td { border: 1px solid var(--line); padding: var(--space-1) var(--space-2); text-align: start; }
+
+/* T-2752: Edit Tenant status row: the action sits under the status pill. */
+.lf-status-row__action { display: block; margin-top: var(--space-2); }

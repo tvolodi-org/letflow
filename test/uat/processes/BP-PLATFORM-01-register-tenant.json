@@ -2,7 +2,7 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
-  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. BLOCKED (D-179/PM 12:20, D-195): every step that needs a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5, marked blocked_by) is NOT RUN: the onboarding route verifies the realm against the real Keycloak (RealmProbe) and no automated provisioner flow gives a realm or a tenant-admin token per uat-tmp tenant. The runner prints 'not run: blocked by ...' for them, counts them in the verdict line, and a blocked step never passes. Removing a marker is an acceptance line of the task that builds the provisioner wiring (it must then also add the sign-in as the new tenant's administrator at C3 and the observation of the notification file at F8). Steps that run now: A (read), B0 (outbound allow-list), F1-F5 (designer edit, activation refusal), G1-G2 (rollback), H1-H3 and H6 (refusals). The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (an administrator address whose domain is not on the email allow-list: the notify step is refused, platform_call_notify_refused) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. No step carries a blocked_by marker now. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
@@ -45,7 +45,7 @@
     {
       "id": "A2",
       "actor": "admin",
-      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node carries a template and a recipient variable.",
+      "says": "The graph the designer page loads: eight nodes, every service step carries its function name, the notify node included (tenant.notify_admin sends the tenant_registered template; T-2727 V8).",
       "do": {
         "api": "GET",
         "path": "/api/v1/definitions/${definition_id}"
@@ -53,8 +53,8 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.graph.nodes[7].node_type": "END",
-          "$.graph.nodes[8]": {
+          "$.graph.nodes[11].node_type": "END",
+          "$.graph.nodes[12]": {
             "absent": true
           },
           "$.graph.nodes[0].node_type": "START",
@@ -64,13 +64,18 @@
           "$.graph.nodes[2].attributes.platform_call.function": "tenant.create",
           "$.graph.nodes[3].id": "provision",
           "$.graph.nodes[3].attributes.platform_call.function": "tenant.provision",
-          "$.graph.nodes[4].id": "bind_realm",
-          "$.graph.nodes[4].attributes.platform_call.function": "tenant.bind_realm",
-          "$.graph.nodes[5].id": "grant_first_admins",
-          "$.graph.nodes[5].attributes.platform_call.function": "tenant.grant_first_admins",
-          "$.graph.nodes[6].id": "notify",
-          "$.graph.nodes[6].attributes.notify.template_key": "tenant_registered",
-          "$.graph.nodes[6].attributes.notify.recipient.var": "admin_email"
+          "$.graph.nodes[4].id": "record_lifecycle",
+          "$.graph.nodes[4].attributes.platform_call.function": "tenant.record_lifecycle",
+          "$.graph.nodes[5].id": "record_onboarding",
+          "$.graph.nodes[5].attributes.platform_call.function": "tenant.record_onboarding",
+          "$.graph.nodes[6].id": "bind_realm",
+          "$.graph.nodes[6].attributes.platform_call.function": "tenant.bind_realm",
+          "$.graph.nodes[7].id": "grant_first_admins",
+          "$.graph.nodes[7].attributes.platform_call.function": "tenant.grant_first_admins",
+          "$.graph.nodes[8].id": "install_default_modules",
+          "$.graph.nodes[8].attributes.platform_call.function": "tenant.install_default_modules",
+          "$.graph.nodes[10].id": "notify",
+          "$.graph.nodes[10].attributes.platform_call.function": "tenant.notify_admin"
         }
       },
       "requires": [
@@ -91,8 +96,11 @@
           "$.items[1].name": "tenant.bind_realm",
           "$.items[2].name": "tenant.create",
           "$.items[3].name": "tenant.grant_first_admins",
-          "$.items[5].name": "tenant.provision",
-          "$.items[6].name": "tenant.validate",
+          "$.items[5].name": "tenant.notify_admin",
+          "$.items[6].name": "tenant.provision",
+          "$.items[7].name": "tenant.record_lifecycle",
+          "$.items[8].name": "tenant.record_onboarding",
+          "$.items[9].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },
@@ -170,9 +178,31 @@
       }
     },
     {
+      "id": "B1n",
+      "actor": "admin",
+      "says": "B. Negative: /onboarding refuses a realm that does not exist in the identity provider with 422 (field idp_realm_id, 'realm not found'), before any row is written. This is correct product behaviour: the route registers a company with an existing realm; it does not create one.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid5}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid5}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid5}",
+          "admin_email": "reg-${uuid5}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "idp_realm_id"
+        }
+      }
+    },
+    {
       "id": "B1",
       "actor": "admin",
-      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. Every registration gets its own realm id (uat-tmp-<uuid>): a realm binds to one tenant only, and a deactivated tenant keeps it, so a fixed realm would fail the second run.",
+      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. The form names NO realm: /onboarding registers a company with an EXISTING realm only when idp_realm_id is sent (and probes it before any row); without it the process creates the realm and the first administrator (the bind_realm and grant_first_admins steps), and the realm id is read back from the registry in C3.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -180,7 +210,6 @@
           "slug": "uat-tmp-${uuid1}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid1}",
           "admin_email": "reg-${uuid1}@uat.letflow.internal"
         }
       },
@@ -190,14 +219,13 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
         "instance_id1": "$.instance_id",
         "slug1": "$.slug"
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "B2",
@@ -219,8 +247,7 @@
             "absent": false
           }
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "B3",
@@ -239,8 +266,7 @@
         "json": {
           "$.steps[1].result": "completed"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "C1",
@@ -259,13 +285,12 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "C2",
       "actor": "admin",
-      "says": "C. The step log lists the six steps in order, each completed (who/when/duration are on the row; no value is on it).",
+      "says": "C. The step log of the seeded v2 definition (run 20261126T035144Z-25c9dc, definition_v2.ex): the start row [0], the eight platform steps [1]..[8] in order, the notify_gate gateway [9] (completed), the notify step [10] (taken because B1 sends admin_email, so notify_admin is true) and the end [11]. Who/when/duration are on the row; no value is on it.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id1}/timeline"
@@ -283,27 +308,34 @@
           "$.steps[2].result": "completed",
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].node_id": "record_lifecycle",
           "$.steps[4].result": "completed",
-          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].node_id": "record_onboarding",
           "$.steps[5].result": "completed",
-          "$.steps[6].node_id": "notify",
+          "$.steps[6].node_id": "bind_realm",
           "$.steps[6].result": "completed",
+          "$.steps[7].node_id": "grant_first_admins",
+          "$.steps[7].result": "completed",
+          "$.steps[8].node_id": "install_default_modules",
+          "$.steps[8].result": "completed",
+          "$.steps[9].node_id": "notify_gate",
+          "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "completed",
           "$.steps[1].started_at": {
             "exists": true
           },
           "$.steps[1].duration_ms": {
             "exists": true
           },
-          "$.steps[7].node_id": "end"
+          "$.steps[11].node_id": "end"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "C3",
       "actor": "admin",
-      "says": "C. The new tenant exists, is active and has its own realm bound. NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
+      "says": "C. The new tenant exists, is active and has the realm the process created bound (saved as realm1). NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/${slug1}"
@@ -313,13 +345,55 @@
         "json": {
           "$.slug": "${slug1}",
           "$.status": "active",
-          "$.idp_realm_id": "uat-tmp-${uuid1}"
+          "$.idp_realm_id": {
+            "exists": true
+          }
         }
       },
       "requires": [
         "slug1"
       ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      "save": {
+        "realm1": "$.idp_realm_id"
+      }
+    },
+    {
+      "id": "C4",
+      "actor": "admin",
+      "says": "C. Fresh tenant plus module install (G14 finding): the platform.register_tenant definition (the name filter keeps a draft of any other definition out of this check) is not left as a draft; the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?name=platform.register_tenant&status=draft&page_size=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0]": {
+            "absent": true
+          }
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "C5",
+      "actor": "admin",
+      "says": "C. The same tenant has at least one ACTIVE shipped definition (the previous step is not green by an empty install).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions?status=active&page_size=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].status": "ACTIVE"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
     },
     {
       "id": "D1",
@@ -334,13 +408,12 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "E1",
       "actor": "admin",
-      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one B1 already bound to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
+      "says": "E. A forced failure that a valid request can still reach: the registration names an administrator address whose domain (refused.uat.letflow.internal) is NOT on the platform tenant's email allow-list (the allow-list matches the domain exactly and only uat.letflow.internal was added in B0b). Every earlier check passes (the route pre-checks slug, hostname and realm; no realm is sent), so the instance starts and the notify step (tenant.notify_admin) is refused with platform_call_notify_refused, which lands as ERROR plus a DLQ entry (platform_step_runner apply_result). The first version of this step reused realm1 as idp_realm_id to force a duplicate_realm at bind_realm, but realm1 is null on a platform without a Keycloak realm (smoke T-2946, C3: idp_realm_id null), so nothing failed and the instance COMPLETED.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -348,8 +421,7 @@
           "slug": "uat-tmp-${uuid2}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid2}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid1}",
-          "admin_email": "reg-${uuid2}@uat.letflow.internal"
+          "admin_email": "reg-${uuid2}@refused.uat.letflow.internal"
         }
       },
       "expect": {
@@ -358,19 +430,18 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
         "instance_id2": "$.instance_id",
         "slug2": "$.slug"
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "E2",
       "actor": "admin",
-      "says": "E. The instance ends in ERROR.",
+      "says": "E. The instance ends in ERROR (the refused notify step). The poll stops at the first ERROR.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id2}"
@@ -384,13 +455,12 @@
         "json": {
           "$.status": "ERROR"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "E3",
       "actor": "admin",
-      "says": "E. The timeline names the failed step (bind_realm) and the steps before it as completed.",
+      "says": "E. The timeline names the failed step (notify, the tenth step of the seeded v2 log) and the steps before it as completed.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id2}/timeline"
@@ -404,14 +474,15 @@
         "json": {
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
-          "$.steps[4].result": "failed",
-          "$.steps[4].last_failure_kind": {
+          "$.steps[9].node_id": "notify_gate",
+          "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "failed",
+          "$.steps[10].last_failure_kind": {
             "exists": true
           }
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "E4",
@@ -435,13 +506,12 @@
       },
       "save": {
         "dlq_id": "$.items[0].id"
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "E5",
       "actor": "admin",
-      "says": "E. The platform administrator retries the entry: the failed step is dispatched once more (the realm stays refused, so it fails again; the retry is bounded, not a loop).",
+      "says": "E. The platform administrator retries the entry: the failed step is dispatched once more (the address stays refused, so it fails again; the retry is bounded, not a loop).",
       "do": {
         "api": "POST",
         "path": "/api/v1/dlq/${dlq_id}/retry",
@@ -455,8 +525,7 @@
       },
       "requires": [
         "dlq_id"
-      ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      ]
     },
     {
       "id": "E6",
@@ -473,13 +542,12 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.steps[4].node_id": "bind_realm",
-          "$.steps[4].attempts": {
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].attempts": {
             "regex": "^[2-9]$"
           }
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "F1",
@@ -993,7 +1061,6 @@
           "slug": "uat-tmp-${uuid3}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid3}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid3}",
           "admin_email": "reg-${uuid3}@uat.letflow.internal"
         }
       },
@@ -1003,14 +1070,13 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
         "instance_id3": "$.instance_id",
         "slug3": "$.slug"
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "F7",
@@ -1029,13 +1095,12 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "F8",
       "actor": "admin",
-      "says": "F. The step log lists the six steps and then the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
+      "says": "F. The step log of the edited draft (its own graph, no gateway): five platform steps, then the mail step and the file step, completed. This proves the step ran and recorded its result; it does NOT observe the file itself (it sits in the new tenant's own file area and no route of the platform tenant lists it): named in the findings of T-2608.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id3}/timeline"
@@ -1062,8 +1127,7 @@
           "$.steps[7].node_id": "notify_file",
           "$.steps[7].result": "completed"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "F9",
@@ -1078,8 +1142,7 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "F10",
@@ -1097,8 +1160,7 @@
       },
       "requires": [
         "instance_id1"
-      ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      ]
     },
     {
       "id": "G1",
@@ -1147,7 +1209,6 @@
           "slug": "uat-tmp-${uuid4}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid4}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid4}",
           "admin_email": "reg-${uuid4}@uat.letflow.internal"
         }
       },
@@ -1157,14 +1218,13 @@
           "$.instance_id": {
             "exists": true
           },
-          "$.status": "ACTIVE"
+          "$.status": "active"
         }
       },
       "save": {
         "instance_id4": "$.instance_id",
         "slug4": "$.slug"
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "G4",
@@ -1183,13 +1243,12 @@
         "json": {
           "$.status": "COMPLETED"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "G5",
       "actor": "admin",
-      "says": "G. The step log has no file step any more: the seventh row is the end of the process.",
+      "says": "G. The step log has no file step any more: it is the seeded v2 log again (definition_v2.ex): eight platform steps, the notify_gate gateway [9], notify [10] (admin_email is sent, so notify_admin is true) and the end [11].",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id4}/timeline"
@@ -1207,16 +1266,23 @@
           "$.steps[2].result": "completed",
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[4].node_id": "bind_realm",
+          "$.steps[4].node_id": "record_lifecycle",
           "$.steps[4].result": "completed",
-          "$.steps[5].node_id": "grant_first_admins",
+          "$.steps[5].node_id": "record_onboarding",
           "$.steps[5].result": "completed",
-          "$.steps[6].node_id": "notify",
+          "$.steps[6].node_id": "bind_realm",
           "$.steps[6].result": "completed",
-          "$.steps[7].node_id": "end"
+          "$.steps[7].node_id": "grant_first_admins",
+          "$.steps[7].result": "completed",
+          "$.steps[8].node_id": "install_default_modules",
+          "$.steps[8].result": "completed",
+          "$.steps[9].node_id": "notify_gate",
+          "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "completed",
+          "$.steps[11].node_id": "end"
         }
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "G6",
@@ -1231,8 +1297,7 @@
       },
       "expect": {
         "status": 200
-      },
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      }
     },
     {
       "id": "H1",
@@ -1309,8 +1374,7 @@
       },
       "requires": [
         "instance_id1"
-      ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      ]
     },
     {
       "id": "H5",
@@ -1329,8 +1393,7 @@
       },
       "requires": [
         "dlq_id"
-      ],
-      "blocked_by": "T-2727 provisioner wiring (D-195: no per-tenant infra): a throwaway tenant needs a real Keycloak realm and a runner token for its administrator; the step is not run until that piece lands"
+      ]
     },
     {
       "id": "H6",

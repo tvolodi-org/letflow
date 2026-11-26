@@ -1,0 +1,159 @@
+{
+  "id": "BP-PLATFORM-11-service-catalogue",
+  "bp_entry": "BP-PLATFORM-11",
+  "title": "The global service catalogue on QA: list, bad page size, and the refusals of publish and retire (read-only)",
+  "description": "The platform administrator lists the catalogue (200), is refused a page size that is not a number (400), a publish with no version (400) and answered 404 for a publish and a retire of a service that does not exist. A company administrator is refused the list, a publish and a retire with the fixed 403; a caller without a sign-in gets 401. Nothing is created or changed, so there is no cleanup and no residue; the fixture tenant is not needed. GAP, a CHECK limit and not a product gap: the lifecycle (register 201, duplicate 409, reserved address 422, publish 201 and 409, narrow and widen the scope, retire 200 and 409, delete 204 and 404, and the refusals of register and delete) is WRITTEN and kept as test/uat/processes/planned/BP-PLATFORM-11-service-catalogue-lifecycle.draft.txt (a throwaway service uat-tmp-svc-<run id>, deleted in the cleanup) but it is NOT a runner file yet: the static check (scripts/uat/check_processes.py) derives the mount of a router from the file name (admin-services), so it cannot match POST /api/v1/admin/services, PATCH and DELETE /api/v1/admin/services/:id (their real mount is admin/services) and fails the file. Runner task wanted: teach the check the mount admin/services (or read the mounts from the ApiPipeline); then the draft is renamed to .json and dry-run. The draft was NOT run against QA by this task (see the findings).",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator lists the catalogue (a small page): 200.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services?page_size=5"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A page size that is not a number is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services?page_size=abc"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "A publish without a version is refused before the service is looked up: 400 (the service id does not exist; nothing can change).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-no-such-service/versions",
+        "body": {
+          "endpoint_url": "https://example.test/uat-no-such"
+        }
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A publish of version 2 of a service that does not exist: 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-no-such-service/versions",
+        "body": {
+          "version": "2"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "A retire of a service that does not exist: 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-no-such-service/retire"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "says": "A company administrator is refused the catalogue list with the fixed 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "says": "A company administrator may not publish a version: the same 403 for a service that does not exist.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-no-such-service/versions",
+        "body": {
+          "version": "2"
+        }
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "says": "A company administrator may not retire a service: the same 403.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/admin/services/uat-no-such-service/retire"
+      },
+      "expect": {
+        "status": 403,
+        "json": {
+          "$.title": "Forbidden",
+          "$.detail": "insufficient permissions"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "anonymous",
+      "says": "Without a sign-in the catalogue is refused: 401.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services"
+      },
+      "expect_refused": {
+        "status": 401
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

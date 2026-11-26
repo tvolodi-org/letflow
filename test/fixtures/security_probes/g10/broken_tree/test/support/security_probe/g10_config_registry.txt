@@ -1,0 +1,39 @@
+# The fixture registry of the G-10 probe: a registry that breaks one rule per entry, so the
+# probe has to report every one of them. The rules it breaks:
+#
+#   * `:g10_flag_enabled` is a feature flag read with a default that turns it on;
+#   * `:g10_release_flag` is a feature flag a release configuration switches on;
+#   * `:g10_keyword_flag` is a feature flag a release configuration switches on with the
+#     keyword form of the directive;
+#   * `:g10_secret` is a secret read with a literal default;
+#   * `:g10_runtime_key` is read while the code is compiled but registered as a runtime read;
+#   * `:g10_stale` is registered but nobody reads it;
+#   * `:g10_guard` is a guard whose registry default is not on;
+#   * `:g10_malformed` does not have the ten columns of the registry;
+#   * `:g10_url` names a validator that is not a module of the tree;
+#   * `:g10_startup_url` names a validator that is not a validation at all.
+#
+# `G10_UNREGISTERED_SETTING`, `G10_LIST_SETTING`, `G10_ATTRIBUTE_SETTING`, `G10_LOCAL_SETTING`,
+# `G10_ATTRIBUTE_LIST_SETTING`, `G10_HEAD_DEFAULT_SETTING` and `G10_ENV_MAP_SETTING` are read by
+# the fixture and are deliberately absent here: they are the seven ways the fixture names a
+# variable (a literal, a piped list, a module attribute, a local variable, a list a module
+# attribute holds, a default argument of a function head and an environment map), and each of
+# them has to be reported.
+#
+# The names the fixture reads in a call form are absent here for the same reason:
+# `G10_IMPORTED_SETTING`, `G10_IMPORTED_FETCH_SETTING`, `G10_ELIXIR_PREFIXED_SETTING`,
+# `G10_ALIASED_SETTING`, `G10_FILE_SCOPE_SETTING`, `G10_FILE_SCOPE_NARROWED_SETTING` and
+# `G10_IMPORT_BESIDE_LOCAL_SETTING` (the imported, the `Elixir.`-prefixed, the aliased and the
+# file-scoped calls), and the application keys `:letflow:g10_imported_app_key` and
+# `:letflow:g10_aliased_app_key` (the imported and the aliased application calls). A name that
+# hides in one of those forms is a name nobody registered, so the probe has to report it.
+app_env|:letflow:g10_flag_enabled|platform|platform|runtime|flag|false|no|none|A fixture flag that is read with a default that turns it on.
+app_env|:letflow:g10_release_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on.
+app_env|:letflow:g10_keyword_flag|platform|platform|runtime|flag|false|no|none|A fixture flag that a release configuration switches on with the keyword form of the directive.
+app_env|:letflow:g10_secret|platform|platform|runtime|secret|none|yes|none|A fixture secret that is read with a literal default.
+app_env|:letflow:g10_runtime_key|platform|platform|runtime|plain|none|no|none|A fixture key that is read while the code is compiled.
+app_env|:letflow:g10_stale|platform|platform|runtime|plain|none|no|none|A fixture key nobody reads.
+app_env|:letflow:g10_guard|platform|platform|runtime|guard|false|no|none|A fixture guard whose registry default is not on.
+app_env|:letflow:g10_url|platform|platform|runtime|url|none|no|Letflow.NoSuchValidator|A fixture URL whose validator is not a module of the tree.
+app_env|:letflow:g10_startup_url|platform|platform|runtime|url|none|no|startup|A fixture URL whose validator names no validation at all.
+app_env|:letflow:g10_malformed|platform|platform|runtime|plain

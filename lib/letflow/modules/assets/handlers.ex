@@ -8,9 +8,9 @@ defmodule Letflow.Modules.Assets.Handlers do
   posting. Mirrors `Letflow.Modules.Stock.Handlers`.
 
   Contract: `(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted}`.
-  The handler reads nothing and trusts only its arguments (the binding of the posting to the issued
-  content is by workflow order and detection on read, decision 0078 D5; the gap is stated in the
-  runbook until slice L7). The posting command is rebuilt here from LITERAL keys of the string-keyed
+  The handler also compares its arguments with the variables the instance was STARTED with
+  (T-2432, audit T-2429: `check_instance/3`, the `INSTANCE_STARTED` event), so a completer can neither
+  redirect the posting to another document nor approve through another instance's task. The posting command is rebuilt here from LITERAL keys of the string-keyed
   `posting` argument (no `String.to_atom`, scans H4); `ledger_id` is always `"assets"`, and a
   `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills them
   from the context. `post_document` accepts the closed list of causes `commission`, `change`, `handover`,
@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Assets.Handlers do
       ) do
     with true <- valid_args?(args, {"posted", []}),
          true <- Enum.all?(lines, &is_map/1),
+         :ok <- check_instance(ctx, args, []),
          {:ok, multi} <- create_mark(multi, ctx, args, []),
          {:ok, multi, card_ids} <- create_cards(multi, ctx, lines),
          {:ok, command} <- kind_change_command(posting, lines, card_ids) do
@@ -118,6 +119,7 @@ defmodule Letflow.Modules.Assets.Handlers do
     with true <- valid_args?(args, {mark, extra_keys}),
          {:ok, command} <- command(Map.get(args, "posting")),
          {:ok, moves} <- card_moves(Map.get(args, "posting"), args),
+         :ok <- check_instance(ctx, args, extra_keys),
          {:ok, multi} <- create_mark(multi, ctx, args, extra_keys),
          {:ok, multi} <- move_cards(multi, ctx, posting_cause(args), moves) do
       case HandlerWrites.post(multi, ctx, command) do
@@ -130,6 +132,35 @@ defmodule Letflow.Modules.Assets.Handlers do
       {:error, _reason} = error -> error
     end
   end
+
+  # T-2432 (audit T-2429, decision 0078 D5 gap): every write argument must equal what the instance was
+  # STARTED with (the `INSTANCE_STARTED` event of `ctx.instance_id`, `HandlerWrites.read_instance_start/1`).
+  # The variables the arguments are resolved from merge the completer's output, so alone they do not say
+  # what this instance is for. A mismatch (another document, another posting, another entry to
+  # reverse, the approve of another instance's opening) is `:invalid_arguments`, nothing written.
+  # A dry build skips the check; the real build runs it. Same rule as `Stock.Handlers`.
+  defp check_instance(ctx, args, extra_keys) do
+    case HandlerWrites.read_instance_start(ctx) do
+      {:ok, start} ->
+        keys = ~w(document_id document_type version_no org_unit_id mark posting) ++ extra_keys
+
+        if Enum.all?(keys, &same_value?(Map.get(start, &1), Map.get(args, &1))),
+          do: :ok,
+          else: {:error, :invalid_arguments}
+
+      {:error, :dry_build} ->
+        :ok
+
+      {:error, :invalid_write_command} ->
+        {:error, :not_permitted}
+
+      {:error, _not_found} ->
+        {:error, :invalid_arguments}
+    end
+  end
+
+  defp same_value?(nil, _arg), do: false
+  defp same_value?(expected, arg), do: expected == arg
 
   defp valid_args?(args, {mark, extra_keys}) do
     Enum.all?(~w(document_id document_type org_unit_id) ++ extra_keys, fn key ->

@@ -1,5 +1,5 @@
 /** T-2744 (pilot G10a, step A4 of the UAT scenario BP-PLATFORM-01): the designer page of the shipped definition
- *  platform.register_tenant opens on a real build (QA): no error boundary, eight nodes, a node click opens the panel.
+ *  platform.register_tenant opens on a real build (QA): no error boundary, twelve nodes, a node click opens the panel.
  *
  *  The UAT runner cannot drive a browser, so this is the one browser check of step A. It needs a signed-in
  *  platform administrator, so it runs only when the operator gives the page and a saved browser state:
@@ -19,7 +19,7 @@ test.describe('BP-PLATFORM-01 A4: the designer page of platform.register_tenant 
   test.skip(!url || !state, 'QA_DESIGNER_URL and QA_STORAGE_STATE are not set')
   test.use({ storageState: state })
 
-  test('opens without an error boundary, shows eight nodes, a node click opens the panel', async ({ page }) => {
+  test('opens without an error boundary, shows twelve nodes, a node click opens the panel', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(url as string)
     await expect(page.getByRole('heading', { name: 'platform.register_tenant', exact: true })).toBeVisible()
@@ -29,7 +29,7 @@ test.describe('BP-PLATFORM-01 A4: the designer page of platform.register_tenant 
     await page.getByTestId('definition-view-edit').click()
     const editor = page.getByTestId('diagram-editor')
     await expect(editor).toBeVisible()
-    await expect(editor.locator('.react-flow__node')).toHaveCount(8)
+    await expect(editor.locator('.react-flow__node')).toHaveCount(12)
     await editor.getByTestId('rf__node-validate').click()
     await expect(page.getByTestId('edit-node-panel')).toBeVisible()
     await expect(page.getByTestId('error-boundary-panel')).toHaveCount(0)

@@ -1,0 +1,31 @@
+{
+  "id": "BP-TENANT-ADMIN-48",
+  "bp_entry": "BP-TENANT-ADMIN-48",
+  "title": "A user scrolls the My Tasks inbox past a day: every page answers 200, no task twice",
+  "description": "Read-only. The tenant administrator scrolls the task inbox page after page by the cursor of each answer (page size 200, at most 15 pages) and the oldest task seen must be older than 24 hours: a tenant with no such task is NOT RUN with 'inconclusive: no old rows', never a pass. A second walk with page size 1 reads the first 5 pages. Every page answers 200 and its count equals its items; no task id repeats across pages. Nothing is written, nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"page_through": {"path": "/api/v1/tasks/inbox", "page_size": 200, "max_pages": 15}},
+      "expect": {"status": 200, "age_at_least": {"seconds": 86400, "field": "created_at"}, "unique_ids": true}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"page_through": {"path": "/api/v1/tasks/inbox", "page_size": 1, "max_pages": 5}},
+      "expect": {"status": 200, "unique_ids": true}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

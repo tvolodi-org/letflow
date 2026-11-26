@@ -18,7 +18,8 @@
  *  offers the registered keys.
  */
 import { useIntl } from 'react-intl'
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
+import { useGuideStore } from '@/stores/guideStore'
 import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
@@ -27,7 +28,10 @@ import DefinitionEditorPage from '@/pages/definitions/DefinitionEditorPage'
 import type { UserSession } from '@/types/api'
 import { DiagramEditPane, type DiagramEditPaneProps } from '@/components/diagram/DiagramEditPane'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
+import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
+import DefinitionListPage from '@/pages/definitions/DefinitionListPage'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { holdHarnessReady } from '../fixtureFetch'
 import type { FixtureRoute, HarnessScreen } from '../types'
 
 const n = (id: string, node_type: NodeType, label: string | null, attributes: Record<string, unknown> | null = null) => ({ id, node_type, label, attributes })
@@ -142,6 +146,49 @@ const ROUTES: FixtureRoute[] = [
   { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/platform-functions'), reply: () => ({ status: 200, body: PLATFORM_FUNCTIONS }) },
 ]
 
+/** T-2811 (designer D1): a DRAFT whose notification step reads the recipient from `admin_email`, a variable the definition
+ *  does not declare. The fake validate route is the server's rule in miniature: it answers the undeclared-variable finding
+ *  until the body's `variable_schemas` list names the variable. */
+export const UNDECLARED_DEF: ProcessDefinition = {
+  id: 'def-harness-undeclared-recipient',
+  name: 'notify_admin',
+  version: '1.0.0',
+  description: 'A notification to the administrator.',
+  status: 'DRAFT',
+  created_by: 'harness',
+  created_at: '2026-11-25T09:00:00Z',
+  updated_at: '2026-11-25T09:00:00Z',
+  variable_schemas: [{ variable_key: 'tenant_name', json_schema: { type: 'string' } }],
+  graph: {
+    nodes: [
+      n('start', 'START', 'Start'),
+      n('notify', 'SERVICE_TASK', 'Notify', { notify: { channel: 'email', template_key: 'tenant_registered', recipient: { var: 'admin_email' }, values: {} } }),
+      n('end', 'END', 'End'),
+    ],
+    edges: [
+      { id: 'e1', source: 'start', target: 'notify' },
+      { id: 'e2', source: 'notify', target: 'end' },
+    ],
+  },
+}
+
+const UNDECLARED_ROUTES: FixtureRoute[] = [
+  {
+    match: (p, m) => m === 'POST' && p.endsWith('/validate'),
+    reply: (_state, _path, body) => {
+      const vars = (body as { variable_schemas?: { variable_key: string }[] } | undefined)?.variable_schemas ?? []
+      if (vars.some((v) => v.variable_key === 'admin_email')) return { status: 200, body: { status: 'valid', findings: [], definition_id: UNDECLARED_DEF.id } }
+      return {
+        status: 422,
+        body: { title: 'definition graph failed validation', status: 422, errors: [{ code: 'step_mapping_variable_undeclared', message: "Node 'notify' reads mapping admin_email: the variable is not among the definition's declared variable schemas" }] },
+      }
+    },
+  },
+  { match: (p, m) => m === 'GET' && p.endsWith(`/definitions/${UNDECLARED_DEF.id}`), reply: () => ({ status: 200, body: UNDECLARED_DEF }) },
+  { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/notification-templates/catalogue'), reply: () => ({ status: 200, body: TEMPLATES }) },
+  { match: (p, m) => m === 'GET' && p.endsWith('/api/v1/platform-functions'), reply: () => ({ status: 200, body: PLATFORM_FUNCTIONS }) },
+]
+
 const PAGE_AUTH = {
   session: { token: 'harness', tenant_id: 'harness-platform', tenant_type: 'platform' } as unknown as UserSession,
   isAuthenticated: true,
@@ -165,6 +212,143 @@ function frame(title: string, props: Partial<DiagramEditPaneProps> & { def?: Pro
   )
 }
 
+/** T-2805: the real editor page with the guide panel opened on mount (optionally at one section). */
+function GuideOpen({ section }: { section?: string }): ReactElement {
+  useEffect(() => {
+    // Hold the ready signal until the guide text has rendered and the fonts are in.
+    const release = holdHarnessReady()
+    useGuideStore.getState().openGuide(section)
+    const poll = window.setInterval(() => {
+      if (document.querySelector('[data-testid="designer-guide-body"] section')) {
+        window.clearInterval(poll)
+        void document.fonts.ready.then(() => window.setTimeout(release, 300))
+      }
+    }, 50)
+    return () => {
+      window.clearInterval(poll)
+      release()
+      useGuideStore.getState().closeGuide()
+    }
+  }, [section])
+  return (
+    <AuthContext.Provider value={PAGE_AUTH}>
+      <AccessStateProvider state={accessState('platformAdmin')}>
+        <DefinitionEditorPage />
+      </AccessStateProvider>
+    </AuthContext.Provider>
+  )
+}
+
+/** T-2805: the real editor page with the guide panel in its loading state (the loader never answers) or its
+ *  load-failed state (no document for the locale). Same page, panel replaced by one with a test loader. */
+// Stable references: the panel reloads when the loader changes.
+const NEVER_LOADS = () => () => new Promise<string>(() => {})
+const NO_DOCUMENT = () => undefined
+
+function GuideState({ kind }: { kind: 'loading' | 'failed' }): ReactElement {
+  useEffect(() => {
+    useGuideStore.getState().openGuide()
+    return () => useGuideStore.getState().closeGuide()
+  }, [])
+  const loader = kind === 'loading' ? NEVER_LOADS : NO_DOCUMENT
+  return (
+    <ProcessDiagramIntlProvider>
+      <div className="lf-main">
+        <main className="lf-content">
+          <HarnessHeader title={DEF.name} />
+          <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={() => {}} onSaved={() => {}} onReload={() => {}} />
+        </main>
+      </div>
+      <DesignerGuidePanel loader={loader} />
+    </ProcessDiagramIntlProvider>
+  )
+}
+
+/** T-2805: the step editor of the notification step open (the "Guide" link sits in it); with `clickLink` the link
+ *  is pressed and the panel it opens (at the notification section) is shown. */
+function NotifyStepOpen({ clickLink }: { clickLink: boolean }): ReactElement {
+  useEffect(() => {
+    const release = holdHarnessReady()
+    let done = false
+    const poll = window.setInterval(() => {
+      if (done) return
+      // Wide: the diagram node of the notification step; narrow: the Edit button of its row in the steps list.
+      const steps = document.querySelectorAll<HTMLElement>('[data-testid="diagram-node-SERVICE_TASK"]')
+      const row = document.querySelector<HTMLElement>('[data-testid="edit-step"][data-node-id="notify"] > .lf-pd-steps__main > button')
+      const editor = document.querySelector('[data-testid="notify-step-editor"]')
+      if (!editor && (row || steps.length > 0)) {
+        if (row) row.click()
+        else steps[steps.length - 1].click()
+        return
+      }
+      const link = document.querySelector<HTMLElement>('[data-testid="notify-guide-link"]')
+      if (!editor || !link) return
+      if (!clickLink) {
+        done = true
+        void document.fonts.ready.then(() => window.setTimeout(release, 300))
+        return
+      }
+      link.click()
+      if (document.querySelector('[data-testid="designer-guide-body"] section')) {
+        done = true
+        void document.fonts.ready.then(() => window.setTimeout(release, 400))
+      }
+    }, 100)
+    return () => {
+      window.clearInterval(poll)
+      release()
+      useGuideStore.getState().closeGuide()
+    }
+  }, [clickLink])
+  return (
+    <ProcessDiagramIntlProvider>
+      <div className="lf-main">
+        <main className="lf-content">
+          <HarnessHeader title={DEF.name} />
+          <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={() => {}} onSaved={() => {}} onReload={() => {}} />
+        </main>
+      </div>
+      <DesignerGuidePanel />
+    </ProcessDiagramIntlProvider>
+  )
+}
+
+/** T-2805: the real definitions list; with `open` the panel is opened from its Guide button. */
+function ListWithGuide({ open }: { open: boolean }): ReactElement {
+  useEffect(() => {
+    if (!open) return
+    const release = holdHarnessReady()
+    const poll = window.setInterval(() => {
+      const btn = document.querySelector<HTMLElement>('[data-testid="btn-guide"]')
+      if (btn && !document.querySelector('[data-testid="designer-guide-panel"]')) btn.click()
+      if (document.querySelector('[data-testid="designer-guide-body"] section')) {
+        window.clearInterval(poll)
+        void document.fonts.ready.then(() => window.setTimeout(release, 300))
+      }
+    }, 100)
+    return () => {
+      window.clearInterval(poll)
+      release()
+      useGuideStore.getState().closeGuide()
+    }
+  }, [open])
+  return (
+    <AuthContext.Provider value={PAGE_AUTH}>
+      <AccessStateProvider state={accessState('platformAdmin')}>
+        <div className="lf-main">
+          <main className="lf-content">
+            <DefinitionListPage />
+          </main>
+        </div>
+      </AccessStateProvider>
+    </AuthContext.Provider>
+  )
+}
+
+const LIST_ROUTES: FixtureRoute[] = [
+  { match: (p, m) => m === 'GET' && p === '/api/v1/definitions', reply: () => ({ status: 200, body: { items: [DEF], next_cursor: null } }) },
+]
+
 export const registerTenantDesignerScreens: HarnessScreen[] = [
   // The registration definition in the designer, as the seed leaves it: a version that runs.
   { name: 'pd-register-tenant', routes: ROUTES, render: () => frame(DEF.name, {}) },
@@ -182,4 +366,48 @@ export const registerTenantDesignerScreens: HarnessScreen[] = [
       </AuthContext.Provider>
     ),
   },
+  // T-2811 screenshots: the editor with the undeclared recipient (the error names the fix) and after the variable is declared.
+  {
+    name: 'pd-variables-error',
+    routes: UNDECLARED_ROUTES,
+    render: () =>
+      frame(UNDECLARED_DEF.name, {
+        def: UNDECLARED_DEF,
+        demo: {
+          selected: { kind: 'node', id: 'notify' },
+          violations: [{ code: 'step_mapping_variable_undeclared', message: "Node 'notify' reads mapping admin_email: the variable is not among the definition's declared variable schemas" }],
+        },
+      }),
+  },
+  {
+    name: 'pd-variables-declared',
+    routes: UNDECLARED_ROUTES,
+    render: () =>
+      frame(UNDECLARED_DEF.name, {
+        def: { ...UNDECLARED_DEF, variable_schemas: [...(UNDECLARED_DEF.variable_schemas ?? []), { variable_key: 'admin_email', json_schema: { type: 'string' } }] },
+        demo: { selected: { kind: 'node', id: 'notify' }, violations: [] },
+      }),
+  },
+  // T-2811: a draft with an undeclared recipient variable, through the REAL page: the user declares the variable.
+  {
+    name: 'pd-variables-page',
+    initialPath: `/definitions/${UNDECLARED_DEF.id}`,
+    routePattern: '/definitions/:id',
+    routes: UNDECLARED_ROUTES,
+    render: () => (
+      <AuthContext.Provider value={PAGE_AUTH}>
+        <AccessStateProvider state={accessState('platformAdmin')}>
+          <DefinitionEditorPage />
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
+  { name: 'pd-guide-open', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideOpen /> },
+  { name: 'pd-guide-notify', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideOpen section="sec-notification-step" /> },
+  { name: 'pd-guide-loading', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideState kind="loading" /> },
+  { name: 'pd-guide-failed', initialPath: `/definitions/${DEF.id}`, routePattern: '/definitions/:id', routes: ROUTES, render: () => <GuideState kind="failed" /> },
+  { name: 'pd-guide-step', routes: ROUTES, render: () => <NotifyStepOpen clickLink={false} /> },
+  { name: 'pd-guide-step-open', routes: ROUTES, render: () => <NotifyStepOpen clickLink /> },
+  { name: 'pd-guide-list', routes: LIST_ROUTES, render: () => <ListWithGuide open={false} /> },
+  { name: 'pd-guide-list-open', routes: LIST_ROUTES, render: () => <ListWithGuide open /> },
 ]

@@ -21,6 +21,10 @@ defmodule Letflow.Readiness do
       `:persistent_term`, so an unauthenticated caller cannot use the route to amplify
       outbound requests. A failed result is cached too (same reason).
 
+  T-2950: a fifth check, `boot` (`Letflow.BootReady`), fails until the boot work has ended, so a
+  deploy does not look ready while the node still sheds requests. It is not in `@parts` (the web
+  page lists only those four); it is in `checks` and, when failing, in `failing`.
+
   The whole result is cached for 5 seconds (calls with injected functions bypass the cache).
   Every check is bounded by a 2 second timeout and never raises (INV-8): a crash, an exit or a
   timeout is `"fail"`. The result carries names from a fixed vocabulary only: no error text,
@@ -74,11 +78,12 @@ defmodule Letflow.Readiness do
           migrations_ok?(Keyword.get(opts, :migrations_fun, &default_migrations/0))
         end,
         "secrets_key" => fn -> key_ok?(Keyword.get(opts, :key_fun, &default_key/0)) end,
-        "identity" => &identity_cached/0
+        "identity" => &identity_cached/0,
+        "boot" => fn -> Keyword.get(opts, :boot_fun, &Letflow.BootReady.done?/0).() end
       }
       |> Map.new(fn {part, fun} -> {part, if(guarded(fun), do: "ok", else: "fail")} end)
 
-    failing = Enum.filter(@parts, &(Map.fetch!(checks, &1) != "ok"))
+    failing = Enum.filter(@parts ++ ["boot"], &(Map.fetch!(checks, &1) != "ok"))
     %{ready: failing == [], failing: failing, checks: checks}
   end
 

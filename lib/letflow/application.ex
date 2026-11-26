@@ -7,6 +7,9 @@ defmodule Letflow.Application do
 
   @impl true
   def start(_type, _args) do
+    # T-2950: /ready answers 503 and the scheduler poller waits until the boot Task has ended.
+    :ok = Letflow.BootReady.begin()
+
     # INV-4 (T-2704): bound parameters of write statements never reach a log, at any level.
     :ok = Letflow.Obs.QueryLogFilter.install()
 
@@ -100,7 +103,7 @@ defmodule Letflow.Application do
       ),
       # T-2739: one-shot idempotent seed of the platform definitions; no-op unless
       # :seed_platform_definitions_on_boot is true (QA / runner only).
-      Supervisor.child_spec({Task, &Letflow.PlatformProcesses.BootSeed.run/0},
+      Supervisor.child_spec({Task, &Letflow.BootReady.run_boot_work/0},
         id: :platform_definitions_boot_seed,
         restart: :temporary
       ),
