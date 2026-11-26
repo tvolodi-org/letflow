@@ -33,6 +33,16 @@ DEFS = [
 ]
 
 
+VERSIONS = [  # T-2917: platform.register_tenant versions
+    ("v1", "platform.register_tenant", "2", "ACTIVE"),  # the seeded version: never
+    ("v2", "platform.register_tenant", f"uat-{OLD}", "DRAFT"),  # the leftover draft: retired
+    ("v3", "platform.register_tenant", "3-draft", "DRAFT"),  # a non-uat draft: never
+    ("v4", "platform.register_tenant", f"uat-{RUN}", "DRAFT"),  # this run's own: never
+    ("v5", "platform.register_tenant", f"uat-{OLD}-b", "ACTIVE"),  # uat but not a draft: never
+    ("v6", "platform.other", f"uat-{OLD}", "DRAFT"),  # another definition: never
+]
+
+
 class Defs(BaseHTTPRequestHandler):
     deleted = []
     answers = {}
@@ -45,6 +55,7 @@ class Defs(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parts.query)
         name = query.get("name", [""])[0].lower()
         rows = [{"id": i, "name": n, "status": s} for i, n, s in DEFS if name in n.lower()]
+        rows += [{"id": i, "name": n, "version": v, "status": s} for i, n, v, s in VERSIONS if name in n.lower()]
         start = int(query.get("cursor", ["0"])[0])
         page = rows[start:start + self.page]
         end = start + len(page)
@@ -68,8 +79,11 @@ class Defs(BaseHTTPRequestHandler):
 
 
 def sweep_step(prefix="uat-tmp-designer-", marker="${run_id}", **extra):
+    spec = dict({"prefix": prefix, "exclude_contains": marker}, **extra)
+    if prefix is None:
+        del spec["prefix"]
     return {"id": "c9", "actor": "admin",
-            "do": {"sweep": dict({"prefix": prefix, "exclude_contains": marker}, **extra)},
+            "do": {"sweep": spec},
             "expect": {"status": 200}}
 
 
@@ -102,6 +116,13 @@ class Sweep(FakeServerCase):
         self.assertEqual(len([x for x in row["sweep"] if x.startswith("sweep d")]), 4)
         self.assertIn("4 swept", self.out.getvalue())
         self.assertIn(f"sweep d1 uat-tmp-designer-{OLD}-1 was DRAFT: swept (204)", self.out.getvalue())
+
+    def test_only_the_uat_draft_version_of_the_named_definition_is_retired(self):
+        self.run_it(sweep_step(prefix=None, draft_versions_of="platform.register_tenant"))
+        self.assertEqual(self.handler.deleted, ["v2"])
+        self.assertEqual(self.row()["verdict"], "pass")
+        self.assertIn(f"sweep v2 platform.register_tenant@uat-{OLD} was DRAFT: swept (204)", self.out.getvalue())
+        self.assertIn("1 swept", self.out.getvalue())
 
     def test_404_and_409_are_already_gone_and_pass(self):
         self.handler.answers = {"d6": 409, "d1": 404}

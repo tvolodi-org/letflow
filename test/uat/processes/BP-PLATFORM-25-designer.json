@@ -767,6 +767,20 @@
       "expect": {
         "status": 200
       }
+    },
+    {
+      "id": "c10",
+      "actor": "admin",
+      "says": "Sweep the leftover DRAFT versions of platform.register_tenant (T-2917): a version starting with uat- (not this run's, not active, not the seeded version) is retired through the same delete call; one line per version. Without this an earlier run's draft file-step version keeps BP-PLATFORM-01 C4 red.",
+      "do": {
+        "sweep": {
+          "draft_versions_of": "platform.register_tenant",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
     }
   ],
   "defaults": {

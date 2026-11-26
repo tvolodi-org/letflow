@@ -82,7 +82,8 @@ class Scenario(unittest.TestCase):
             self.assertIn(404, c["expect"]["status"])
             self.assertIn(409, c["expect"]["status"])
         sweeps = [c["do"]["sweep"] for c in self.process["cleanup"] if "sweep" in c["do"]]  # T-2898
-        self.assertEqual(sweeps, [{"prefix": "uat-tmp-designer-", "exclude_contains": "${run_id}"}])
+        self.assertEqual(sweeps, [{"prefix": "uat-tmp-designer-", "exclude_contains": "${run_id}"},
+                                  {"draft_versions_of": "platform.register_tenant", "exclude_contains": "${run_id}"}])  # T-2917
         # every definition this run creates is a throwaway name
         for name in re.findall(r'"name": "([^"]+)"', self.text):
             self.assertTrue(name.startswith("uat-tmp-designer-"), name)
