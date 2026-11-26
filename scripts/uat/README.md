@@ -195,6 +195,13 @@ WHOLE request body of its media type (`Letflow.Plugs.XlsxBodyParser`), and answe
 `"raw": true` (no `field`, no `fields`) sends the file bytes as the body with `content_type` as the media type; the log
 keeps the same SHA-256 and byte count with `"raw": true`.
 
+**Client 1 tools (T-2857).** `save_response: true` on an `upload` keeps the response body as `<run dir>/responses/<file stem>.json`;
+`page_through` with `save_as: <name>` keeps each page as `<run dir>/pages/<name>/page-NNN.json`; `client1_workbook.build` keeps the
+generated extract under `generated-fixtures/client1/csv/`. `do: {client1_tool: {tool}}` runs one of a FIXED set
+(`headers` with `org_unit_id` and `responsible_id`, `balances_compare`, `masters_compare`) as `python3 -I scripts/pilot/<tool>.py`;
+the arguments come only from the run dir and the two ids (no free text). Exit 1 or 2 fails the step; the log keeps the `RESULT`/`DIFF`
+lines only. The counts compare (`qoimeks_compare.sh`) needs a database snapshot and is not a tool of the runner.
+
 **The Client 1 workbook set** is synthetic (D-050: no real data) and is generated, not committed: a file named
 `generated/client1/<name>` is built on first use under `<run dir>/generated-fixtures/client1` by `client1_workbook.py`,
 which runs `scripts/pilot/qoimeks_gen.py` (seed 42: 134 places, 666 items, 600 balances) and
