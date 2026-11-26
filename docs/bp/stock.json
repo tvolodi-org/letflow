@@ -1676,7 +1676,9 @@
     "scenario": "test/uat/processes/BP-08-old-app-phone-operations.json",
     "dry_run": {
       "tenant": "qoimeks-qa2",
-      "actors": {"admin": "qoimeks-qa2-admin"},
+      "actors": {
+        "admin": "qoimeks-qa2-admin"
+      },
       "inputs": {}
     }
   },
@@ -3209,8 +3211,8 @@
     "refusals": [
       "child start of a module-only definition from a tenant parent refused"
     ],
-    "status": "partial",
-    "automation": "planned",
+    "status": "implemented",
+    "automation": "scripted",
     "security": true,
     "tasks": [
       {
@@ -3227,17 +3229,15 @@
           "POST /api/v1/definitions/:id/archive"
         ],
         "code_refs": [
-          "lib/letflow/engine/sub_process.ex:418",
-          "lib/letflow/engine.ex:1093",
-          "lib/letflow/routers/instances.ex:745",
+          "lib/letflow/engine/sub_process.ex:420",
+          "lib/letflow/engine.ex:694",
+          "lib/letflow/routers/instances.ex:758",
           "test/letflow/engine/module_start_test.exs:79"
         ],
-        "result": "the child start is refused and nothing is posted; the start answer is 404 as for an unknown process (on QA 2c9dfe611 the route answers 500: defect reported by T-2503)"
+        "result": "the child start is refused and nothing is posted; the start answer is 404 as for an unknown process (render_create maps the module-only child refusal to 404, T-2633)"
       }
     ],
-    "scenario": null,
-    "planned_scenario": "docs/bp/planned/SEC-STOCK-02-sub-process-start-refused.json",
-    "note": "The start is refused and nothing is written, but the answer is 500 internal_error instead of the 404 of an unknown definition (DEFECT, p1 fix task). The walkthrough SEC-STOCK-02 expects 404; it is parked outside test/uat/processes/ so it is not in the dry-run set, and fails until the defect is fixed."
+    "scenario": "test/uat/processes/SEC-STOCK-02-sub-process-start-refused.json"
   },
   {
     "id": "BP-STOCK-39",
