@@ -2022,7 +2022,9 @@ class Runner:
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
-                raise RunnerError(f"the platform_residue block names an unknown instance: {name}") from None
+                # a step that saves it never ran (an earlier step failed): there is nothing to watch, say so
+                print(f"not saved: {name}", file=self.out, flush=True)
+                continue
             if instance_id and instance_id not in [i["instance_id"] for i in out]:
                 out.append({"instance_id": instance_id, "tenant": tenant, "base_url": None, "role": None})
         return out
