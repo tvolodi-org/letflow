@@ -1,0 +1,169 @@
+{
+  "id": "BP-11",
+  "bp_entry": "BP-STOCK-13",
+  "title": "Excel load and the storekeeper's quick count at once (go-plan W5): the parts a JSON runner can play, and the file steps marked not run with an owner",
+  "description": "A fresh tenant with the count rule OFF. The administrator downloads the whole current stock as the Excel workbook (the file the load starts from); the storekeeper reads the list of earlier loads. The storekeeper then counts one item at one place by the quick count and, with the rule OFF, the system posts the count at once: the balance becomes the counted quantity, and the document shows the book quantity, the counted quantity and the difference of 1. The storekeeper may not load a workbook (a role without the Excel-load permission): refused 403, nothing written, the list of loads is unchanged. The cleanup reverses the quick count (an administrator completes the Reverse task) so the balance returns to the start. NOT RUN, with an owner (blocked_by on each step, human-only row H2-H6 of the go plan, owner: the operator until the runner has a raw-file body step): the steps that send the workbook file to the check and to the load (the check route and the load route read the file as the whole request body of media type xlsx, `Letflow.Plugs.XlsxBodyParser`; the runner's `upload` step sends multipart/form-data, which those routes answer with xlsx_unreadable), the load's approve task completed by the administrator, the balances equal to the file as count adjustments, and the cancel of the load. For the file steps the run log of the upload step records the SHA-256 of the file; the code binds no hash between the check and the load (docs/runbooks/stock-workbook-import.md: 'No hash or file binding'), so 'check-then-load with the SHA' is the SAME file sent twice with the same SHA-256 in the log, not a server-side check. Precondition: the item has a balance row at the place for the responsible person (the unit is read from it) and no other responsible person holds stock of the item at that place; no count order is open over the place; the count rule is OFF (if ON the quick count answers an issued document and the walk fails on purpose).",
+  "tenant": "${tenant}",
+  "inputs": ["item", "place", "org_unit", "responsible"],
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {"admin": "sss-rehearsal2-admin", "storekeeper": "sss-rehearsal2-storekeeper"},
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200},
+      "save": {
+        "balance_before": {"pick": "$.rows[0].quantity", "default": "0"},
+        "uom": {"pick": "$.rows[0].unit_ref", "if_unset": true}
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/stock-workbook"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/stock-workbook/imports"},
+      "expect": {"status": 200},
+      "save": {"first_load_before": {"pick": "$.rows[0].document_id", "default": "none"}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "blocked_by": "runner gap, owner: the operator (human-only row): a raw xlsx request body. The check route reads the file as the whole body of media type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; the runner's upload step sends multipart/form-data and gets xlsx_unreadable. The file is the export of s1 edited so that the item at the place has quantity balance_before + 5, one row has a negative quantity (remark, only that article left out) and one row an unknown article (remark, row skipped)",
+      "do": {"upload": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/check?org_unit_id=${org_unit}", "field": "file", "file": "generated/client1/03-items-01.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "blocked_by": "same runner gap as s3 (the same file, the same SHA-256 in the run log, goes to the load route); owner: the operator",
+      "do": {"upload": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}&file_name=uat-${run_id}.xlsx", "field": "file", "file": "generated/client1/03-items-01.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}},
+      "expect": {"status": 201},
+      "save": {"load_doc_id": "$.document_id", "approve_task_id": "$.approve_task_id"}
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "blocked_by": "needs the load of s4; owner: the operator",
+      "do": {
+        "wait_task": {"for_document": "${load_doc_id}", "step": "approve", "within_s": 30},
+        "claim": true,
+        "complete": {"body": {}}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/quick-counts",
+        "body": {
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "catalog_item_id": "${item}",
+          "catalog_uom_id": "${uom}",
+          "counted_quantity": "${balance_before + 1}",
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id}"
+        }
+      },
+      "expect": {"status": 201, "json": {"state": "posted"}},
+      "save": {"doc_id": "$.id", "posted_doc_id": "$.id"}
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/documents/${doc_id}"},
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "$.lines[0].book_quantity": {"equals": "${balance_before}"},
+          "$.lines[0].counted_quantity": {"equals": "${balance_before + 1}"},
+          "$.lines[0].difference": {"equals": "1"},
+          "entry_id": {"exists": true}
+        }
+      },
+      "save": {"entry_id": "$.entry_id"}
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_before + 1}"}}},
+      "save": {"balance_after": "$.rows[0].quantity"}
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}", "body": {}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/stock-workbook/imports"},
+      "expect": {"status": 200, "json": {"$.rows[0].document_id": {"equals": "${first_load_before}", "default": "none"}}}
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"}},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_after}"}}}
+    }
+  ],
+  "outputs": {
+    "count_doc_id": "${doc_id}",
+    "count_entry_id": "${entry_id}",
+    "difference": "1",
+    "balance_after": "${balance_after}",
+    "first_load_id": "${first_load_before}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["posted_doc_id"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc_id}/reverse",
+        "body": {"reason_code": "other", "reason_text": "UAT ${run_id} cleanup of BP-11"}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": ["posted_doc_id"],
+      "do": {
+        "wait_task": {"for_document": "${posted_doc_id}", "step": "reverse", "within_s": 30},
+        "claim": true,
+        "complete": {"body": {}}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": ["posted_doc_id"],
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200, "json": {"$.rows[0].quantity": {"equals": "${balance_before}", "default": "0"}}},
+      "save": {"balance_end": {"pick": "$.rows[0].quantity", "default": "0"}}
+    }
+  ]
+}
