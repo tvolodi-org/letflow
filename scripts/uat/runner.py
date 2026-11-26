@@ -1112,7 +1112,7 @@ class Runner:
                     label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
                 if refusal and 200 <= status < 300:
                     # a refusal test that got a 2xx: a tenant WAS created, name it
-                    label += f" (a tenant was created: slug {create.get('slug') or '<none>'}; it is residue)"
+                    label += self._retire_created_tenant(step, create, body, record)
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1191,6 +1191,29 @@ class Runner:
         except RunnerError:
             return None  # a name nobody gave: the step itself fails with that error
         return None
+
+    def _retire_created_tenant(self, step, create, body, record) -> str:
+        """A refusal step got a 2xx: a tenant WAS created. Read its slug from the ANSWER (the request body of a
+        probe such as {} names none), record it on the step line and deactivate it right away (the same route the
+        cleanup of BP-PLATFORM-01 uses); the residue check stays the second net. Returns the text for the label."""
+        slug = None
+        if isinstance(body, dict):
+            inner = body.get("tenant") if isinstance(body.get("tenant"), dict) else {}
+            for cand in (body.get("slug"), inner.get("slug"), create.get("slug")):
+                if isinstance(cand, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", cand):
+                    slug = cand
+                    break
+        if slug is None:
+            return " (a tenant was created but the answer names no slug: it cannot be retired, find it in the registry)"
+        record["created_tenant"] = slug
+        try:
+            status, _, _ = self.request(step.get("actor"), "POST", f"{TENANT_REGISTRY_PATH}/{slug}/deactivate", {})
+            retired = 200 <= status < 300
+        except RunnerError:
+            retired = False
+        record["created_tenant_retired"] = retired
+        return f" (a tenant was created: slug {slug}; " + ("retired by the runner (deactivated)" if retired else
+                                                           "the deactivate FAILED: it is residue") + ")"
 
     @staticmethod
     def _is_refusal_step(step) -> bool:
