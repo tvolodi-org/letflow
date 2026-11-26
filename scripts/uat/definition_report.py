@@ -108,3 +108,66 @@ def main(args, runner, out=None) -> int:
         json.dumps({"tenant": args.tenant, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows},
                    indent=2, sort_keys=True), encoding="utf-8")
     return 0
+
+
+# -- the shared run path (T-2992): a baseline at the start of the stock leg, a report on the first 409 ------------
+
+TIMEOUT_S = 60
+
+
+class _AdminView:
+    """list_definitions asks for the role "admin"; the run may call its administrator by another role name."""
+
+    def __init__(self, run, role):
+        self.run, self.role = run, role
+
+    def request(self, _role, method, path, *args, **kwargs):
+        return self.run.request(self.role, method, path, *args, **kwargs)
+
+
+def admin_role(actors):
+    if "admin" in actors:
+        return "admin"
+    return next((r for r in actors if "admin" in r.lower() and "platform" not in r.lower()), None)
+
+
+def capture(run, kind, runner):
+    """-> (path or None, note). Read-only, bounded by TIMEOUT_S, never raises: a failure is a note, not a verdict."""
+    import threading
+
+    tenant = run.tenant
+    if kind not in ("before", "after"):
+        raise ValueError(kind)
+    try:
+        role = admin_role(run.actors)
+        if not role:
+            return None, f"{tenant}: no admin actor in the plan, no definition report"
+        guard(tenant, run.actor_spec(role).get("user") or "", run.base_url, runner)
+        box = {}
+
+        def work():
+            try:
+                box["rows"] = list_definitions(_AdminView(run, role))
+            except BaseException as err:  # noqa: BLE001 - reported as a note
+                box["err"] = err
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        thread.join(TIMEOUT_S)
+        if thread.is_alive():
+            return None, f"{tenant}: definition report ({kind}) timed out after {TIMEOUT_S} s"
+        if "err" in box:
+            return None, f"{tenant}: definition report ({kind}) failed: {box['err']}"
+        rows = box["rows"]
+        result = verdicts(rows)
+        base = f"definition_report_{kind}"
+        name = base + ".json"
+        if (run.run_dir / name).exists() or name in getattr(run, "_definition_names", set()):
+            name = f"{base}.{tenant}.json"
+        run._definition_names = getattr(run, "_definition_names", set()) | {name}
+        run._atomic_write(name, json.dumps(
+            {"tenant": tenant, "kind": kind, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows},
+            indent=2, sort_keys=True))
+        return str((run.run_dir / name).resolve()), None
+    except Exception as err:  # noqa: BLE001
+        return None, f"{tenant}: definition report ({kind}) failed: {err}"
