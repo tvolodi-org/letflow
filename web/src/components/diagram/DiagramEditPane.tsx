@@ -166,8 +166,9 @@ export function DiagramEditPane({ def, editorDirty, justSaved, onDirtyChange, on
     return all.map((v) => (v.code === 'step_mapping_variable_undeclared' ? { ...v, message: `${v.message}. ${intl.formatMessage({ id: 'processDiagram.edit.vars.undeclaredFix' })}` } : v))
   }, [check, saveProblems, draft.graph, intl])
   const blocking = violations.filter(isBlocking)
-  // The saved draft's open problems (all of them: activation refuses what the live check only warns about).
-  const savedProblems = savedTick && !draft.dirty && !error ? violations.length : 0
+  // The saved draft's open problems (all of them: activation refuses what the live check only warns about). Counted for any
+  // clean server-backed draft, also one opened without saving in this mount; savedTick only controls the banner.
+  const savedProblems = isDraftDef && !editorDirty && !draft.dirty && !error ? violations.length : 0
   useEffect(() => onProblemsChange?.(savedProblems), [savedProblems, onProblemsChange])
   useEffect(() => () => onProblemsChange?.(0), [onProblemsChange])
 
