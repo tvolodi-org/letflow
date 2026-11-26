@@ -59,6 +59,7 @@ defmodule Letflow.Instances.StepRetry do
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Dlq.Entry
   alias Letflow.Engine
+  alias Letflow.Engine.NotifyStepRunner
   alias Letflow.Engine.Reconstruction
   alias Letflow.EventStore
   alias Letflow.NotificationSteps.Dispatcher, as: NotifyDispatcher
@@ -269,7 +270,11 @@ defmodule Letflow.Instances.StepRetry do
   defp fetch_dispatch(instance_id, node_id, prefix) do
     query =
       StepDispatch
-      |> where([d], d.instance_id == ^instance_id and d.node_id == ^node_id)
+      |> where(
+        [d],
+        d.instance_id == ^instance_id and d.node_id == ^node_id and
+          d.function_name != ^NotifyStepRunner.function_name()
+      )
       |> order_by([d], desc: d.created_at, desc: d.id)
       |> limit(1)
 
@@ -289,7 +294,11 @@ defmodule Letflow.Instances.StepRetry do
   defp failed_platform_dispatch(instance_id, prefix) do
     query =
       StepDispatch
-      |> where([d], d.instance_id == ^instance_id and d.status == :given_up)
+      |> where(
+        [d],
+        d.instance_id == ^instance_id and d.status == :given_up and
+          d.function_name != ^NotifyStepRunner.function_name()
+      )
       |> order_by([d], desc: d.created_at, desc: d.id)
       |> limit(1)
 
@@ -328,7 +337,25 @@ defmodule Letflow.Instances.StepRetry do
     end
   end
 
+  # T-2810: a step the ENGINE ran has its own row; its retry re-runs that row and resumes the
+  # instance. A step with no row (run by a caller outside the engine) is sent directly.
   defp run_notify(instance_id, node_id, declaration, prefix) do
+    case NotifyStepRunner.fetch_row(instance_id, node_id, prefix) do
+      %StepDispatch{} = row ->
+        case NotifyStepRunner.retry(row, prefix) do
+          {:ok, %{status: status, reason: reason}} ->
+            {:ok, %{kind: :notify, node_id: node_id, status: status, reason: reason}}
+
+          {:error, code} ->
+            {:error, code}
+        end
+
+      nil ->
+        run_notify_direct(instance_id, node_id, declaration, prefix)
+    end
+  end
+
+  defp run_notify_direct(instance_id, node_id, declaration, prefix) do
     with {:ok, state} <- instance_state(instance_id, prefix) do
       case NotifyDispatcher.retry(declaration, state.variables,
              prefix: prefix,
@@ -376,7 +403,10 @@ defmodule Letflow.Instances.StepRetry do
   # The `notify` declaration of the node, read out of the instance's OWN
   # definition snapshot -- the graph the instance runs, not the definition's
   # current version.
-  defp notify_declaration(instance_id, node_id, prefix) do
+  @doc false
+  @spec notify_declaration(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, term()} | {:error, atom()}
+  def notify_declaration(instance_id, node_id, prefix) do
     with {:ok, snapshot} <- SnapshotStore.get_by_instance_id(instance_id, prefix: prefix),
          {:ok, nodes} <- graph_nodes(snapshot.graph),
          {:ok, node} <- fetch_node(nodes, node_id),

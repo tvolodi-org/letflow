@@ -101,7 +101,10 @@ defmodule Letflow.Signup.RealmProvisioner do
       # Always a demo tenant: production is never provisioned from public sign-up (T-1567 P14).
       tier: "demo",
       owner_email: request.email,
-      hostname: label(tenant_id) <> "." <> to_string(cfg.hostname_domain)
+      # T-2748: the host the visitor signs in at (chosen slug, else the derived label), so the realm template
+      # registers exactly that callback and web origin.
+      hostname:
+        (Map.get(request, :slug) || label(tenant_id)) <> "." <> to_string(cfg.hostname_domain)
     }
 
     with {:ok, base, token} <- target(cfg),

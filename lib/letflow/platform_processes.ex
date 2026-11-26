@@ -44,7 +44,9 @@ defmodule Letflow.PlatformProcesses do
   that renames one of them cannot be started from the screen.
   """
 
+  alias Letflow.Definitions
   alias Letflow.Engine
+  alias Letflow.PlatformProcesses.SystemStart
   alias Letflow.PlatformTenant
 
   @doc """
@@ -120,7 +122,8 @@ defmodule Letflow.PlatformProcesses do
          {:ok, platform_prefix} <- PlatformTenant.platform_prefix() do
       attrs = %{
         definition_name: register_tenant_definition_name(),
-        initial_variables: register_tenant_variables(form),
+        initial_variables:
+          operator_variables(form, platform_prefix, register_tenant_start_key(form)),
         actor_id: actor_id,
         idempotency_key: idempotency_key
       }
@@ -135,12 +138,177 @@ defmodule Letflow.PlatformProcesses do
     end
   end
 
+  # The operator start's variables, version-aware (design section 1). The v2 keys
+  # (`tenant_type`, `notify_admin`) travel only when the definition version the start runs
+  # declares them: the ACTIVE version for a new start, the ORIGINAL start's version for a replay
+  # (the replay must compare equal to the first start's variables). `notify_admin` is true only
+  # when an `admin_email` was supplied.
+  defp operator_variables(form, prefix, key) do
+    base = register_tenant_variables(form)
+
+    v2 =
+      form
+      |> Map.take([:tenant_type])
+      |> Enum.reduce(%{"notify_admin" => present?(Map.get(form, :admin_email))}, fn
+        {:tenant_type, value}, acc when is_binary(value) and value != "" ->
+          Map.put(acc, "tenant_type", value)
+
+        _other, acc ->
+          acc
+      end)
+
+    case declared_keys(prefix, key) do
+      {:ok, keys} -> Map.merge(base, Map.take(v2, keys))
+      :error -> base
+    end
+  end
+
+  @doc """
+  Whether the ACTIVE registration definition declares the `tenant_type` input (v2). A route that
+  receives a `tenant_type` refuses it with 422 when this is false (v1), instead of dropping it.
+  """
+  @spec register_tenant_accepts_tenant_type?() :: boolean()
+  def register_tenant_accepts_tenant_type? do
+    with {:ok, prefix} <- PlatformTenant.platform_prefix(),
+         {:ok, keys} <-
+           declared_keys(prefix, "register-tenant:none-" <> Ecto.UUID.generate()) do
+      "tenant_type" in keys
+    else
+      _other -> false
+    end
+  end
+
+  defp present?(value), do: is_binary(value) and value != ""
+
+  defp declared_keys(prefix, key) do
+    definition_ref =
+      case Letflow.Engine.IdempotentReplay.lookup(key, prefix) do
+        {:ok, original} -> {:id, Map.get(original.payload || %{}, "definition_id")}
+        _none -> {:name, register_tenant_definition_name()}
+      end
+
+    result =
+      case definition_ref do
+        {:id, id} when is_binary(id) -> Definitions.get_by_id(id, prefix: prefix)
+        {:id, _} -> {:error, :not_found}
+        {:name, name} -> Definitions.get_active_by_name(name, prefix: prefix)
+      end
+
+    with {:ok, definition} <- result,
+         {:ok, entries} <- Definitions.variable_schema_entries(definition.id, prefix: prefix) do
+      {:ok, Enum.map(entries, & &1.variable_key)}
+    else
+      _other -> :error
+    end
+  end
+
   # A required option, read without raising: a missing or empty value is a
   # typed error the caller can answer (INV-8).
   defp fetch_opt(opts, key) do
     case Keyword.get(opts, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _missing -> {:error, :"missing_#{key}"}
+    end
+  end
+
+  @doc """
+  The start variables of a SYSTEM start (routes 3 and 4), built from the map
+  `Letflow.TenantProvisioner.Request.parse/1` returns (`docs/platform-register-tenant-v2.md` section
+  1). This and `register_tenant_variables/1` are the only places that name start variables: no request
+  body field reaches the variables under a name this function did not choose.
+
+  `tier`, `language`, `expires_at` and both digests are NOT variables: they live in the admission row.
+  `notify_admin` is always `false` here (the provisioner sends no mail).
+  """
+  @spec register_tenant_system_variables(map()) :: map()
+  def register_tenant_system_variables(request) when is_map(request) do
+    tenant_id = Map.get(request, :tenant_id)
+
+    %{"notify_admin" => false}
+    |> put_present("slug", slug_of(tenant_id))
+    |> put_present("name", Map.get(request, :name))
+    |> put_present("requested_tenant_id", tenant_id)
+    |> put_present("hostname", Map.get(request, :hostname))
+    |> put_present("realm_id", Map.get(request, :idp_realm_id))
+    |> put_present("admin_email", Map.get(request, :email_key))
+  end
+
+  defp slug_of(id) when is_binary(id), do: "t-" <> String.replace(id, "-", "")
+  defp slug_of(_other), do: nil
+
+  @doc """
+  Starts the active registration definition with the narrow SYSTEM authority (T-2727, pilot gap G17c;
+  decision record 0094, Update "The system-authority start").
+
+  `system_start` is a `%Letflow.PlatformProcesses.SystemStart{}` the server built with
+  `SystemStart.for_route/1`. The engine admits it for the registration definition only, in the platform
+  prefix only (`Letflow.Definitions.StartPermission.check/4`); the audit row carries
+  `actor_kind: "system"` and the route. The actor is the platform sentinel, the prefix is the platform
+  prefix and never the caller's.
+
+  Answers `{:ok, create_result}`, `{:error, :not_found}` (not admitted, or no active definition),
+  `{:error, :platform_tenant_not_configured}`, `{:error, :register_tenant_v2_missing}` (the active
+  version does not carry the v2 contract; checked before the start, NEW starts only), or the engine's
+  own error tuple. Never raises (INV-8).
+  """
+  @spec start_register_tenant_system(map(), SystemStart.t(), keyword()) ::
+          {:ok, Engine.create_result()} | {:error, term()}
+  def start_register_tenant_system(request, %SystemStart{} = system_start, opts)
+      when is_map(request) and is_list(opts) do
+    variables = register_tenant_system_variables(request)
+
+    with {:ok, slug} <- fetch_slug(variables),
+         {:ok, platform_prefix} <- platform_prefix(),
+         :ok <- v2_contract(platform_prefix, register_tenant_start_key(%{slug: slug})) do
+      attrs = %{
+        definition_name: register_tenant_definition_name(),
+        initial_variables: variables,
+        actor_id: Letflow.EventStore.platform_actor_id(),
+        idempotency_key: register_tenant_start_key(%{slug: slug})
+      }
+
+      Engine.create(attrs, prefix: platform_prefix, auth_context: nil, system_start: system_start)
+    end
+  end
+
+  def start_register_tenant_system(_request, _system_start, _opts), do: {:error, :not_found}
+
+  defp fetch_slug(%{"slug" => slug}) when is_binary(slug), do: {:ok, slug}
+  defp fetch_slug(_variables), do: {:error, :invalid_request}
+
+  defp platform_prefix do
+    case PlatformTenant.platform_prefix() do
+      {:ok, prefix} -> {:ok, prefix}
+      _other -> {:error, :platform_tenant_not_configured}
+    end
+  end
+
+  # The active version must carry the v2 contract; a wrong version fails CLOSED with a log line that
+  # names the tag only.
+  defp v2_contract(prefix, key) do
+    # An existing start is answered from the ledger by the engine, before the definition lookup: it
+    # needs no contract check (the first start passed it).
+    case Letflow.Engine.IdempotentReplay.lookup(key, prefix) do
+      {:ok, _original} -> :ok
+      _none -> check_v2_contract(prefix)
+    end
+  end
+
+  defp check_v2_contract(prefix) do
+    with {:ok, active} <-
+           Definitions.get_active_by_name(register_tenant_definition_name(), prefix: prefix),
+         {:ok, entries} <- Definitions.variable_schema_entries(active.id, prefix: prefix),
+         keys = Enum.map(entries, & &1.variable_key),
+         true <- Enum.all?(["requested_tenant_id", "tenant_type", "notify_admin"], &(&1 in keys)) do
+      :ok
+    else
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      _other ->
+        require Logger
+        Logger.error("register_tenant_v2_missing")
+        {:error, :register_tenant_v2_missing}
     end
   end
 end

@@ -4,7 +4,7 @@
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
-import { CARD_ACTIONS, newDocumentHref, selectionActionState, type CardFacts } from './cardActions'
+import { CARD_DOCUMENT_ACTIONS, newDocumentHref, selectionActionState, type CardFacts } from './cardActions'
 import { MAX_LINES } from './documents/documentForm'
 
 export function AssetCardSelectionBar(props: {
@@ -19,7 +19,7 @@ export function AssetCardSelectionBar(props: {
   return (
     <div role="region" aria-label={t('assets.cardActions.select.bar')} data-testid="card-selection-bar" className="lf-toolbar">
       <span>{t('assets.cardActions.select.count', { count: chosen.length })}</span>
-      {CARD_ACTIONS.map((action) => {
+      {CARD_DOCUMENT_ACTIONS.map((action) => {
         const state = selectionActionState(action.id, items)
         const disabled = !state.allowed
         const blockedMsg = disabled
@@ -35,7 +35,7 @@ export function AssetCardSelectionBar(props: {
               disabled={disabled}
               title={blockedMsg}
               data-testid={`card-bulk-${action.id}`}
-              onClick={() => navigate(newDocumentHref(action.kind, chosen.map((c) => c.id)))}
+              onClick={() => navigate(newDocumentHref(action.kind ?? '', chosen.map((c) => c.id)))}
             >
               {t(action.labelId)}
             </Button>

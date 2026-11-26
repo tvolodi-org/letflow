@@ -3,7 +3,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
   The SEED of the pilot's registration definition (T-2595, gap G9 of the
   "Register a tenant" pilot).
 
-  The seed writes `platform.register_tenant` v1 into the PLATFORM tenant as an
+  The seed writes `platform.register_tenant` v2 (T-2727) into the PLATFORM tenant as an
   ordinary, unstamped, editable definition, switches it on with the authority
   of a real platform administrator, and never overwrites a version an
   administrator already made.
@@ -20,7 +20,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
   alias Letflow.Definitions
   alias Letflow.Definitions.Activator
   alias Letflow.Definitions.ProcessDefinition
-  alias Letflow.PlatformProcesses.Definition
+  alias Letflow.PlatformProcesses.DefinitionV2, as: Definition
   alias Letflow.PlatformProcesses.Seed
   alias Letflow.Repo
   alias Letflow.Support.PlatformCallFixture, as: Fx
@@ -39,11 +39,11 @@ defmodule Letflow.PlatformProcesses.SeedTest do
   end
 
   test "the seed writes the definition into the platform tenant and switches it on", ctx do
-    assert {:ok, %{outcome: :created, definition: definition, version: "1"}} =
+    assert {:ok, %{outcome: :created, definition: definition, version: "2"}} =
              Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
 
     assert definition.name == "platform.register_tenant"
-    assert definition.version == "1"
+    assert definition.version == "2"
     assert definition.status == :active
     assert definition.graph == Definition.graph()
     assert definition.start_permission == "TenantsManage"
@@ -74,7 +74,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.create_with_variable_schemas(
                %{
                  name: "platform.register_tenant",
-                 version: "2",
+                 version: "3",
                  graph: Definition.graph(),
                  created_by: ctx.admin.id
                },
@@ -97,7 +97,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
     assert {:ok, %{outcome: :created}} =
              Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
 
-    assert {:ok, %{outcome: :already_present, version: "1"}} =
+    assert {:ok, %{outcome: :already_present, version: "2"}} =
              Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
 
     rows =
@@ -109,7 +109,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
         prefix: ctx.tenant.schema_name
       )
 
-    assert rows == ["1"]
+    assert rows == ["2"]
   end
 
   test "the seed never replaces a NEWER version an administrator made", ctx do
@@ -189,7 +189,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.create_with_variable_schemas(
                %{
                  name: "platform.register_tenant",
-                 version: "1",
+                 version: "2",
                  graph: Definition.graph(),
                  created_by: ctx.admin.id
                },
@@ -204,7 +204,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.create_with_variable_schemas(
                %{
                  name: "platform.register_tenant",
-                 version: "2",
+                 version: "3",
                  graph: simple_graph(),
                  created_by: ctx.admin.id
                },
@@ -216,7 +216,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.activate(theirs.id, prefix: ctx.tenant.schema_name)
 
     # the seed must not switch its own OLDER draft on over that version
-    assert {:ok, %{outcome: :newer_version_kept, version: "2"}} =
+    assert {:ok, %{outcome: :newer_version_kept, version: "3"}} =
              Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
 
     # the administrator's newer version is still the one that runs
@@ -225,7 +225,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
                prefix: ctx.tenant.schema_name
              )
 
-    assert active.version == "2"
+    assert active.version == "3"
 
     # and the seed wrote nothing: its own draft is still a draft
     rows =
@@ -237,7 +237,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
         prefix: ctx.tenant.schema_name
       )
 
-    assert Enum.sort(rows) == [{"1", :draft}, {"2", :active}]
+    assert Enum.sort(rows) == [{"2", :draft}, {"3", :active}]
   end
 
   test "the seed keeps an existing version of the key and writes nothing", ctx do
@@ -247,7 +247,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.create_with_variable_schemas(
                %{
                  name: "platform.register_tenant",
-                 version: "1",
+                 version: "2",
                  graph: simple_graph(),
                  created_by: ctx.admin.id
                },
@@ -255,7 +255,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
                prefix: ctx.tenant.schema_name
              )
 
-    assert {:ok, %{outcome: :already_present}} =
+    assert {:ok, %{outcome: :version_taken}} =
              Seed.seed(prefix: ctx.tenant.schema_name, activator_user_id: ctx.admin.id)
 
     rows =
@@ -267,7 +267,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
         prefix: ctx.tenant.schema_name
       )
 
-    assert rows == [{"1", :draft}]
+    assert rows == [{"2", :draft}]
   end
 
   test "the seed finishes its own unfinished switch-on, and leaves an administrator's draft alone",
@@ -278,7 +278,7 @@ defmodule Letflow.PlatformProcesses.SeedTest do
              Definitions.create_with_variable_schemas(
                %{
                  name: "platform.register_tenant",
-                 version: "1",
+                 version: "2",
                  graph: Definition.graph(),
                  created_by: ctx.admin.id
                },

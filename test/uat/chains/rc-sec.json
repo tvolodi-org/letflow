@@ -1,0 +1,145 @@
+{
+  "id": "rc-sec",
+  "title": "Release candidate run for the security processes (identity, assets, old app, stock): every SEC process on one build",
+  "cleanup": "per_process",
+  "tenant": "qoimeks-qa2",
+  "actors": {
+    "admin": "qoimeks-qa2-admin",
+    "storekeeper": "qoimeks-qa2-storekeeper"
+  },
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "processes": [
+    {
+      "process": "SEC-ASSETS-01",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ASSETS-02",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ASSETS-03",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ASSETS-04",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-01",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-02",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-03",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-04",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-05",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-06",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-07",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-ID-08",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-01",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-02",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-03",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-04",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-05",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-06",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-07",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-08",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-OLD-09",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-01",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-03",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-04",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-05",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-06",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-09",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-10",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-11",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-07",
+      "dry_run": true
+    },
+    {
+      "process": "SEC-STOCK-08",
+      "dry_run": true
+    }
+  ],
+  "pass": {}
+}

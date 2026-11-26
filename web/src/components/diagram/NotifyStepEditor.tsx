@@ -21,6 +21,11 @@ import { useIntl } from 'react-intl'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
+import { useDeclaredVariables } from './DeclaredVariablesContext'
+import { VariablePicker } from './VariablePicker'
+import { useGuideStore } from '@/stores/guideStore'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 import type { ApiError, NotificationTemplateEntry } from '@/types/api'
 import {
   fileNameProblem,
@@ -67,6 +72,7 @@ const SOURCE_OPTIONS: { value: string; labelKey: string }[] = [
 export function NotifyStepEditor({ step, catalogue, onChange }: NotifyStepEditorProps) {
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
+  const guideLabel = definitionsMessages[useUiLocale()].guideNotifyLink
   const { entries, loading, error, onRetry } = catalogue
   const entry = entries.find((x) => x.template_key === step.templateKey) ?? null
   const placeholders = entry ? entry.placeholders : null
@@ -123,6 +129,9 @@ export function NotifyStepEditor({ step, catalogue, onChange }: NotifyStepEditor
 
   return (
     <div className="lf-pd-edit__notify" data-testid="notify-step-editor">
+      <Button variant="secondary" size="sm" data-testid="notify-guide-link" onClick={() => useGuideStore.getState().openGuide('sec-notification-step')}>
+        {guideLabel}
+      </Button>
       <Select
         label={e('processDiagram.edit.notify.channel')}
         value={step.channel}
@@ -177,12 +186,26 @@ interface NotifyFieldProps {
 function NotifyRecipientField({ step, onChange, problem }: NotifyFieldProps) {
   const intl = useIntl()
   const e = (id: string) => intl.formatMessage({ id })
+  const declared = useDeclaredVariables()
   const [text, setText] = useState(step.recipientVar)
   const [touched, setTouched] = useState(false)
   const nameError = touched && text !== '' && !isUsableVariableName(text)
   const error = nameError
     ? e('processDiagram.edit.notify.variableError')
     : (problem('recipient_invalid') ?? problem('recipient_missing'))
+
+  if (declared) {
+    return (
+      <VariablePicker
+        label={e('processDiagram.edit.notify.recipient')}
+        hint={e('processDiagram.edit.notify.recipientHint')}
+        error={error}
+        value={step.recipientVar}
+        onPick={(name) => onChange({ ...step, recipientVar: name })}
+        testId="notify-step-recipient"
+      />
+    )
+  }
 
   return (
     <Field
@@ -242,6 +265,7 @@ function NotifyValueRow({ name, step, onChange }: NotifyFieldProps & { name: str
   const intl = useIntl()
   const e = (id: string) => intl.formatMessage({ id })
   const source = valueSource(step, name)
+  const declared = useDeclaredVariables()
   const [varText, setVarText] = useState(source && 'var' in source ? source.var : '')
   const [constText, setConstText] = useState(source && 'const' in source ? source.const : '')
   const [varTouched, setVarTouched] = useState(false)
@@ -269,7 +293,15 @@ function NotifyValueRow({ name, step, onChange }: NotifyFieldProps & { name: str
         onChange={changeSource}
         data-testid={`notify-value-source-${name}`}
       />
-      {source && 'var' in source && (
+      {source && 'var' in source && declared && (
+        <VariablePicker
+          label={e('processDiagram.edit.notify.variableName')}
+          value={source.var}
+          onPick={(picked) => onChange(withValue(step, name, { var: picked }))}
+          testId={`notify-value-var-${name}`}
+        />
+      )}
+      {source && 'var' in source && !declared && (
         <Field
           label={e('processDiagram.edit.notify.variableName')}
           width="m"
