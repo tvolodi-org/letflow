@@ -10,6 +10,8 @@ Checks (every problem is one line `ERROR <file>: <what>`):
   * status is implemented | partial | planned (planned needs a `requirement`; the other two need tasks with code_refs);
   * every code_ref `path:line` resolves: the file exists under the root and the line is within its length;
   * every `scenario` path exists, or is null;
+  * the optional `executed_by` of every entry: `direct` (the default) or `definition:<process_key>`; any
+    other form is an error, and a `definition:` value must name a process key;
   * COVERAGE: every item of `bp_inventory.py <area>` is referenced by at least one process task (code_refs /
     route / forms / functions, see docs/bp/README.md "How coverage is counted") OR is listed in the area's
     orphan file; the percentage per area is printed, and the exit code is 1 below 100%.
@@ -20,6 +22,10 @@ Checks (every problem is one line `ERROR <file>: <what>`):
 Areas: with no argument, every area that has a catalog or orphan file; `all` = every area (an area with no
 file then has 0% coverage and fails); or a list of area names. An area with an empty inventory has no items to
 cover (100%).
+
+The report counts, per area and for all areas together, how many processes are `direct` (a hard-coded route or
+function) and how many are `definition:` (the process runs as a BPM definition of the engine). The owner's rule
+D-175: a new business process is a definition, so the counts show how far the map has come.
 
 Exit code: 0 all fine, 1 an error or coverage below 100%, 2 usage. Standard library only; `--root DIR` points
 at another checkout; `--json` prints the result as JSON.
@@ -52,6 +58,20 @@ ENTRY_FIELDS = (
 )
 TASK_FIELDS = ("actor", "forms", "functions", "route", "code_refs", "result")
 REF_RE = re.compile(r"^(.+):(\d+)$")
+
+# The optional `executed_by` of an entry (D-175): who runs the process.
+#   `direct`            -- a hard-coded route or function (the default of every existing entry);
+#   `definition:<key>`  -- a BPM definition of the engine, named by its process key.
+# A missing field means `direct`: the existing maps are not rewritten by this tool.
+EXECUTED_BY_DIRECT = "direct"
+EXECUTED_BY_DEFINITION = "definition:"
+# A proof experiment (not a process the engine runs, e.g. the definition-drives-execution proof): counted apart.
+EXECUTED_BY_NA = "n/a"
+# A process key: the name of a definition (`stock_receipt`, `platform.register_tenant`). The
+# engine accepts any name of 1..255 characters; the tool refuses the shapes that could not
+# name a definition at all (spaces, a leading dot, an empty key).
+PROCESS_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
+MAX_PROCESS_KEY = 255
 
 
 def load_inventory_module():
@@ -100,6 +120,48 @@ def is_str_list(v) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
 
+def parse_executed_by(entry: dict) -> tuple[str | None, str | None, str | None]:
+    """The `executed_by` of an entry: (value, kind, problem).
+
+    The field is optional: a missing one means `direct` (D-175 -- the existing entries are
+    direct until they are migrated). `kind` is `direct`, `definition` or None when the value
+    is not one of the two allowed forms; then `problem` says why.
+    """
+    if "executed_by" not in entry:
+        return EXECUTED_BY_DIRECT, "direct", None
+    raw = entry["executed_by"]
+    if not isinstance(raw, str):
+        return None, None, "executed_by must be a text"
+    value = raw.strip()
+    if value == EXECUTED_BY_DIRECT:
+        return value, "direct", None
+    if value == EXECUTED_BY_NA:
+        return value, "n/a", None
+    if value.startswith(EXECUTED_BY_DEFINITION):
+        key = value[len(EXECUTED_BY_DEFINITION):]
+        if not key:
+            return value, None, "executed_by 'definition:' must name a process key"
+        if len(key) > MAX_PROCESS_KEY or not PROCESS_KEY_RE.fullmatch(key):
+            return value, None, (
+                f"executed_by {value!r} must name a process key "
+                "(letters, digits, '_', '-', '.', at most 255 characters)"
+            )
+        return value, "definition", None
+    return value, None, (
+        f"executed_by {value!r} must be {EXECUTED_BY_DIRECT!r}, {EXECUTED_BY_NA!r} or 'definition:<process_key>'"
+    )
+
+
+def executed_by_counts(entries: list[dict]) -> dict[str, int]:
+    """How many entries are `direct` and how many are `definition:` (a wrong form counts as neither)."""
+    counts = {"direct": 0, "definition": 0, "n/a": 0}
+    for entry in entries:
+        _value, kind, _problem = parse_executed_by(entry)
+        if kind in counts:
+            counts[kind] += 1
+    return counts
+
+
 def validate_entry(root: Path, fname: str, area: str, e, errors: list[str]) -> None:
     if not isinstance(e, dict):
         errors.append(f"ERROR {fname}: an entry is not an object")
@@ -132,6 +194,9 @@ def validate_entry(root: Path, fname: str, area: str, e, errors: list[str]) -> N
         errors.append(f"ERROR {where}: status {status!r} is not one of {', '.join(STATUSES)}")
     if status == "planned" and not (isinstance(e.get("requirement"), str) and e["requirement"].strip()):
         errors.append(f"ERROR {where}: a planned process names its `requirement`")
+    _executed_by, _kind, problem = parse_executed_by(e)
+    if problem:
+        errors.append(f"ERROR {where}: {problem}")
     scenario = e.get("scenario", None)
     if "scenario" in e and scenario is not None:
         if not isinstance(scenario, str) or not (root / scenario).is_file():
@@ -274,6 +339,50 @@ def check_area(root: Path, area: str, entries: list[dict], orphans: list[dict], 
             "missing": [{"id": m["id"], "path": m["path"], "line": m["line"], "name": m["name"]} for m in missing]}
 
 
+CHAINS = ("rc-sss", "rc-sec")
+
+
+def check_chain_coverage(root: Path, errors: list[str]) -> None:
+    """Every test/uat/processes/SEC-*.json is listed in exactly one of the two release-candidate chains.
+
+    An entry is a string or an object with a `process` key; it names a file by its id or by the id plus `-<slug>`
+    (the same resolution the chain runner uses). A chain entry that names no process file fails too.
+    """
+    proc_dir = root / "test/uat/processes"
+    chain_dir = root / "test/uat/chains"
+    sec = sorted(f.stem for f in proc_dir.glob("SEC-*.json")) if proc_dir.is_dir() else []
+    if not sec and not any((chain_dir / f"{c}.json").is_file() for c in CHAINS):
+        return
+    all_stems = sorted(f.stem for f in proc_dir.glob("*.json")) if proc_dir.is_dir() else []
+    listed: dict[str, list[str]] = {s: [] for s in sec}
+    for chain in CHAINS:
+        path = chain_dir / f"{chain}.json"
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            errors.append(f"ERROR test/uat/chains/{chain}.json: unreadable ({exc})")
+            continue
+        entries = doc.get("processes") if isinstance(doc, dict) else None
+        for e in entries if isinstance(entries, list) else []:
+            name = e if isinstance(e, str) else (e.get("process") if isinstance(e, dict) else None)
+            if not isinstance(name, str):
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {e!r} names no process")
+                continue
+            hits = [s for s in all_stems if s == name or s.startswith(name + "-")]
+            if not hits:
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {name} names no file in test/uat/processes")
+            for s in hits:
+                if s in listed:
+                    listed[s].append(chain)
+    for s, chains in listed.items():
+        if not chains:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in none of {', '.join(CHAINS)} (exactly one required)")
+        elif len(chains) > 1:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in more than one chain ({', '.join(chains)}); exactly one required")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("areas", nargs="*", help="area names, or `all` (default: areas that have a file)")
@@ -314,14 +423,21 @@ def main(argv: list[str] | None = None) -> int:
                 if eid in ids:
                     errors.append(f"ERROR docs/bp/{a}.json: id {eid} is already used in {ids[eid]}")
                 ids[eid] = f"docs/bp/{a}.json"
+    check_chain_coverage(root, errors)
     every_entry = [e for es in all_entries.values() for e in es]
     for a in areas:
         orphans = parse_orphans(root, a, errors)
-        results.append(check_area(root, a, every_entry, orphans, errors))
+        result = check_area(root, a, every_entry, orphans, errors)
+        result["executed_by"] = executed_by_counts(all_entries[a])
+        results.append(result)
+    totals = {"direct": 0, "definition": 0, "n/a": 0}
+    for r in results:
+        for kind in totals:
+            totals[kind] += r["executed_by"][kind]
 
     failed = bool(errors) or any(r["percent"] < 100.0 for r in results) or not areas
     if args.json:
-        print(json.dumps({"ok": not failed, "areas": results, "errors": errors}, indent=1))
+        print(json.dumps({"ok": not failed, "areas": results, "executed_by": totals, "errors": errors}, indent=1))
     else:
         if not areas:
             print("check_catalog: no catalog files under docs/bp/ (name an area, or `all`)")
@@ -331,6 +447,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  uncovered {m['name']}  ({m['path']}:{m['line']})")
             if len(r["missing"]) > args.max_missing:
                 print(f"  ... and {len(r['missing']) - args.max_missing} more (--max-missing)")
+            print(
+                f"EXECUTED BY {r['area']}: {r['executed_by']['direct']} direct, "
+                f"{r['executed_by']['definition']} definition"
+                + (f", {r['executed_by']['n/a']} n/a" if r["executed_by"]["n/a"] else "")
+            )
+        print(f"EXECUTED BY total: {totals['direct']} direct, {totals['definition']} definition"
+              + (f", {totals['n/a']} n/a" if totals["n/a"] else ""))
         for line in errors:
             print(line)
         print("check_catalog: " + ("FAIL" if failed else "PASS"))

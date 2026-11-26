@@ -57,6 +57,23 @@ defmodule Letflow.Plugs.ApiPipeline do
   admission plug and before `Plug.Parsers`: an address with too many failed credentials gets a
   429 with `retry-after` before any body is read.
 
+  ## Unreadable bodies (T-2658, security probe G-13)
+
+  `Plug.Parsers` raises four exceptions this pipeline answers itself (see
+  `handle_errors/2`): `RequestTooLargeError` (413, the constant code
+  `request_too_large` with the limit in bytes), `ParseError`/`BadEncodingError`
+  (400, "request body is not valid JSON") and `UnsupportedMediaTypeError` (415,
+  a constant detail). Before T-2658 the last two escaped the pipeline —
+  `Plug.ErrorHandler` re-raises whatever `handle_errors/2` returns — so every API
+  route answered a bare 500 for a malformed body or for a media type none of the
+  parsers claims. INV-8 wants a typed 4xx for a caller's own mistake, and the
+  details are constants: nothing from the request is echoed back (the same rule
+  the 413 answer of this handler already follows).
+
+  The parser raises before authentication, so these answers say nothing about the
+  caller's tenant, its resources or its permissions — the same reason the 413
+  above is safe to answer before the tenant is known.
+
   ## Deferred plugs (not yet declared — added by owning stage)
 
   PROVENANCE (historical, not current decision authority):
@@ -179,6 +196,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/ledger-settings", to: Letflow.Routers.LedgerSettings)
   forward("/notification-templates", to: Letflow.Routers.NotificationTemplates)
   forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries)
+  forward("/outbound-destinations", to: Letflow.Routers.OutboundDestinations)
   forward("/number-sequences", to: Letflow.Routers.NumberSequences)
   forward("/entity-type-extensions", to: Letflow.Routers.EntityTypeExtensions)
   forward("/entity-scope-declarations", to: Letflow.Routers.EntityScopeDeclarations)
@@ -251,6 +269,9 @@ defmodule Letflow.Plugs.ApiPipeline do
 
   forward("/instances", to: Letflow.Routers.Instances)
   forward("/definitions", to: Letflow.Routers.Definitions)
+  # T-2588 (pilot gap G2): the COMPILED platform function catalogue, read only.
+  # There is no write route: an entry exists only if it is compiled into the build.
+  forward("/platform-functions", to: Letflow.Routers.PlatformFunctions)
   forward("/tasks", to: Letflow.Routers.Tasks)
   forward("/documents", to: Letflow.Routers.Documents)
   forward("/promotions", to: Letflow.Routers.Promotions)
@@ -345,7 +366,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   #
   # Cleanup plumbing: returns conn unchanged for every error EXCEPT
   # Letflow.Api.Scope.ScopeSetError (REQ-518 SEC C-1), which gets the constant
-  # detail-free 500 (respond_scope_set_error/2 below). Plug.ErrorHandler's own
+  # detail-free 500 (respond_unhandled_error/2 below). Plug.ErrorHandler's own
   # generated call/2 unconditionally re-raises after this returns, so Bandit's
   # existing crash-response path is unaffected.
   @impl Plug.ErrorHandler
@@ -364,9 +385,37 @@ defmodule Letflow.Plugs.ApiPipeline do
 
     case reason do
       %Plug.Parsers.RequestTooLargeError{} -> respond_request_too_large(conn)
-      _ -> respond_scope_set_error(conn, reason)
+      %Plug.Parsers.ParseError{} -> respond_parse_error(conn)
+      %Plug.Parsers.BadEncodingError{} -> respond_parse_error(conn)
+      %Plug.Parsers.UnsupportedMediaTypeError{} -> respond_unsupported_media_type(conn)
+      _ -> respond_unhandled_error(conn, kind)
     end
   end
+
+  # T-2658 (security probe G-13): a body the parser cannot read is a CALLER error, not a crash.
+  # `Plug.Parsers` raises `Plug.Parsers.ParseError` for a malformed body (and
+  # `Plug.Parsers.BadEncodingError` for a body that is not valid UTF-8) and
+  # `Plug.Parsers.UnsupportedMediaTypeError` for a media type none of the parsers above claims;
+  # all three used to escape this pipeline (Plug.ErrorHandler re-raises whatever this handler
+  # returns), so the adapter answered a bare 500 for every API route — INV-8 wants a typed 4xx.
+  # The two answers are the ones the parser's own exception carries (`Plug.Exception.status/1`:
+  # 400 for a parse error, 415 for an unsupported media type) and their detail is a CONSTANT:
+  # nothing from the request is echoed back (the same rule the 413 answer below follows).
+  defp respond_parse_error(%Plug.Conn{state: state} = conn) when state in [:unset, :set] do
+    Letflow.Api.Response.bad_request(conn, "request body is not valid JSON")
+  end
+
+  defp respond_parse_error(conn), do: conn
+
+  defp respond_unsupported_media_type(%Plug.Conn{state: state} = conn)
+       when state in [:unset, :set] do
+    Letflow.Api.Response.unsupported_media_type(
+      conn,
+      "the request content type is not supported by this endpoint"
+    )
+  end
+
+  defp respond_unsupported_media_type(conn), do: conn
 
   # T-2328: the parser's own 413 (Plug.Parsers above) carries no body. Answer it once, here, for
   # every API route with the problem document and the constant code `request_too_large` plus the
@@ -399,17 +448,14 @@ defmodule Letflow.Plugs.ApiPipeline do
     end
   end
 
-  # REQ-518 SEC C-1: a failed allowed-node-set computation answers the SAME detail-free 500
-  # body as `Letflow.Api.Scope.Enforce`'s fail-closed path, not Bandit's crash response; the
-  # exception still propagates (Plug.ErrorHandler re-raises). Only for this one exception, and
-  # only while no response has been sent.
-  defp respond_scope_set_error(
-         %Plug.Conn{state: state} = conn,
-         %Letflow.Api.Scope.ScopeSetError{}
-       )
+  # REQ-518 SEC C-1 / T-2890 (INV-8): ANY unhandled exception answers the same constant, detail-free
+  # typed 500 problem document (code + trace_id from the conn), never Bandit's empty-body crash
+  # response (QA saw a bare 500 for DELETE /definitions/:id). Only while no response has been sent;
+  # the exception still propagates (Plug.ErrorHandler re-raises), so logging and capture are unchanged.
+  defp respond_unhandled_error(%Plug.Conn{state: state} = conn, :error)
        when state in [:unset, :set] do
     Letflow.Api.Response.internal_error(conn)
   end
 
-  defp respond_scope_set_error(conn, _reason), do: conn
+  defp respond_unhandled_error(conn, _kind), do: conn
 end

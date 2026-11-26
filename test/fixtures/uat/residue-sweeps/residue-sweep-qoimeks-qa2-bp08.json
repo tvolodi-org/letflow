@@ -1,0 +1,9 @@
+{
+  "description": "Residue found by the rc-sss rerun 20261126T071249Z-1a78e8 on qoimeks-qa2 (T-2884): the posted issue ISS-2026-000068. BP-08's own steps and cleanup reverse every movement they make (run.jsonl: s15 reversal 201, c1/c2 201), so this document was made by another session on the same tenant. The draft issue 14d85e37-139c-4efa-91bd-c639063059a1 is NOT listed: the sweep has no draft deletion (a runner task). Run once: python3 -B scripts/uat/runner.py residue-sweep test/uat/sweeps/residue-sweep-qoimeks-qa2-bp08.json --tenant qoimeks-qa2",
+  "tenant": "qoimeks-qa2",
+  "admin": "qoimeks-qa2-admin",
+  "documents": [
+    {"number": "ISS-2026-000068", "id": "8c8bb23c-a543-45b6-a726-12c5ac4a172f"}
+  ],
+  "tasks": []
+}

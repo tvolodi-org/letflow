@@ -58,6 +58,14 @@ defmodule Letflow.NotificationTemplates.Registry do
       body:
         "Hello {candidate_name}, your result for the exam {exam_title}: {result_status}, " <>
           "score {score_percent}%. {tenant_name}"
+    },
+    # T-2592 (pilot gap G4, the "Register a tenant" pilot): the template of the
+    # NOTIFICATION STEP. The step sends this key to an address read from a variable;
+    # the placeholders are display values only (no secret, no token, no credential).
+    "tenant_registered" => %{
+      placeholders: ~w(tenant_name tenant_slug registered_by),
+      subject: "Tenant {tenant_slug} is registered",
+      body: "Hello {registered_by}, the tenant {tenant_name} ({tenant_slug}) is registered."
     }
   }
 

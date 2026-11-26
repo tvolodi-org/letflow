@@ -522,6 +522,87 @@ defmodule Letflow.Routers.TasksTest do
     end
   end
 
+  describe "cursor issue-time regression" do
+    setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "cursor-issue-time")}
+
+    test "rows older than 24 hours remain pageable on tasks and inbox", %{tenant: tenant} do
+      tasks = for n <- 1..3, do: insert_task!(tenant, %{node_id: "old-#{n}"})
+      ids = Enum.map(tasks, & &1.id)
+
+      old =
+        DateTime.utc_now()
+        |> DateTime.add(-2 * 86_400, :second)
+        |> DateTime.truncate(:microsecond)
+
+      Repo.update_all(from(t in EngineTask, where: t.id in ^ids), [set: [inserted_at: old]],
+        prefix: tenant.schema_name
+      )
+
+      for {path, roles} <- [{"/", ["TENANT_ADMIN"]}, {"/inbox", ["PROCESS_OPERATOR"]}] do
+        first = build_conn(:get, "#{path}?page_size=1", tenant, roles: roles) |> dispatch()
+        assert first.status == 200
+        first_body = Jason.decode!(first.resp_body)
+        assert is_binary(first_body["next_cursor"])
+
+        second =
+          build_conn(
+            :get,
+            "#{path}?page_size=1&cursor=#{URI.encode_www_form(first_body["next_cursor"])}",
+            tenant,
+            roles: roles
+          )
+          |> dispatch()
+
+        assert second.status == 200
+        second_body = Jason.decode!(second.resp_body)
+        assert length(second_body["items"]) == 1
+        assert is_binary(second_body["next_cursor"])
+
+        third =
+          build_conn(
+            :get,
+            "#{path}?page_size=1&cursor=#{URI.encode_www_form(second_body["next_cursor"])}",
+            tenant,
+            roles: roles
+          )
+          |> dispatch()
+
+        assert third.status == 200
+        assert length(Jason.decode!(third.resp_body)["items"]) == 1
+      end
+    end
+
+    test "a fresh legacy seek-only cursor still decodes", %{tenant: tenant} do
+      tasks = for n <- 1..2, do: insert_task!(tenant, %{node_id: "legacy-#{n}"})
+
+      first = build_conn(:get, "/?page_size=1", tenant, roles: ["TENANT_ADMIN"]) |> dispatch()
+      assert first.status == 200
+      body = Jason.decode!(first.resp_body)
+      first_id = hd(item_ids(body))
+      first_task = Enum.find(tasks, &(&1.id == first_id))
+
+      legacy_cursor =
+        "T:"
+        |> Letflow.Api.Pagination.build_raw_cursor(
+          DateTime.to_unix(first_task.inserted_at, :microsecond),
+          first_task.id
+        )
+        |> Letflow.Api.Pagination.encode_cursor()
+
+      second =
+        build_conn(
+          :get,
+          "/?page_size=1&cursor=#{URI.encode_www_form(legacy_cursor)}",
+          tenant,
+          roles: ["TENANT_ADMIN"]
+        )
+        |> dispatch()
+
+      assert second.status == 200
+      assert length(Jason.decode!(second.resp_body)["items"]) == 1
+    end
+  end
+
   # ══════════════════════════════════════════════════════════════════════
   # AC2 -- inbox is per-principal: direct/group/role inclusion, different-
   # user exclusion. Four explicit assertions, not folded into one.

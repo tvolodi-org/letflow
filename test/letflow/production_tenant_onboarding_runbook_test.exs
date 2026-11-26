@@ -268,4 +268,52 @@ defmodule Letflow.ProductionTenantOnboardingRunbookTest do
     assert part =~ "Asia/Almaty"
     assert Reason.validate(@reason) == {:ok, @reason}
   end
+
+  test "R11 (T-2424): the fresh-tenant proof makes the count-row setup recommended and pins the screen remarks" do
+    src = text()
+    s20 = step(src, 20)
+    i = :binary.match(src, "## Browser setup by the company administrator") |> elem(0)
+    part = binary_part(src, i, byte_size(src) - i)
+    [part, _] = String.split(part, "## Rollback summary", parts: 2)
+
+    # A fresh tenant needs no setup to count, but the explicit row records the owner decision.
+    for section <- [s20, part] do
+      assert section =~ "RECOMMENDED, not required"
+      assert section =~ "РЕКОМЕНДУЕТСЯ, но не обязательна"
+      assert section =~ "approval_rule.changed"
+      assert section =~ "administrator's name"
+      assert section =~ "именем администратора"
+    end
+
+    # The two real rows and their untouched default, in both languages.
+    assert part =~ "The Approval rules screen lists TWO rows"
+    assert part =~ "На экране две строки"
+    assert part =~ "Never changed (default: off)"
+    assert part =~ "Не менялось (по умолчанию: выключено)"
+
+    # The proof found the supported stock paths and the old wrong path.
+    for path <- ["/admin/stock/balances", "/admin/stock/quick-count", "/admin/stock/documents"] do
+      assert part =~ path
+    end
+
+    assert part =~ "/stock/balances` is a 404"
+
+    # Conditional note, disabled Save and the claimed reversal task, in English and Russian.
+    assert part =~ "only after the reason \"Other\""
+    assert part =~ "then the note is required"
+    assert part =~ "только после выбора причины «Другое»"
+    assert part =~ "после этого примечание обязательно"
+    assert part =~ "Save stays disabled until a reason is typed"
+    assert part =~ "Enter a reason to save"
+    assert part =~ "кнопка «Сохранить» неактивна, пока не введена причина"
+    assert part =~ "Укажите причину, чтобы сохранить"
+    assert part =~ "created for the administrator group"
+    assert part =~ "must be CLAIMED first, then completed"
+    assert part =~ "создаётся для группы администраторов"
+    assert part =~ "сначала ВЗЯТЬ В РАБОТУ, а затем завершить"
+
+    # T-2423 already said this once; the proof remarks must not add a second copy.
+    assert length(Regex.scan(~r/The Excel balances load has no rule of its own/, part)) == 1
+    assert length(Regex.scan(~r/У загрузки остатков из Excel своего правила нет/, part)) == 1
+  end
 end

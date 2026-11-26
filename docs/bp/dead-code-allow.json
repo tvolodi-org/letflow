@@ -1,1 +1,26 @@
-[]
+[
+ {
+  "module": "Letflow.Modules.Procurement.LineEvents",
+  "function": "record_officer",
+  "arity": 3,
+  "reason": "Called dynamically: router.ex record_line/3 does apply(LineEvents, operation, ...) at lib/letflow/modules/procurement/router.ex:373 with operation :record_officer (route POST /purchase-requests/:id/lines/:line_no/officer)."
+ },
+ {
+  "module": "Letflow.Modules.Procurement.LineEvents",
+  "function": "record_supplier",
+  "arity": 3,
+  "reason": "Called dynamically: router.ex record_line/3 does apply(LineEvents, operation, ...) at lib/letflow/modules/procurement/router.ex:373 with operation :record_supplier (route POST /purchase-requests/:id/lines/:line_no/supplier)."
+ },
+ {
+  "module": "Letflow.Modules.Procurement.LineEvents",
+  "function": "record_reference",
+  "arity": 3,
+  "reason": "Called dynamically: router.ex record_line/3 does apply(LineEvents, operation, ...) at lib/letflow/modules/procurement/router.ex:373 with operation :record_reference (route POST /purchase-requests/:id/lines/:line_no/reference)."
+ },
+ {
+  "module": "Letflow.Modules.Procurement.LineEvents",
+  "function": "cancel_line",
+  "arity": 3,
+  "reason": "Called dynamically: router.ex record_line/3 does apply(LineEvents, operation, ...) at lib/letflow/modules/procurement/router.ex:373 with operation :cancel_line (route POST /purchase-requests/:id/lines/:line_no/cancel)."
+ }
+]

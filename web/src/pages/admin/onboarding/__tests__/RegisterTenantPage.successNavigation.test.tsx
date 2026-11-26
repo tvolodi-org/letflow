@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Regression guard for GH issue 2436: a successful registration navigates to the result page of the id the
- * backend returns (`id` in the 201 body). On 3344de22 the success path read `result.onboarding_id` and navigated
- * to .../progress; on main it navigates to .../result.
+ * Regression guard for GH issue 2436, updated by T-2704: a successful registration navigates to the page of the
+ * id the backend returns. POST /api/v1/onboarding answers 202 with `instance_id` (the route starts the
+ * `platform.register_tenant` process), so the page goes to /instances/:instance_id, never to an undefined path.
  *
  * The real api/onboarding module runs; only the HTTP client is mocked.
  */
@@ -12,7 +12,6 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { OnboardingRecord } from '@/api/onboarding'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -33,25 +32,10 @@ vi.mock('@/api/client', () => ({
 }))
 
 import RegisterTenantPage from '../RegisterTenantPage'
-import OnboardingResultPage from '../OnboardingResultPage'
 import { renderWithAccess } from '@/auth/access/testing'
 
-// The 201 body as the backend returns it (lib/letflow/routers/onboarding.ex onboarding_map: "id").
-const BACKEND_RECORD: OnboardingRecord = {
-  id: 'ob-42',
-  tenant_id: 't-42',
-  slug: 'newco',
-  hostname: 'newco.example.com',
-  created_at: '2026-10-13T00:00:00Z',
-  login: {
-    loginable: false,
-    status: 'not_yet_loginable',
-    idp_realm_id: null,
-    next_steps: ['Create the realm, then bind it.'],
-  },
-  administrator: { state: 'none', message: 'No administrator.', not_provisioned: [], next_steps: [] },
-  ignored_fields: [],
-}
+// The 202 body as the backend returns it (lib/letflow/platform_processes/route_start.ex).
+const BACKEND_ANSWER = { instance_id: 'inst-42', status: 'active', slug: 'newco' }
 
 let lastPath = ''
 function LocationSpy() {
@@ -65,7 +49,7 @@ function renderRegister() {
       <LocationSpy />
       <Routes>
         <Route path="/admin/onboarding/new" element={<RegisterTenantPage />} />
-        <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
+        <Route path="/instances/:id" element={<span>instance page</span>} />
       </Routes>
     </MemoryRouter>,
     'platformAdmin',
@@ -87,15 +71,16 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('RegisterTenantPage success navigation (GH issue 2436)', () => {
-  it('after a successful registration the page reaches the result page of the id the backend returns', async () => {
-    createOnboarding.mockResolvedValue(BACKEND_RECORD)
+  it('after a successful registration the page reaches the instance page of the id the backend returns', async () => {
+    createOnboarding.mockResolvedValue(BACKEND_ANSWER)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
     await user.click(screen.getByRole('button', { name: 'Register Tenant' }))
 
-    await waitFor(() => expect(lastPath).toBe('/admin/onboarding/ob-42/result'))
+    await waitFor(() => expect(lastPath).toBe('/instances/inst-42'))
     expect(lastPath).not.toContain('undefined')
     expect(lastPath).not.toContain('/progress')
+    expect(lastPath).not.toContain('/result')
   })
 })

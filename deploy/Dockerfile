@@ -27,6 +27,11 @@ RUN mix compile
 
 RUN mix release
 
+# ── CA stage: carries deploy/qa-mail-ca/ (public cert only, untracked on the QA host) ──
+# Never COPYed into the runtime image; only bind-mounted into the single gated RUN below.
+FROM scratch AS qa-mail-ca
+COPY deploy/qa-mail-ca/ /
+
 # ── Stage 2: minimal runtime image ──────────────────────────────────────────
 # Must track the builder's Debian generation (glibc version) — the compiled
 # OTP release links dynamically against the builder's glibc, and an older
@@ -50,6 +55,19 @@ ENV LANG=en_US.UTF-8 \
 # Non-root user to run the release.
 RUN groupadd --gid 1000 letflow && \
     useradd --uid 1000 --gid letflow --shell /bin/sh --create-home letflow
+
+# QA only (build-arg gate, same pattern as LETFLOW_INCLUDE_RUNTIME_DEMO): trust the host-local CA that
+# signed the QA mail trap's certificate (name-constrained to DNS:mailpit). Default false: production,
+# test and demo builds contain no copy of it and no entry in the trust store. Only
+# deploy/redeploy-qa.sh passes true. With true and the file missing the build FAILS (no silent skip).
+ARG LETFLOW_QA_MAIL_CA=false
+RUN --mount=type=bind,from=qa-mail-ca,target=/qa-mail-ca \
+    if [ "$LETFLOW_QA_MAIL_CA" = "true" ]; then \
+      set -e; \
+      openssl x509 -in /qa-mail-ca/letflow-qa-mail-ca.crt -noout; \
+      cp /qa-mail-ca/letflow-qa-mail-ca.crt /usr/local/share/ca-certificates/letflow-qa-mail-ca.crt; \
+      update-ca-certificates; \
+    fi
 
 WORKDIR /app
 RUN chown -R letflow:letflow /app

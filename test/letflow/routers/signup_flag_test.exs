@@ -36,6 +36,17 @@ defmodule Letflow.Routers.SignupFlagTest do
     end
   end
 
+  test "T-2781: provisioner settings set, flag unset: every sign-up route is still 404" do
+    Application.put_env(:letflow, Letflow.Signup,
+      provisioner_url: "http://10.203.118.2:8080",
+      hostname_domain: "letflow.qa.bizdala.com"
+    )
+
+    assert request(:get, "/api/signup/config").status == 404
+    assert post_signup().status == 404
+    assert Letflow.Repo.aggregate(Request, :count) == 0
+  end
+
   test "SU-A05-1: the disabled answer carries the three security headers" do
     Application.put_env(:letflow, Letflow.Signup, enabled: false)
     assert_headers(request(:get, "/api/signup/config"))

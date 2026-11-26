@@ -249,6 +249,7 @@ defmodule Letflow.Routers.TasksDistinctFromTest do
           id uuid PRIMARY KEY,
           tenant_id uuid NOT NULL,
           actor_id uuid,
+          actor_kind text,
           action text NOT NULL,
           resource_type text NOT NULL,
           resource_id text NOT NULL,

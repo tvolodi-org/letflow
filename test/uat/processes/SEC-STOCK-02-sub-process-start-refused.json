@@ -1,0 +1,269 @@
+{
+  "id": "SEC-STOCK-02",
+  "bp_entry": "BP-STOCK-38",
+  "title": "Four-eyes cannot be bypassed through a sub-process: a tenant-made process cannot start a stock posting process as its child",
+  "description": "SECURITY. A tenant administrator (who may design processes) makes a small process of the tenant's own whose only step is a sub-process that names the stock receipt posting process, activates it, and starts it with start values that carry a forged posting and document id (the child would receive every parent value). The start is refused like a start of an unknown process (404, the same detail as an unknown process name): the stock posting process is started by the stock module only. Nothing is posted: the balance of the item at the place is unchanged. The cleanup retires the tenant-made process (deprecate, then archive), so the tenant is left as it was found; the archived definition stays in the definition list, named with the run id.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-sec-no-such-process-${run_id}",
+          "initial_variables": {}
+        }
+      },
+      "expect": {
+        "status": 404
+      },
+      "save": {
+        "nf_detail": "$.detail",
+        "nf_title": "$.title"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-sec-parent-${run_id}",
+          "version": "1.0",
+          "description": "UAT ${run_id}: security walk SEC-STOCK-02, retired by its cleanup",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "sub",
+                "node_type": "SUB_PROCESS",
+                "attributes": {
+                  "definition_name": "stock_receipt"
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "p0",
+                "source": "start",
+                "target": "sub"
+              },
+              {
+                "id": "p1",
+                "source": "sub",
+                "target": "end"
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "parent_def_id": "$.id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${parent_def_id}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "parent_active": "yes"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_id": "${parent_def_id}",
+          "initial_variables": {
+            "document_id": "00000000-0000-4000-8000-0000000000b1",
+            "document_type": "stock_receipt",
+            "version_no": 1,
+            "org_unit_id": "${org_unit}",
+            "mark": "posted",
+            "posting": {
+              "lines": [
+                {
+                  "sku": "${item}",
+                  "location": "${place}",
+                  "org_unit": "${org_unit}",
+                  "responsible": "${responsible}",
+                  "quantity": "5"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "detail": "${nf_detail}",
+          "title": "${nf_title}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c0",
+      "actor": "admin",
+      "requires": [
+        "parent_def_id"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/${parent_def_id}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "parent_active"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${parent_def_id}/deprecate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "parent_active"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${parent_def_id}/archive",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "parent_def_id"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${parent_def_id}"
+      },
+      "expect": {
+        "status": [
+          204,
+          404,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "status": "planned"
+}

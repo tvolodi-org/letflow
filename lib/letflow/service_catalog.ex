@@ -169,8 +169,17 @@ defmodule Letflow.ServiceCatalog do
   alias Letflow.TenantProvisioning
   alias Letflow.Api.Pagination
 
-  @list_cursor_prefix "SC:"
-  @list_all_cursor_prefix "SCA:"
+  # Cursor prefixes (INV-9 -- one distinct literal per endpoint).
+  #
+  # The current form is "SC2:"/"SCA2:"; the previous form was "SC:"/"SCA:".
+  # The two are told apart by the prefix alone, because a `service_id` is a
+  # free-form string (only its length is validated, `Entry.insert_changeset/2`)
+  # and may therefore contain a colon -- which makes the number of colon-
+  # separated fields useless as a format marker.
+  @list_cursor_prefix "SC2:"
+  @list_all_cursor_prefix "SCA2:"
+  @legacy_list_cursor_prefix "SC:"
+  @legacy_list_all_cursor_prefix "SCA:"
 
   # ===========================================================================
   # register/1 (design §3.1)
@@ -668,6 +677,14 @@ defmodule Letflow.ServiceCatalog do
   `Letflow.Api.Pagination`'s cursor-encode/decode module and
   `Letflow.Dlq.list/2`'s own `page_size + 1`-fetch/drop-the-extra-row idiom
   exactly — no new cursor format invented.
+
+  The cursor is `"SC2:<mint_time_us>:<created_at_us>:<service_id>"`: the
+  cursor's own issue time first (so the 24h expiry window counts from the
+  moment the cursor was minted, not from the age of the last row on the
+  page), then the seek key, with the `service_id` last so that a colon
+  inside it cannot shift the slots. Cursors minted before that fix (the
+  two-slot `"SC:<created_at_us>:<service_id>"` form) keep working under
+  their own prefix until their window closes.
   """
   @spec list_for_tenant(list_params(), tenant_id :: Ecto.UUID.t()) ::
           {:ok, %{items: [Entry.t()], next_cursor: String.t() | nil}}
@@ -702,8 +719,32 @@ defmodule Letflow.ServiceCatalog do
   defp decode_list_cursor(nil), do: {:ok, nil}
 
   defp decode_list_cursor(raw) when is_binary(raw) do
-    case Pagination.decode_cursor(raw, @list_cursor_prefix, byte_size(@list_cursor_prefix)) do
-      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor, @list_cursor_prefix)
+    decode_catalog_cursor(raw, @list_cursor_prefix, @legacy_list_cursor_prefix)
+  end
+
+  # The current cursor form is "<prefix><mint_time_us>:<created_at_us>:<service_id>":
+  # the cursor's own issue time first (the field `Pagination.decode_cursor/4`
+  # reads for the 24h expiry window), the row's `created_at` second, and the
+  # `service_id` LAST -- so that a colon inside a `service_id` cannot shift
+  # the slots.
+  defp decode_catalog_cursor(raw, prefix, legacy_prefix) do
+    case Pagination.decode_cursor(raw, prefix, byte_size(prefix)) do
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor, prefix)
+      {:error, :wrong_endpoint} -> decode_legacy_cursor(raw, legacy_prefix)
+      {:error, :expired} -> {:error, :expired}
+      {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
+    end
+  end
+
+  # A cursor minted before the issue-time fix carries the seek key only
+  # ("<legacy_prefix><created_at_us>:<service_id>"). It keeps working until
+  # its own 24h window closes -- measured from the row's `created_at`, the
+  # only timestamp such a cursor carries -- and it lives under the previous
+  # prefix, which is what tells the two forms apart (see the prefix
+  # constants above).
+  defp decode_legacy_cursor(raw, prefix) do
+    case Pagination.decode_cursor(raw, prefix, byte_size(prefix)) do
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_legacy_seek(cursor, prefix)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -711,6 +752,15 @@ defmodule Letflow.ServiceCatalog do
   end
 
   defp decode_seek(%Pagination.Cursor{inner: inner}, prefix) do
+    case Pagination.decode_seek_parts(inner, prefix, [:skip, :datetime_us, :string]) do
+      {:ok, [created_at, service_id]} -> {:ok, {created_at, service_id}}
+      {:error, :invalid_cursor} = error -> error
+    end
+  end
+
+  # The legacy form's `service_id` is the last slot too, so a colon inside it
+  # survives the split.
+  defp decode_legacy_seek(%Pagination.Cursor{inner: inner}, prefix) do
     case Pagination.decode_seek_parts(inner, prefix, [:datetime_us, :string]) do
       {:ok, [created_at, service_id]} -> {:ok, {created_at, service_id}}
       {:error, :invalid_cursor} = error -> error
@@ -730,11 +780,23 @@ defmodule Letflow.ServiceCatalog do
 
   defp split_list_page(rows, _page_size, _prefix), do: {rows, nil}
 
+  # Payload shape: "<prefix><mint_time_us>:<created_at_us>:<service_id>" --
+  # built via `Pagination.build_raw_cursor_timestamp_key/4`, but with a
+  # deliberate field-slot repurposing over its literal parameter names, the
+  # same way `Letflow.Identity`'s own users cursor does it (its comment
+  # names the reason): `decode_cursor/4`'s expiry check reads the timestamp
+  # at a FIXED byte offset (right after the prefix) and treats it as "when
+  # was this cursor minted". A row's `created_at` is NOT a safe value to put
+  # there -- a row more than 24h old would make every cursor built from it
+  # answer "expired" the instant it is minted. So the FIRST field carries the
+  # real mint time, and the seek key (`created_at`, `service_id`) follows it,
+  # with the `service_id` last so its colons cannot shift the slots.
   defp build_list_next_cursor(%Entry{service_id: service_id, created_at: created_at}, prefix) do
+    mint_time_us = System.system_time(:microsecond)
     created_at_us = DateTime.to_unix(created_at, :microsecond)
 
     prefix
-    |> Pagination.build_raw_cursor(created_at_us, service_id)
+    |> Pagination.build_raw_cursor_timestamp_key(mint_time_us, created_at_us, service_id)
     |> Pagination.encode_cursor()
   end
 
@@ -764,10 +826,13 @@ defmodule Letflow.ServiceCatalog do
   (`(created_at DESC, service_id DESC)`), same `page_size + 1`-fetch/
   drop-the-extra-row idiom, and reuses `filter_by_list_cursor/2`/
   `split_list_page/2` verbatim (both are already tenant-agnostic). Uses its
-  own cursor prefix, `"SCA:"`, distinct from `list_for_tenant/2`'s `"SC:"` —
+  own cursor prefix, `"SCA2:"`, distinct from `list_for_tenant/2`'s `"SC2:"` —
   a cursor minted by one is rejected with `{:error, :wrong_endpoint}` if
   replayed against the other (INV-9 cross-endpoint cursor isolation,
-  `Letflow.Api.Pagination.decode_cursor/3`'s `check_prefix/2`).
+  `Letflow.Api.Pagination.decode_cursor/3`'s `check_prefix/2`). The previous
+  generation of prefixes (`"SCA:"` / `"SC:"`, the two-slot seek-key-only
+  cursors) stays readable under their own prefixes, so a cursor in flight
+  is not cut off by the issue-time fix.
 
   `list_for_tenant/2` itself is entirely unchanged by this addition — same
   name, arity, body, and `where` clause.
@@ -798,16 +863,7 @@ defmodule Letflow.ServiceCatalog do
   defp decode_list_all_cursor(nil), do: {:ok, nil}
 
   defp decode_list_all_cursor(raw) when is_binary(raw) do
-    case Pagination.decode_cursor(
-           raw,
-           @list_all_cursor_prefix,
-           byte_size(@list_all_cursor_prefix)
-         ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor, @list_all_cursor_prefix)
-      {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
-      {:error, :expired} -> {:error, :expired}
-      {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
-    end
+    decode_catalog_cursor(raw, @list_all_cursor_prefix, @legacy_list_all_cursor_prefix)
   end
 
   # ===========================================================================

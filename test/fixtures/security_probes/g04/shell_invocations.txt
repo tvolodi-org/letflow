@@ -1,0 +1,33 @@
+# G-04 C-33: every tracked *.sh that invokes curl (derived by the probe). script | argv | mode
+# mode: run (the probe runs it with a failing curl stub, no argv unless given, 5 s limit) or skip: <reason>.
+# A derived script with no row, or a row whose script is gone, fails the probe.
+deploy/redeploy-qa.sh |  | skip: deploys over ssh/docker
+deploy/redeploy-test.sh |  | skip: deploys over ssh/docker
+scripts/demo/demo_showroom_seed.sh |  | run
+scripts/demo/demo_upgrade_check.sh |  | run
+scripts/demo_smoke_read.sh |  | run
+scripts/demo_upgrade_chain.sh |  | run
+scripts/e2e/gate_b_seed.sh |  | run
+scripts/e2e/perf_lines_seed.sh |  | run
+scripts/e2e/stack_up.sh |  | skip: starts a docker stack
+scripts/lib/seed_outbound_open.sh |  | run
+scripts/lib/seed_persona_actors_base.sh |  | run
+scripts/lib/seed_token_check.sh |  | run
+scripts/mail_adapter_check.sh |  | skip: needs a live mail stack (docker, mix)
+scripts/mail_trap.sh |  | skip: starts a mail trap container
+scripts/problem_reports_pull.sh |  | run
+scripts/pwa_ready_check.sh |  | run
+scripts/qa_upgrade_chain.sh |  | run
+scripts/qoimeks_qa2_fixture_count.sh |  | run
+scripts/qoimeks_qa2_fixture_ledger3.sh |  | run
+scripts/seed_meridian_definition.sh |  | run
+scripts/seed_meridian_entities.sh |  | run
+scripts/seed_meridian_persona_actors.sh |  | run
+scripts/seed_swiftroute_definition.sh |  | run
+scripts/seed_swiftroute_incident_definition.sh |  | run
+scripts/seed_swiftroute_persona_actors.sh |  | run
+scripts/seed_uat_email_verified.sh |  | run
+scripts/seed_vortex_definition.sh |  | run
+scripts/seed_vortex_entities.sh |  | run
+scripts/seed_vortex_persona_actors.sh |  | run
+web/scripts/screenshot.sh |  | skip: starts a dev server and a browser

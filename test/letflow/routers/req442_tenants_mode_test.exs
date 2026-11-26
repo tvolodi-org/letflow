@@ -22,7 +22,6 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
   alias Letflow.Audit.Entry
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
-  alias Letflow.Test.SandboxAutoMode
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
@@ -488,6 +487,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
           id uuid PRIMARY KEY,
           tenant_id uuid NOT NULL,
           actor_id uuid,
+          actor_kind text,
           action text NOT NULL,
           resource_type text NOT NULL,
           resource_id text NOT NULL,
@@ -643,6 +643,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
           id uuid PRIMARY KEY,
           tenant_id uuid NOT NULL,
           actor_id uuid,
+          actor_kind text,
           action text NOT NULL,
           resource_type text NOT NULL,
           resource_id text NOT NULL,
@@ -752,49 +753,6 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
       assert Map.has_key?(body, "login_disclosure_mode")
       assert body["login_disclosure_mode"] == nil
       assert get.resp_body =~ ~s("login_disclosure_mode":null)
-    end
-
-    test "POST /tenants returns eight keys with a null mode, and a login_disclosure_mode in the create body is ignored (not cast on create)" do
-      SandboxAutoMode.provision!(Letflow.Repo, fn ->
-        slug = "req442-create-#{Ecto.UUID.generate()}"
-
-        resp =
-          build_conn(
-            :post,
-            "/",
-            ["PLATFORM_ADMIN"],
-            %{
-              "slug" => slug,
-              "display_name" => "Create 442",
-              "login_disclosure_mode" => "uniform_plus_email"
-            },
-            Ecto.UUID.generate()
-          )
-          |> dispatch()
-
-        assert resp.status == 201
-        body = Jason.decode!(resp.resp_body)
-        tenant_id = body["id"]
-
-        on_exit(fn ->
-          SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
-
-          case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-            {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-            {:error, :invalid_tenant_id} -> :ok
-          end
-
-          Repo.delete_all(
-            from(r in TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
-          )
-
-          Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
-        end)
-
-        assert Map.keys(body) |> Enum.sort() == @seven_keys
-        assert body["login_disclosure_mode"] == nil
-        assert Repo.get!(Tenant, tenant_id).login_disclosure_mode == nil
-      end)
     end
   end
 end

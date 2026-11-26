@@ -488,7 +488,11 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
     for n <- 1..3 do
       idx = for {l, i} <- indexed, String.starts_with?(l, pfx(n)), do: i
-      assert length(idx) == 43, "partition #{n}: expected 43 DIAG lines, got #{length(idx)}"
+      # 43 lines (T-2652: 44) -- the header, the 40 tail lines, the "approx tests
+      # finished" line and the "running for" line; T-2652 added one more line to
+      # the block: the running-test-file marker (this stub publishes none, so the
+      # block says so in that one line).
+      assert length(idx) == 44, "partition #{n}: expected 44 DIAG lines, got #{length(idx)}"
 
       assert idx == Enum.to_list(hd(idx)..List.last(idx)//1),
              "partition #{n}: DIAG block is not one contiguous run (foreign line inside)"

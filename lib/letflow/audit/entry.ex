@@ -27,6 +27,13 @@ defmodule Letflow.Audit.Entry do
   schema "audit_entries" do
     field(:tenant_id, :binary_id)
     field(:actor_id, :binary_id)
+    # T-2588 (pilot gap G2, decision (d)): the KIND of the actor -- "user" (a
+    # person) or "system" (module code, a seed task, a job). NULL for the rows
+    # written before this column existed. It is NOT part of the chain hash
+    # (REQ-195's canonical hashed form names eleven fields and stays as it is);
+    # the table's own immutability trigger keeps the value from being edited
+    # after the row is written.
+    field(:actor_kind, :string)
     field(:action, :string)
     field(:resource_type, :string)
     field(:resource_id, :string)
@@ -56,6 +63,7 @@ defmodule Letflow.Audit.Entry do
     :id,
     :tenant_id,
     :actor_id,
+    :actor_kind,
     :action,
     :resource_type,
     :resource_id,
