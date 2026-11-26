@@ -689,6 +689,32 @@ defmodule Letflow.Routers.DefinitionsWriteTest do
       assert matches == ["lib/letflow/definitions.ex"]
     end
 
+    test "DELETE of an imported DRAFT that has variable_schemas is 204, never 500 (T-2890)" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t2890-del")
+
+      body = %{
+        "bpm_export_schema_version" => Definitions.ExportImport.export_schema_version(),
+        "name" => unique_name("t2890"),
+        "version" => "1.0.0",
+        "graph" => minimal_graph(),
+        "variable_schemas" => [
+          %{"variable_key" => "k1", "json_schema" => %{"type" => "string"}}
+        ]
+      }
+
+      conn =
+        build_conn("POST", "/import", tenant, %{roles: [@writer_role], body: body}) |> dispatch()
+
+      assert conn.status == 201
+      id = Jason.decode!(conn.resp_body)["id"]
+
+      del = build_conn("DELETE", "/#{id}", tenant, %{roles: [@writer_role]}) |> dispatch()
+
+      assert del.status == 204
+      assert {:error, :not_found} = Definitions.get_by_id(id, prefix: tenant.schema_name)
+      assert variable_schemas_of(id, tenant.schema_name) == []
+    end
+
     test "PUT onto the same definition_id replaces the variable_schemas row set, omitted key leaves no row" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req082-ac9a")
       definition = create_definition!(tenant.schema_name)
