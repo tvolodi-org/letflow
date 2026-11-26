@@ -68,6 +68,8 @@ env|LETFLOW_PLATFORM_ACTIVATOR_USER_ID|platform|platform|runtime|plain|none|no|n
 env|LETFLOW_PLATFORM_TENANT_ID|identity|platform|runtime|plain|none|yes|none|Identifier of the tenant that holds the platform authority.
 env|LETFLOW_PROBLEM_REPORT_EXPORT_SHA256|operations|platform|runtime|plain|none|yes|none|Hash of the problem report export the operator authorises.
 env|LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES|provisioner|platform|runtime|plain|none|no|none|Comma separated suffixes a tenant hostname must end in; every hostname is refused while it is unset.
+env|LETFLOW_PROVISIONER_CREATE_VIA_PROCESS|provisioner|platform|runtime|flag|false|no|none|When true a create runs through the platform.register_tenant process; unset or false keeps the old synchronous path, any other value is refused at boot.
+env|LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS|provisioner|platform|runtime|plain|30|no|none|Seconds a create waits for the register_tenant process, 0 to 55; unset means 30.
 env|LETFLOW_PROVISIONER_CREDENTIAL_SHA256|provisioner|platform|runtime|secret|none|yes|none|SHA-256 of the write credential of the tenant provisioner, by reference only and never the credential itself.
 env|LETFLOW_PROVISIONER_DEFAULT_MODULES|provisioner|platform|runtime|plain|none|no|none|Comma separated module ids a new tenant is installed with; none installs nothing.
 env|LETFLOW_PROVISIONER_DEMO_ALARM|provisioner|platform|runtime|plain|none|no|none|Demo tenant count at which a create writes one warning.
