@@ -178,9 +178,31 @@
       }
     },
     {
+      "id": "B1n",
+      "actor": "admin",
+      "says": "B. Negative: /onboarding refuses a realm that does not exist in the identity provider with 422 (field idp_realm_id, 'realm not found'), before any row is written. This is correct product behaviour: the route registers a company with an existing realm; it does not create one.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid5}",
+          "display_name": "UAT registration ${run_id}",
+          "hostname": "uat-tmp-${uuid5}.${hostname_suffix}",
+          "idp_realm_id": "uat-tmp-${uuid5}",
+          "admin_email": "reg-${uuid5}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "idp_realm_id"
+        }
+      }
+    },
+    {
       "id": "B1",
       "actor": "admin",
-      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. Every registration gets its own realm id (uat-tmp-<uuid>): a realm binds to one tenant only, and a deactivated tenant keeps it, so a fixed realm would fail the second run.",
+      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. The form names NO realm: /onboarding registers a company with an EXISTING realm only when idp_realm_id is sent (and probes it before any row); without it the process creates the realm and the first administrator (the bind_realm and grant_first_admins steps), and the realm id is read back from the registry in C3.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -188,7 +210,6 @@
           "slug": "uat-tmp-${uuid1}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid1}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid1}",
           "admin_email": "reg-${uuid1}@uat.letflow.internal"
         }
       },
@@ -312,7 +333,7 @@
     {
       "id": "C3",
       "actor": "admin",
-      "says": "C. The new tenant exists, is active and has its own realm bound. NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
+      "says": "C. The new tenant exists, is active and has the realm the process created bound (saved as realm1). NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/${slug1}"
@@ -322,12 +343,17 @@
         "json": {
           "$.slug": "${slug1}",
           "$.status": "active",
-          "$.idp_realm_id": "uat-tmp-${uuid1}"
+          "$.idp_realm_id": {
+            "exists": true
+          }
         }
       },
       "requires": [
         "slug1"
-      ]
+      ],
+      "save": {
+        "realm1": "$.idp_realm_id"
+      }
     },
     {
       "id": "C4",
@@ -385,7 +411,7 @@
     {
       "id": "E1",
       "actor": "admin",
-      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one B1 already bound to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
+      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one the process of B1 created and bound (realm1, read in C3) to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -393,7 +419,7 @@
           "slug": "uat-tmp-${uuid2}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid2}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid1}",
+          "idp_realm_id": "${realm1}",
           "admin_email": "reg-${uuid2}@uat.letflow.internal"
         }
       },
@@ -1032,7 +1058,6 @@
           "slug": "uat-tmp-${uuid3}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid3}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid3}",
           "admin_email": "reg-${uuid3}@uat.letflow.internal"
         }
       },
@@ -1181,7 +1206,6 @@
           "slug": "uat-tmp-${uuid4}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid4}.${hostname_suffix}",
-          "idp_realm_id": "uat-tmp-${uuid4}",
           "admin_email": "reg-${uuid4}@uat.letflow.internal"
         }
       },
