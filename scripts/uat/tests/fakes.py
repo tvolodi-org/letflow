@@ -354,10 +354,16 @@ def make_handler(state):
                         state.qty -= doc["qty"]
                 return self.reply(200, {"status": "ok"})
             if path == "/api/v1/identity/shared-stock-access":
+                if method == "GET" and getattr(state, "shared_status", False):
+                    exists = state.shared_value is not None
+                    return self.reply(200, {"enabled": True, "exists": exists, "created_at": state.shared_created_at if exists else None,
+                                            "created_by": "u1", "rotated_at": None})
                 if method == "POST":
                     state.shared_value = SHARED_VALUE
                     return self.reply(201, {"value": SHARED_VALUE})
                 if method == "DELETE":
+                    if state.shared_value is None and getattr(state, "shared_status", False):
+                        return self.reply(404, {"title": "Not Found"})
                     state.revoked += 1
                     state.shared_value = None
                     return self.reply(204)
