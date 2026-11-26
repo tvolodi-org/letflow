@@ -26,3 +26,10 @@ Nothing is deleted.
 - Runner scenarios: none (`scenario: null`). The flag `:maintenance_enabled` is false on QA and production, the roster has
   no tenant with the module installed or a technician login, and the runner has no multipart step; that is a runner/environment
   task, not an orphan. BP-MAINTENANCE-14..21 stay `automation: planned` and are covered by the ExUnit tests in each entry's `tests`.
+
+## Gaps: entries that stay planned or partial (T-2553, 2026-11-26, re-checked after merging origin/main)
+
+- BP-MAINTENANCE-09 (planned): the request screens now exist in web/src/modules/maintenance (routes `admin/maintenance/requests`, `requests/new`, `requests/:id`, REQ-898). It stays planned: the requirement is still `pending` in the register, no test pins the screens as a process, the flag `:maintenance_enabled` is off on QA, and the runner has no browser step against a tenant with the module on.
+- BP-MAINTENANCE-10 (planned): no order screen and no My work orders list in web/src; the routes file has only the three request routes. Tracked by REQ-899 (pending).
+- BP-MAINTENANCE-11 (planned): apps/mobile/lib has no maintenance file. Tracked by REQ-900 (pending).
+- BP-MAINTENANCE-21 (partial): no test of the unmatched path, and the flag `:maintenance_enabled` is off on QA, so no runner scenario can pass. Needs a QA tenant with the module on, a technician login and an ExUnit test.
