@@ -46,6 +46,8 @@ import '../definitions/sembast_pinned_form_cache_repository.dart'
 import '../definitions/tenant_home_screen.dart'
     show definitionCacheHolderProvider;
 import '../features/codes/codes.dart' show codesRoutes, kCodesScanPath;
+import '../features/maintenance/maintenance.dart'
+    show maintenanceRoutes, kMaintenanceOrdersPath;
 import '../features/stock/stock.dart'
     show stockRoutes, kStockHomePath, offlineQueueProvider, offlineSyncProvider;
 import '../i18n/i18n.dart';
@@ -605,12 +607,14 @@ _switchTenantTopLevel = switchTenant;
 final Map<String, List<RouteBase>> kFeatureRegistry = {
   'codes': codesRoutes(),
   'stock': stockRoutes(),
+  'maintenance': maintenanceRoutes(),
 };
 
 /// Route of the codes scan screen, re-exported as a plain constant so screens
 /// outside `features/` can link to it without importing the feature.
 const String kCodesScanRoutePath = kCodesScanPath;
 const String kStockHomeRoutePath = kStockHomePath;
+const String kMaintenanceOrdersRoutePath = kMaintenanceOrdersPath;
 
 /// True when [moduleId] is among the tenant's [installedModules].
 bool isModuleInstalled(
