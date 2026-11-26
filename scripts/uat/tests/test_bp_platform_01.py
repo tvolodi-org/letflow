@@ -159,7 +159,7 @@ class StepsBToH(unittest.TestCase):
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
-        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
+        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
                  "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
@@ -288,12 +288,19 @@ class StepsBToH(unittest.TestCase):
         self.assertTrue(self.verdict("B2", pending))
         self.assertFalse(self.verdict("B3", pending))  # armed but never run: the runner is off
 
-    def test_the_realms_are_distinct_per_tenant_and_the_forced_failure_is_a_duplicate(self):
-        realms = [self.steps[sid]["do"]["body"]["idp_realm_id"] for sid in ("B1", "F6", "G3")]
-        self.assertEqual(["uat-tmp-${uuid1}", "uat-tmp-${uuid3}", "uat-tmp-${uuid4}"], realms)
-        # E1 reuses the realm B1 bound: the bind refuses a realm bound to another tenant (duplicate_realm)
-        self.assertEqual("uat-tmp-${uuid1}", self.steps["E1"]["do"]["body"]["idp_realm_id"])
-        self.assertEqual("uat-tmp-${uuid1}", self.steps["C3"]["expect"]["json"]["$.idp_realm_id"])
+    def test_the_process_creates_the_realm_and_the_unknown_realm_is_a_negative(self):
+        # /onboarding probes a realm that is SENT; the registrations send none, the process creates it
+        for sid in ("B1", "F6", "G3"):
+            self.assertNotIn("idp_realm_id", self.steps[sid]["do"]["body"], sid)
+        neg = self.steps["B1n"]
+        self.assertEqual("/api/v1/onboarding", neg["do"]["path"])
+        self.assertIn("idp_realm_id", neg["do"]["body"])
+        self.assertEqual(422, neg["expect"]["status"])
+        self.assertEqual("idp_realm_id", neg["expect"]["json"]["$.errors[0].field"])
+        self.assertNotIn("save", neg)
+        # C3 reads the created realm back; E1 reuses it: the bind refuses a realm bound to another tenant
+        self.assertEqual("$.idp_realm_id", self.steps["C3"]["save"]["realm1"])
+        self.assertEqual("${realm1}", self.steps["E1"]["do"]["body"]["idp_realm_id"])
         self.assertNotIn("realm", self.process["inputs"])
 
     def test_the_description_names_the_setting_and_no_marker_is_left(self):
