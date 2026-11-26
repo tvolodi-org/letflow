@@ -58,7 +58,7 @@ class Scenario(unittest.TestCase):
         self.assertTrue(self.steps["B7"]["do"]["path"].startswith("/api/v1/dlq"))
         self.assertEqual(self.steps["B8"]["do"]["path"], "/api/v1/dlq/${dlq_id}/retry")
         self.assertEqual(self.steps["B9"]["expect"]["json"]["$.steps[1].attempts"], {"regex": "^[2-9]$"})
-        self.assertEqual(self.steps["B3"]["do"]["body"]["initial_variables"]["slug"], "x")
+        self.assertEqual(self.steps["B3"]["do"]["body"]["initial_variables"]["slug"], "X-${uuid2}")  # T-2897: unique per run (the call key is the slug)
 
     def test_unrunnable_steps_are_not_run_with_an_owner(self):
         for sid in ("D1", "D2", "D3", "D4"):

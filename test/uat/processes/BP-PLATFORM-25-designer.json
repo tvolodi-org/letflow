@@ -380,14 +380,14 @@
     {
       "id": "B3",
       "actor": "admin",
-      "says": "B. A failing run: the start variable slug is too short, so platform.validate_registration refuses it (platform_call_invalid_slug). No provisioner, no tenant is created.",
+      "says": "B. A failing run: the start variable slug is invalid (uppercase, and unique per run because the call key is the slug: a fixed slug is a key reuse on the second run, T-2897), so platform.validate_registration refuses it (platform_call_invalid_slug). No provisioner, no tenant is created.",
       "do": {
         "api": "POST",
         "path": "/api/v1/instances",
         "body": {
           "definition_name": "uat-tmp-designer-${run_id}-1",
           "initial_variables": {
-            "slug": "x",
+            "slug": "X-${uuid2}",
             "display_name": "UAT designer ${run_id}",
             "email": "dg-${uuid1}@uat.letflow.internal"
           }
@@ -504,7 +504,7 @@
     {
       "id": "B8",
       "actor": "admin",
-      "says": "B. DLQ RETRY: the entry is retried (bounded; the slug stays too short, so it fails again).",
+      "says": "B. DLQ RETRY: the entry is retried (bounded; the slug stays invalid, so it fails again).",
       "do": {
         "api": "POST",
         "path": "/api/v1/dlq/${dlq_id}/retry",
