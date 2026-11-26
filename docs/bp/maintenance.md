@@ -341,6 +341,10 @@ Report a problem from the new-request form, the request list and the request pag
 - security: no
 - automation: planned
 
+**Gaps.**
+
+- No runner scenario can play this row on QA today (re-checked 2026-11-27): (1) the release flag :maintenance_enabled is false in config/config.exs:191 (true only in config/test.exs:314), so the module answers 404 on QA; (2) the runner has no browser step for a module screen. Steps blocked_by: flag on for a QA tenant, owner PM (release decision); a browser step in the runner, owner runner/UAT tooling task. The API half is played by BP-MAINTENANCE-01..03 once the flag is on. Nothing is blocked in the product code here.
+
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 
 The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person, built on the task inbox (REQ-899, merged in #5111). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/orders, orders/new, orders/:id, maintenance/my-orders). Stays planned: the release flag :maintenance_enabled is off on QA, REQ-899 is still pending in the register, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-04..08. The phone screens of the technician (REQ-900) are not built.
@@ -372,6 +376,10 @@ The order list and the order page with Assign, the new-order form (from a reques
 - security: no
 - automation: planned
 
+**Gaps.**
+
+- No runner scenario can play this row on QA today (re-checked 2026-11-27): the release flag :maintenance_enabled is false (config/config.exs:191), and the runner has no browser step for the order list, the order page, the new-order form or My work orders. Steps blocked_by: flag on for a QA tenant plus a technician login in the actor roster, owner PM; a browser step in the runner, owner runner/UAT tooling task. The API half is BP-MAINTENANCE-04..08.
+
 ## BP-MAINTENANCE-11 -- My work orders on the phone app and PWA
 
 The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen. Why it stays planned (re-checked 2026-11-21): `grep -rli maintenance apps/mobile/lib` is empty; REQ-900 is pending. The technician's completion is already BP-MAINTENANCE-06.
@@ -389,6 +397,10 @@ The assigned person sees their open work orders in the phone app and its PWA, bu
 - implementation: `planned` (requirement: REQ-900)
 - UAT: planned -- no runner scenario yet.
 - security: no
+
+**Gaps.**
+
+- Cannot be played by any runner: apps/mobile has no maintenance screen (REQ-900 pending), so there is nothing to walk. Owner: the REQ-900 implement task (mobile); the scenario is written after it merges, with a phone/PWA step the JSON runner does not have (owner: runner/UAT tooling task). The technician completion itself is BP-MAINTENANCE-06.
 
 ## BP-MAINTENANCE-12 -- Problem-report export for the PM handoff (platform)
 
@@ -752,6 +764,10 @@ The operator asked for voice, webhook and old-address inputs. The maintenance mo
 - UAT: planned -- no runner scenario yet.
 - security: yes
 - automation: planned
+
+**Gaps.**
+
+- Nothing to walk: the row records inputs that do not exist. Its one positive claim (a path outside the twelve routes is refused as unmatched) needs an ExUnit test first (owner: a maintenance test task; grep -rn unmatched test/letflow/modules/maintenance is empty) and a QA tenant with the flag on (owner PM); a runner step would only see 404 today. Not written as a scenario on purpose (no write endpoint is probed to see if it works).
 
 ## Orphans (docs/bp/orphans-maintenance.md)
 

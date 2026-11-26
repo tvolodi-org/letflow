@@ -592,7 +592,8 @@
     "scenario": null,
     "status": "partial",
     "automation": "planned",
-    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens."
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens.",
+    "gap": "No runner scenario can play this row on QA today (re-checked 2026-11-27): (1) the release flag :maintenance_enabled is false in config/config.exs:191 (true only in config/test.exs:314), so the module answers 404 on QA; (2) the runner has no browser step for a module screen. Steps blocked_by: flag on for a QA tenant, owner PM (release decision); a browser step in the runner, owner runner/UAT tooling task. The API half is played by BP-MAINTENANCE-01..03 once the flag is on. Nothing is blocked in the product code here."
   },
   {
     "id": "BP-MAINTENANCE-10",
@@ -681,7 +682,8 @@
     "status": "partial",
     "requirement": "REQ-899",
     "automation": "planned",
-    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens."
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens.",
+    "gap": "No runner scenario can play this row on QA today (re-checked 2026-11-27): the release flag :maintenance_enabled is false (config/config.exs:191), and the runner has no browser step for the order list, the order page, the new-order form or My work orders. Steps blocked_by: flag on for a QA tenant plus a technician login in the actor roster, owner PM; a browser step in the runner, owner runner/UAT tooling task. The API half is BP-MAINTENANCE-04..08."
   },
   {
     "id": "BP-MAINTENANCE-11",
@@ -707,7 +709,8 @@
     "refusals": [],
     "scenario": null,
     "status": "planned",
-    "requirement": "REQ-900"
+    "requirement": "REQ-900",
+    "gap": "Cannot be played by any runner: apps/mobile has no maintenance screen (REQ-900 pending), so there is nothing to walk. Owner: the REQ-900 implement task (mobile); the scenario is written after it merges, with a phone/PWA step the JSON runner does not have (owner: runner/UAT tooling task). The technician completion itself is BP-MAINTENANCE-06."
   },
   {
     "id": "BP-MAINTENANCE-12",
@@ -1386,6 +1389,7 @@
     "tests": [],
     "security": true,
     "automation": "planned",
-    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on.",
+    "gap": "Nothing to walk: the row records inputs that do not exist. Its one positive claim (a path outside the twelve routes is refused as unmatched) needs an ExUnit test first (owner: a maintenance test task; grep -rn unmatched test/letflow/modules/maintenance is empty) and a QA tenant with the flag on (owner PM); a runner step would only see 404 today. Not written as a scenario on purpose (no write endpoint is probed to see if it works)."
   }
 ]
