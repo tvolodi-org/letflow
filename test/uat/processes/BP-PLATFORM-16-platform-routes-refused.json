@@ -1,0 +1,186 @@
+{
+  "id": "BP-PLATFORM-16",
+  "bp_entry": "BP-PLATFORM-16",
+  "title": "A tenant administrator is refused on every platform route",
+  "description": "SECURITY. A tenant administrator of a company tenant tries the platform routes (tenant registry, onboarding, backup status, module rollouts, platform migrations, event retention, service catalogue, problem reports): each is refused with 403, the answer for the administrator's own slug is the same as for an unknown slug, and the promotion route answers a foreign tenant id with the zero-detail 404 (the same as an unknown id). Only reads and harmless write probes are used (an unknown slug, empty bodies, an unused id); nothing is created or changed, so there is nothing to clean up.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${tenant}"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-no-such-tenant"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-status/backup"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-migrations/rollouts/00000000-0000-4000-8000-000000000001"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/event-retention/summary"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/admin/services"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-problem-reports"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-no-such-tenant/deactivate"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-no-such-tenant/purge"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/00000000-0000-4000-8000-000000000001/promote/uat-no-such-process"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

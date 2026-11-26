@@ -1,0 +1,365 @@
+{
+  "id": "BP-02",
+  "bp_entry": "BP-STOCK-02",
+  "title": "Issue goods",
+  "description": "A storekeeper first receives `quantity` units (default 5) so that the issue is covered (receipt, issue, an administrator claims and completes the Post task), then creates an issue document for the same quantity at the same place, issues it, and an administrator claims and completes its Post task: the document is posted with a ledger entry and the balance falls by the quantity, back to the balance before the receipt. The negative-balance refusal is not walked here (it needs a tenant setting change). The cleanup reverses the issue and then the receipt, each with its Reverse task, so the balance returns to its start.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "defaults": {
+    "quantity": "5"
+  },
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        },
+        "uom": {
+          "pick": "$.rows[0].unit_ref",
+          "if_unset": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "receipt",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id}",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${quantity}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "receipt_id": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${receipt_id}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${receipt_id}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s3b",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${receipt_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      },
+      "save": {
+        "posted_receipt_id": "$.id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + quantity}"
+          }
+        }
+      },
+      "save": {
+        "balance_mid": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id}",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${quantity}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "doc_id": "$.id"
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_id}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${doc_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "entry_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "entry_id": "$.entry_id",
+        "posted_doc_id": "$.id"
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_mid - quantity}"
+          }
+        }
+      },
+      "save": {
+        "balance_after": "$.rows[0].quantity"
+      }
+    }
+  ],
+  "outputs": {
+    "issue_doc_id": "${doc_id}",
+    "issue_entry_id": "${entry_id}",
+    "balance_after": "${balance_after}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "posted_doc_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-02 issue"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_doc_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "posted_doc_id"
+      ]
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_receipt_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_receipt_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-02 receipt"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_receipt_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "posted_receipt_id"
+      ]
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "posted_receipt_id",
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ]
+}

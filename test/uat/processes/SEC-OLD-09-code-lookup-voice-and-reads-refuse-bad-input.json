@@ -1,0 +1,347 @@
+{
+  "id": "SEC-OLD-09",
+  "bp_entry": "BP-STOCK-36",
+  "title": "Old address: code lookup, microphone call and reads refuse bad input with fixed bodies and never write",
+  "description": "SECURITY (REQ-910, REQ-911, REQ-908, REQ-909; INV-5, INV-8). Code lookup: no code, an empty code and a code of blanks are all 400 with the one body {error: 'code is required', reason: 'invalid_request'}; a code that is not assigned is 404 with the one body {error: 'not found', reason: 'code_not_found'} (the same body every unknown, retired or inactive code gets). The microphone call (only its /api form is served): a JSON body, a text body and a body that claims to be multipart but is not are all refused 400 'audio file is required (max 10 MB)' before any speech service is called (the audio part is read first, Letflow.Modules.Stock.VoiceService.draft_audio/2). Reads never write: the movements and balances reads given write-like query fields (kind, qty, operator, id) answer 200 and change nothing, a malformed filter is 400 'invalid filter'; afterwards the newest movement and the balance of the key are the ones read at the start. Not expressible in a process file (runner gap): a microphone body over 10 MB and a wrong lang with a real audio part; covered by the OldAppVoice tests. Cleanup revokes the value.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].sku_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$[0].sku_id",
+        "location_id": "$[0].location_id"
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "newest_before": {
+          "pick": "$[0].id",
+          "default": "none"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "b0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/codes/lookup"
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "code is required",
+          "$.reason": "invalid_request"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/codes/lookup?code="
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "code is required",
+          "$.reason": "invalid_request"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/codes/lookup?code=%20%20%20"
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "code is required",
+          "$.reason": "invalid_request"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/codes/lookup?code=UAT-NO-SUCH-CODE-${run_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found",
+          "$.reason": "code_not_found"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/codes/lookup?code=UAT-NO-SUCH-CODE-${run_id}"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "not found",
+          "$.reason": "code_not_found"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/voice",
+        "body": {}
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "audio file is required (max 10 MB)"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/voice",
+        "body": "not an audio upload",
+        "headers": {
+          "Content-Type": "text/plain"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "audio file is required (max 10 MB)"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/voice",
+        "body": "not a multipart body",
+        "headers": {
+          "Content-Type": "multipart/form-data; boundary=uat-boundary"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "audio file is required (max 10 MB)"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1&kind=receipt&qty=5&operator=UAT&id=${uuid9}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].id": {
+            "equals": "${newest_before}",
+            "default": "none"
+          }
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}&qty=999&kind=adjustment"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=not-a-number"
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid filter"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?location_id=-1"
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid filter"
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].id": {
+            "equals": "${newest_before}",
+            "default": "none"
+          }
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

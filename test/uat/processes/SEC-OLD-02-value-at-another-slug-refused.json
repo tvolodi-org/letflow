@@ -1,0 +1,111 @@
+{
+  "id": "SEC-OLD-02",
+  "bp_entry": "BP-STOCK-29",
+  "title": "Old address: a valid shared value presented at another tenant slug is refused with the one 401",
+  "description": "SECURITY (decision 0091 sections 6 and 8.1, INV-1, INV-5; REQ-859). The administrator of the tenant creates its shared value. The phone presents that valid value at the old address of a made-up slug (the dry run uses uat-no-such-slug; no request goes to a real other tenant, as in the retry group, T-2343): a catalog read and a movement post are both refused with the same 401 body the old address gives for a revoked value (status, title and detail identical, see SEC-OLD-01), and nothing is posted (the post never reaches the tenant: the slug decides the tenant before the value is checked). The run's old address names the other slug, so this file cannot read the tenant through the old address; the absence of a write is the 401 itself plus SEC-OLD-01 step s13. Two refused presented values spend two failure tokens of the runner's address. Cleanup revokes the value.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/uat-no-such-slug"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/catalog"
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.status": 401,
+          "$.title": "Unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": 1,
+          "location_id": 1,
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid9}"
+        }
+      },
+      "expect": {
+        "status": 401,
+        "json": {
+          "$.status": 401,
+          "$.title": "Unauthorized",
+          "$.detail": "invalid or expired bearer token"
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+  {"callee": "Alpha.Worker.used_by_consumer", "arity": 0, "caller": "Alpha.Consumer", "file": "lib/alpha/consumer.ex", "line": 6},
+  {"callee": "Alpha.Remote.only_in_graph", "arity": 0, "caller": "Alpha.Consumer", "file": "lib/alpha/consumer.ex", "line": 7},
+  {"callee": "Alpha.Worker.only_in_test", "arity": 0, "caller": "Alpha.WorkerTest", "file": "test/alpha/worker_test.exs", "line": 5},
+  {"callee": "Alpha.Worker.with_default", "arity": 1, "caller": "Alpha.Consumer", "file": "lib/alpha/consumer.ex", "line": 8}
+]

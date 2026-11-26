@@ -334,7 +334,8 @@ defmodule Letflow.Modules.Maintenance.OrderLifeTest do
   end
 
   # The completer's output variables are merged over the instance variables, so a forged
-  # `maintenance_order_id` in the completion body must never redirect a handler write.
+  # `maintenance_order_id` in the completion body must never redirect a handler write (T-2430: the
+  # engine refuses that key with 422 output_refused).
   defp two_orders!(ctx) do
     card = card!(ctx.a.schema_name, ctx.unit_a)
     o1 = order!(ctx, direct(card, %{"assignee_user_id" => ctx.u1}))
@@ -349,8 +350,12 @@ defmodule Letflow.Modules.Maintenance.OrderLifeTest do
     answer = complete(body.tok, task.id, body.params)
     assert answer.status == 422, answer.resp_body
 
-    refused = refusals(ctx.a.schema_name, task.id)
-    assert refused != [] and Enum.all?(refused, &(&1["detail"] == "handler_invalid_arguments"))
+    # T-2430: the engine refuses the write target key before any handler runs (the handler
+    # check `handler_invalid_arguments` stays as the second line, but is no longer reached)
+    body = Jason.decode!(answer.resp_body)
+    assert body["code"] == "output_refused"
+    assert body["rejected_keys"] == ["maintenance_order_id"]
+    assert refusals(ctx.a.schema_name, task.id) == []
     assert Repo.get(Task, task.id, prefix: ctx.a.schema_name).status == :pending
     assert stored_values(ctx.a.schema_name, victim_id) == victim_values
     assert order_events(ctx.a.schema_name, victim_id) == victim_events

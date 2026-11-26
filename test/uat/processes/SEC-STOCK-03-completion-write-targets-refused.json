@@ -1,0 +1,645 @@
+{
+  "id": "SEC-STOCK-03",
+  "bp_entry": "BP-STOCK-44",
+  "title": "A completer cannot redirect a post or reversal task to another document or entry (foreign write targets refused)",
+  "description": "SECURITY. The storekeeper issues two stock issue documents A and B of one unit each (an issue can be cancelled while its post task waits). The storekeeper, who does not hold the approve permission, cannot claim or complete A's post task (the answer of a task that does not exist, 404). The administrator takes A's post task and completes it with a body that names B's document, B's version and org unit, a mark and a posting with other lines; then with B's document id alone; then with a posting alone: each is refused 422 output_refused and nothing is posted (A and B stay issued, the balance unchanged). The honest completion with an empty body posts A, and only A (balance minus 1). The administrator starts the reversal of A and completes the Reverse task with a body that names another ledger entry and a reason, then with B's document id: both refused 422 output_refused, A stays posted. The cleanup completes the Reverse task honestly (balance back to its start) and cancels B.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        },
+        "uom": {
+          "pick": "$.rows[0].unit_ref",
+          "if_unset": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} SEC-STOCK-03 A",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft",
+          "kind": "issue"
+        }
+      },
+      "save": {
+        "doc_a": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_a}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/tasks?status=PENDING&page_size=1"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "post",
+          "$.items[0].status": "PENDING"
+        }
+      },
+      "save": {
+        "task_a": "$.items[0].id",
+        "inst_a": "$.items[0].instance_id"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/instances/${inst_a}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.document_id": "${doc_a}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_a}/claim",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${task_a}/complete",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "issue",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} SEC-STOCK-03 B",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "doc_b": "$.id"
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_b}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {
+            "document_id": "${doc_b}",
+            "document_type": "stock_issue",
+            "version_no": 1,
+            "org_unit_id": "${org_unit}",
+            "mark": "posted",
+            "posting": {
+              "lines": [
+                {
+                  "sku": "${item}",
+                  "location": "${place}",
+                  "quantity": "-500"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "output_refused"
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {
+            "document_id": "${doc_b}"
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "output_refused"
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {
+            "posting": {
+              "lines": [
+                {
+                  "sku": "${item}",
+                  "location": "${place}",
+                  "quantity": "-500"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "output_refused"
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_a}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued",
+          "entry_id": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_b}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued",
+          "entry_id": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "posted_a": "${doc_a}"
+      }
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_a}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "entry_id": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_b}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued",
+          "entry_id": {
+            "absent": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before - 1}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_a}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-03 reversal of A"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s20",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {
+            "reason_code": "other",
+            "posting": {
+              "reverses_entry_id": "00000000-0000-4000-8000-0000000000e2"
+            }
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "output_refused"
+      }
+    },
+    {
+      "id": "s21",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_a}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {
+            "document_id": "${doc_b}"
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "output_refused"
+      }
+    },
+    {
+      "id": "s22",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_a}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      }
+    },
+    {
+      "id": "s23",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before - 1}"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c4",
+      "actor": "storekeeper",
+      "requires": [
+        "doc_a"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_a}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-03 cleanup of A"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "posted_a"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_a}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} SEC-STOCK-03 cleanup of A"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "posted_a"
+      ],
+      "do": {
+        "wait_task": {
+          "for_document": "${posted_a}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "posted_a"
+      ],
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${posted_a}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "reversed"
+        }
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "storekeeper",
+      "requires": [
+        "doc_b"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_b}/cancel",
+        "body": {
+          "reason": "UAT ${run_id} SEC-STOCK-03 cleanup of B"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "storekeeper",
+      "requires": [
+        "doc_b"
+      ],
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/documents/${doc_b}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": {
+            "regex": "^(cancelled|draft)$"
+          }
+        }
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "storekeeper",
+      "requires": [
+        "balance_before"
+      ],
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ]
+}

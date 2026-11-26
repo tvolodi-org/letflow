@@ -42,6 +42,16 @@ letflow-*.tar
 # docs/agents/instructions/core-directives.md's file-placement rules
 /scratch/
 
+# UAT request/response excerpts are run output and may carry tenant data.
+/uat-runs/
+
+# The agent team's engine state. `state/team.db` is the team's task database (a SQLite
+# file), not product code: it was tracked here by mistake since PR #3801 (2026-11-04)
+# and four commits wrote to it. It was removed from the tree in T-2706; the team
+# repository keeps its own copy under its own (already ignored) `state/` directory,
+# and this repository's product code reads nothing from that path.
+/state/
+
 # ── Frontend (web/) — Node / Vite / Playwright ───────────────────────────────
 # web/ is Letflow's own React SPA as of the S8 re-scope (2026-08-21); see
 # docs/migration/decisions/0011-frontend-ownership.md.
@@ -70,3 +80,15 @@ web/tests/e2e/.pipeline-state/
 # Python bytecode: build artefacts, never source; a .pyc embeds the absolute path it was compiled at (T-1597).
 __pycache__/
 *.pyc
+
+# UAT runner output (runner.py default run dir); never commit
+/uat-runs/
+
+# ── QA mail CA (host-local, never committed) ─────────────────────────────────
+# The public certificate of the QA mail trap's CA. It lives on the QA host at
+# deploy/qa-mail-ca/ and is bind-mounted into the single gated build step
+# (deploy/Dockerfile's LETFLOW_QA_MAIL_CA build-arg gate); only the placeholder
+# below is tracked, so the directory always exists for the build context. The
+# private key never reaches the build context at all.
+deploy/qa-mail-ca/*
+!deploy/qa-mail-ca/.gitkeep

@@ -1,0 +1,94 @@
+{
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0090-000000004804",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "maintenance_work"
+          },
+          {
+            "id": "e2",
+            "source": "maintenance_work",
+            "target": "maintenance_close"
+          },
+          {
+            "id": "e3",
+            "source": "maintenance_close",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "form_schema": {
+                "properties": {
+                  "work_done": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "work_done"
+                ],
+                "type": "object"
+              },
+              "module_writes": [
+                {
+                  "args": {
+                    "order_id": {
+                      "var": "maintenance_order_id"
+                    },
+                    "work_done": {
+                      "var": "work_done"
+                    }
+                  },
+                  "handler": "record_done",
+                  "module": "maintenance"
+                }
+              ],
+              "role": "TENANT_ADMIN",
+              "completer_inputs": [
+                "maintenance_order_id"
+              ]
+            },
+            "id": "maintenance_work",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "order_id": {
+                      "var": "maintenance_order_id"
+                    }
+                  },
+                  "handler": "record_closed",
+                  "module": "maintenance"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "maintenance_close",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "maintenance_work_order",
+      "version": "1.1.0",
+      "description": "T-2299 fixture: record_done/record_closed read the order from maintenance_order_id"
+    }
+  ]
+}

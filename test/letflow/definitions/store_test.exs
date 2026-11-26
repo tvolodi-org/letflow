@@ -112,10 +112,19 @@ defmodule Letflow.Definitions.StoreTest do
   # ---------------------------------------------------------------------------------
 
   defp provisioned_tenant(_context \\ %{}) do
-    TenantFixture.provisioned_tenant!(
-      slug_prefix: "req030",
-      display_name: "REQ-030 Test Tenant"
-    )
+    tenant =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: "req030",
+        display_name: "REQ-030 Test Tenant"
+      )
+
+    # T-2597 (pilot gap G14): the tenant's OUTBOUND ALLOW-LIST -- the http channel and the
+    # FAKE host the graphs of this file name. The list is empty by default, and a definition
+    # that reaches outside is refused at the activation while the door is closed (the
+    # refusal is proved in test/letflow/outbound_destination_allow_list_test.exs).
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["example.test"])
+
+    tenant
   end
 
   defp unique_name(prefix \\ "req030-def") do

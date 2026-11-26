@@ -61,6 +61,10 @@ defmodule Letflow.EntityWritesFixture do
   def tenant_case!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
     schema = tenant.schema_name
+    # T-2597 (pilot gap G14): the fixture's service graphs carry an inline
+    # HTTP endpoint, and the tenant's outbound allow-list is empty by default
+    # -- so the door is opened for the hosts these graphs reach.
+    TenantFixture.open_outbound_http!(schema, ["example.test", "127.0.0.1"])
     {:ok, _} = EventTypes.seed!(schema)
     %{tenant: tenant, schema: schema, user: user!(schema, "completer")}
   end
@@ -74,6 +78,8 @@ defmodule Letflow.EntityWritesFixture do
   def committed_tenant_case!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix, teardown: false)
     schema = tenant.schema_name
+    # T-2597 (pilot gap G14): the same door as `tenant_case!/1` (see there).
+    TenantFixture.open_outbound_http!(schema, ["example.test", "127.0.0.1"])
     {:ok, _} = EventTypes.seed!(schema)
     %{tenant: tenant, schema: schema, user: user!(schema, "completer")}
   end
@@ -230,7 +236,8 @@ defmodule Letflow.EntityWritesFixture do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: unique("ew-start")
         },
-        prefix: schema
+        prefix: schema,
+        module_start: true
       )
 
     {created.instance_id, pending_task!(schema, created.instance_id)}
@@ -422,7 +429,8 @@ defmodule Letflow.EntityWritesFixture do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: unique("ew-svc-start")
         },
-        prefix: base.schema
+        prefix: base.schema,
+        module_start: true
       )
 
     [row] =

@@ -163,7 +163,8 @@ defmodule Letflow.Modules.Assets.PostingTest do
           actor_id: Ecto.UUID.generate(),
           idempotency_key: "generic-dup-#{Ecto.UUID.generate()}"
         },
-        prefix: ctx.schema
+        prefix: ctx.schema,
+        module_start: true
       )
 
     second = D.pending_task(ctx, id, "post")
@@ -253,7 +254,8 @@ defmodule Letflow.Modules.Assets.PostingTest do
     lines =
       List.update_at(instance.variables["posting"]["lines"], 0, &Map.put(&1, "quantity", "3"))
 
-    output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}
+    :ok =
+      D.tamper!(ctx, task, %{"posting" => Map.put(instance.variables["posting"], "lines", lines)})
 
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
@@ -261,7 +263,7 @@ defmodule Letflow.Modules.Assets.PostingTest do
              Engine.complete_task(
                task.id,
                %{
-                 output_variables: output,
+                 output_variables: %{},
                  actor_id: holder.id,
                  idempotency_key: Ecto.UUID.generate()
                },

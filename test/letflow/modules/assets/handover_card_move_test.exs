@@ -70,10 +70,12 @@ defmodule Letflow.Modules.Assets.HandoverCardMoveTest do
     instance = Repo.get!(InstanceProjection, task.instance_id, prefix: ctx.schema)
     holder = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
 
+    :ok = D.tamper!(ctx, task, output.(instance.variables["posting"]))
+
     Engine.complete_task(
       task.id,
       %{
-        output_variables: output.(instance.variables["posting"]),
+        output_variables: %{},
         actor_id: holder.id,
         idempotency_key: Ecto.UUID.generate()
       },

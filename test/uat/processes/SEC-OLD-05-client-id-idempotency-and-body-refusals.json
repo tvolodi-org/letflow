@@ -1,0 +1,609 @@
+{
+  "id": "SEC-OLD-05",
+  "bp_entry": "BP-STOCK-32",
+  "title": "Old address: one client id posts once, changed data under the same id is 409, malformed writes are refused and write nothing",
+  "description": "SECURITY (decision 0091 section 9 'Retry by client id' with the T-2282 amendment and section 8; REQ-860, REQ-909). Every operation id is a fresh UUID of the run (${uuid1}..${uuid5}, made by the runner), the same on a retry. With a valid shared value the phone posts a receipt of 1 unit at the first balance key of the old address: 201, the balance rises by 1. The same id and data again: 200 with the stored row, the same movement id, the balance is not doubled. The same id with another quantity: 409 'this operation was already posted with different data'. Malformed writes are refused 400 with the old server's texts and write nothing: no id, an id that is not a UUID, no operator, an operator over 200 characters, quantity 0, a negative quantity, a quantity that is not a number, an unknown kind, a body that is a JSON list, a body over 8192 bytes (413 'body too large'), an unknown item number (404 'unknown sku'). Reversal: a new id reverses the movement (201), the same id again answers the stored reversal (200), another id on the same movement is 400 'already reversed', a reversal of the reversal is 400 'a reversal cannot be reversed; post a new operation instead', the post's own id used for a reversal is 409, and an unknown movement is 404 'unknown movement'. The balance ends where it began. Cleanup reverses the receipt if the run stopped before the reversal, then revokes the value. Precondition: no other walk posts at the same item and place during the run (the checks compare only what this run did).",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2"
+  },
+  "steps": [
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.enabled": true,
+          "$.exists": false
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/identity/shared-stock-access",
+        "body": {}
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "shared_created": "yes",
+        "shared_access": {
+          "secret": "$.value"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].sku_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "sku_id": "$[0].sku_id",
+        "location_id": "$[0].location_id"
+      }
+    },
+    {
+      "id": "s5",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "b0": {
+          "pick": "$[0].qty",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.kind": "receipt",
+          "$.qty": 1,
+          "$.sku_id": "${sku_id}",
+          "$.location_id": "${location_id}"
+        }
+      },
+      "save": {
+        "movement_id": "$.id"
+      }
+    },
+    {
+      "id": "s7",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${movement_id}",
+          "$.kind": "receipt",
+          "$.qty": 1
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 1}"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 2,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 409,
+        "json": {
+          "$.error": "this operation was already posted with different data"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "id is required"
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "id is required"
+        }
+      }
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "operator required"
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT-operator-name-longer-than-two-hundred-characters-UAT-operator-name-longer-than-two-hundred-characters-UAT-operator-name-longer-than-two-hundred-characters-UAT-operator-name-longer-than-two-hundred-characters-end",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "operator too long"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 0,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "quantity must be positive"
+        }
+      }
+    },
+    {
+      "id": "s15",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "issue",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": -1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "quantity must be positive"
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": "one",
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid quantity"
+        }
+      }
+    },
+    {
+      "id": "s17",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "writeoff",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid kind"
+        }
+      }
+    },
+    {
+      "id": "s18",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": [
+          "receipt"
+        ]
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid body"
+        }
+      }
+    },
+    {
+      "id": "s19",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": 9999991,
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "unknown sku"
+        }
+      }
+    },
+    {
+      "id": "s20",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements",
+        "body": {
+          "kind": "receipt",
+          "sku_id": "${sku_id}",
+          "location_id": "${location_id}",
+          "qty": 1,
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}",
+          "note": "PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-PADDING-TO-PASS-THE-8192-BYTE-BODY-CAP-0123456789-END"
+        }
+      },
+      "expect": {
+        "status": 413,
+        "json": {
+          "$.error": "body too large"
+        }
+      }
+    },
+    {
+      "id": "s21",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": "${b0 + 1}"
+        }
+      }
+    },
+    {
+      "id": "s22",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/movements?sku_id=${sku_id}&location_id=${location_id}&limit=1"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].id": "${movement_id}"
+        }
+      }
+    },
+    {
+      "id": "s23",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${movement_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.reverses": "${movement_id}"
+        }
+      },
+      "save": {
+        "reversal_id": "$.id"
+      }
+    },
+    {
+      "id": "s24",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${movement_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${reversal_id}"
+        }
+      }
+    },
+    {
+      "id": "s25",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${movement_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid3}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "already reversed"
+        }
+      }
+    },
+    {
+      "id": "s26",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${reversal_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid4}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "a reversal cannot be reversed; post a new operation instead"
+        }
+      }
+    },
+    {
+      "id": "s27",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${movement_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid1}"
+        }
+      },
+      "expect": {
+        "status": 409,
+        "json": {
+          "$.error": "this operation was already posted with different data"
+        }
+      }
+    },
+    {
+      "id": "s28",
+      "http_as": "shared_access",
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/0/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid5}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.error": "unknown movement"
+        }
+      }
+    },
+    {
+      "id": "s29",
+      "http_as": "shared_access",
+      "do": {
+        "api": "GET",
+        "path": "/api/balances?sku_id=${sku_id}&location_id=${location_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$[0].qty": {
+            "equals": "${b0}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "http_as": "shared_access",
+      "requires": [
+        "movement_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/movements/${movement_id}/reverse",
+        "body": {
+          "operator": "UAT ${run_id}",
+          "id": "${uuid2}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          201
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "shared_created"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/identity/shared-stock-access"
+      },
+      "expect": {
+        "status": [
+          204,
+          404
+        ]
+      }
+    }
+  ]
+}

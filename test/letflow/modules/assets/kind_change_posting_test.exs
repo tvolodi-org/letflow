@@ -126,10 +126,12 @@ defmodule Letflow.Modules.Assets.KindChangePostingTest do
     rows |> Enum.map(&Decimal.new(&1["quantity"])) |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
   end
 
-  defp complete_as(ctx, task, user, output \\ %{}) do
+  defp complete_as(ctx, task, user, forged \\ %{}) do
+    :ok = D.tamper!(ctx, task, forged)
+
     Engine.complete_task(
       task.id,
-      %{output_variables: output, actor_id: user.id, idempotency_key: Ecto.UUID.generate()},
+      %{output_variables: %{}, actor_id: user.id, idempotency_key: Ecto.UUID.generate()},
       prefix: ctx.schema,
       credential: :oidc
     )

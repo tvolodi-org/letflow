@@ -1,0 +1,359 @@
+{
+  "id": "BP-05",
+  "bp_entry": "BP-STOCK-12",
+  "title": "Reversal of a posted document",
+  "description": "Self-contained: a storekeeper receives `quantity` units (default 5) and an administrator posts the receipt, so the process owns the posted document it reverses (a chain may instead hand it a document of BP-01..BP-04; this file does not take one). Two bad reversal requests are refused 422 and change nothing. The storekeeper reverses with a reason: the Reverse task starts, the document still reads posted, a second reversal while the task is open is refused 409 reversal_pending. An administrator claims and completes the Reverse task: the document reads reversed and the balance is back to its start. A third reversal is refused 409 document_reversed (a reversal is a mark on the document, not a document, so there is no reversal of a reversal), and the balance does not move. Cleanup: if the run stopped after posting and before the Reverse task was completed, it starts the reversal (200, or 409 when already reversed); in that abort case an administrator must complete the Reverse task in My Tasks (or the runner cleanup replay after the task appears). When the run passes, nothing is left. Not covered here: cancel of an issued document and reversal of a count (other entries).",
+  "tenant": "${tenant}",
+  "inputs": [
+    "item",
+    "place",
+    "org_unit",
+    "responsible"
+  ],
+  "defaults": {
+    "quantity": "5"
+  },
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "item": "208ee14a-b5c7-4ec2-b905-b0391001fd98",
+      "place": "925d46bf-af76-4940-867d-9f4521536767",
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660",
+      "responsible": "58d53f0f-90ea-4532-8079-8f4e5263e8b8"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "balance_before": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        },
+        "uom": {
+          "pick": "$.rows[0].unit_ref",
+          "if_unset": true
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents",
+        "body": {
+          "kind": "receipt",
+          "org_unit_id": "${org_unit}",
+          "location_id": "${place}",
+          "responsible_id": "${responsible}",
+          "event_time": "${now_utc}",
+          "note": "UAT ${run_id} BP-05",
+          "lines": [
+            {
+              "catalog_item_id": "${item}",
+              "catalog_uom_id": "${uom}",
+              "quantity": "${quantity}"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "state": "draft"
+        }
+      },
+      "save": {
+        "doc_id": "$.id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/issue"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "issued"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_id}",
+          "step": "post",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "posted_doc_id": "${doc_id}"
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${doc_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted",
+          "entry_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "entry_id": "$.entry_id"
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + quantity}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/reverse",
+        "body": {
+          "reason_code": "other"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "reason_invalid"
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/reverse",
+        "body": {
+          "reason_code": "not_a_reason",
+          "reason_text": "UAT ${run_id}"
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "reason_invalid"
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {
+        "assert_only": {
+          "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before + quantity}"
+          }
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/reverse",
+        "body": {
+          "reason_code": "wrong_document",
+          "reason_text": "UAT ${run_id} BP-05 reversal"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "posted"
+        }
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/reverse",
+        "body": {
+          "reason_code": "wrong_document",
+          "reason_text": "UAT ${run_id} BP-05 second"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "reversal_pending"
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {
+        "wait_task": {
+          "for_document": "${doc_id}",
+          "step": "reverse",
+          "within_s": 30
+        },
+        "claim": true,
+        "complete": {
+          "body": {}
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s12",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents/${doc_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "state": "reversed",
+          "reversed_at": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "reversal_state": "$.state"
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      },
+      "save": {
+        "balance_after": {
+          "pick": "$.rows[0].quantity",
+          "default": "0"
+        }
+      }
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${doc_id}/reverse",
+        "body": {
+          "reason_code": "wrong_document",
+          "reason_text": "UAT ${run_id} BP-05 third"
+        }
+      },
+      "expect_refused": {
+        "status": 409,
+        "code": "document_reversed"
+      }
+    },
+    {
+      "id": "s15",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].quantity": {
+            "equals": "${balance_before}",
+            "default": "0"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "reversed_doc_id": "${doc_id}",
+    "reversal_state": "${reversal_state}",
+    "balance_after": "${balance_after}"
+  },
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "posted_doc_id"
+      ],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/documents/${posted_doc_id}/reverse",
+        "body": {
+          "reason_code": "other",
+          "reason_text": "UAT ${run_id} cleanup of BP-05"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    }
+  ]
+}

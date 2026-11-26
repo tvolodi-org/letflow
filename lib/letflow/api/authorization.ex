@@ -433,6 +433,7 @@ defmodule Letflow.Api.Authorization do
           | :LedgerSettingsManage
           | :PhotosAdd
           | :PhotosDelete
+          | :OutboundDestinationsManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -645,7 +646,13 @@ defmodule Letflow.Api.Authorization do
     :LedgerSettingsManage,
     # T-2041 photos P2 (docs/design/photos.md 5.5): tenant scope; TENANT_ADMIN and PLATFORM_ADMIN by the derived rule and the catch-all; read in-handler by Letflow.Modules.Assets.CardPhotos; non-assignable.
     :PhotosAdd,
-    :PhotosDelete
+    :PhotosDelete,
+    # T-2597 (pilot gap G14): the per-tenant outbound allow-list (the channels a tenant may
+    # use to reach outside itself and the destinations it may reach). Tenant scope; TENANT_ADMIN
+    # and PLATFORM_ADMIN through the derived rule and the catch-all; NOT a PROCESS_DESIGNER
+    # permission (decision record G2 (c): the person who draws the process is not the person
+    # who opens the door).
+    :OutboundDestinationsManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -673,7 +680,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All seventy core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All seventy-one core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -723,7 +730,9 @@ defmodule Letflow.Api.Authorization do
   plus T-2003's `:OfficialFormTemplatesManage` (company templates of the official forms under
   `/documents/official-form-templates`), plus REQ-835's `:LedgerSettingsManage` (the negative balance
   switch under `/ledger-settings`, TENANT_ADMIN only), plus T-2041's `:PhotosAdd` and `:PhotosDelete`
-  (card photo gallery writes, read in-handler by `Letflow.Modules.Assets.CardPhotos`).
+  (card photo gallery writes, read in-handler by `Letflow.Modules.Assets.CardPhotos`), plus
+  T-2597's `:OutboundDestinationsManage` (the per-tenant outbound allow-list under
+  `/outbound-destinations`; TENANT_ADMIN and PLATFORM_ADMIN, never a PROCESS_DESIGNER).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -924,6 +933,11 @@ defmodule Letflow.Api.Authorization do
 
   def endpoint_policy_key("GET", path) when path in ["/definitions", "/definitions/:id"],
     do: :DefinitionsRead
+
+  # T-2588 (pilot gap G2): the compiled platform function catalogue. Read only: the
+  # catalogue has no write route (an entry exists only if it is compiled into the build),
+  # and the permission is the platform atom the platform family itself requires.
+  def endpoint_policy_key("GET", "/platform-functions"), do: :TenantsManage
 
   # REQ-081 -- same permission, three more path templates, no new atom.
   # REQ-125 adds a fourth (/definitions/delta), same permission, still no
@@ -1515,6 +1529,13 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/currencies"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/currencies/:code"), do: :CurrenciesManage
 
+  # T-2597 (pilot gap G14): the per-tenant outbound allow-list -- the channels and the
+  # destinations the tenant's own definitions may reach. Only the holder of the narrow atom
+  # may change it (never a PROCESS_DESIGNER).
+  def endpoint_policy_key("GET", "/outbound-destinations"), do: :OutboundDestinationsManage
+  def endpoint_policy_key("POST", "/outbound-destinations"), do: :OutboundDestinationsManage
+  def endpoint_policy_key("DELETE", "/outbound-destinations"), do: :OutboundDestinationsManage
+
   # T-1986: the four-eyes switch (docs/design/four-eyes-switch.md).
   def endpoint_policy_key("GET", "/approval-rules"), do: :ApprovalRulesManage
 
@@ -1527,6 +1548,11 @@ defmodule Letflow.Api.Authorization do
 
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
+
+  # T-2600 (pilot gap G5b): the COMPILED catalogue of registered template keys the designer's
+  # template picker reads. Platform data (a key and its placeholder names), no tenant text: the
+  # read permission of a definition is enough, the same one the validation route uses.
+  def endpoint_policy_key("GET", "/notification-templates/catalogue"), do: :DefinitionsRead
 
   def endpoint_policy_key("PUT", "/notification-templates/:template_key"),
     do: :NotificationTemplatesManage
@@ -1898,6 +1924,8 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:LabelsManage), do: :LabelsManage
   def required_permission(:DataExport), do: :DataExport
   def required_permission(:CurrenciesManage), do: :CurrenciesManage
+  # T-2597 (pilot gap G14): the narrow atom of the outbound allow-list.
+  def required_permission(:OutboundDestinationsManage), do: :OutboundDestinationsManage
   def required_permission(:ApprovalRulesManage), do: :ApprovalRulesManage
   def required_permission(:LedgerSettingsManage), do: :LedgerSettingsManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
@@ -2074,7 +2102,7 @@ defmodule Letflow.Api.Authorization do
 
   @doc """
   The closed set of grants a tenant may switch on (T-1570, D-097): STOREKEEPER may read and post
-  assets. AssetsReverse, AssetsReconcile and AssetsCardWrite stay administrator-only. This constant,
+  assets. AssetsApprove, AssetsReverse, AssetsReconcile and AssetsCardWrite stay administrator-only. This constant,
   not stored data, decides what can ever be granted.
   """
   @spec grantable() :: %{role() => [atom()]}

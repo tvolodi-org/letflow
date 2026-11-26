@@ -7,7 +7,7 @@ defmodule Letflow.Routers.AdminV1 do
 
   | Route | Class | Answer |
   |---|---|---|
-  | `POST /tenants` | write | 201 first time, 200 replay: `{tenant_id, status, server_url, handover}`; 409 `{error: conflict, limit?, message}` (`limit` only for the cap and the T-1621 source/e-mail-domain budgets) |
+  | `POST /tenants` | write | 201 first time, 200 replay: `{tenant_id, status, server_url, handover}`; 202 `{tenant_id, status, poll, reason?}` only when `LETFLOW_PROVISIONER_CREATE_VIA_PROCESS` is on and the instance has not finished within the wait (T-2728); 409 `{error: conflict, limit?, message}` (`limit` only for the cap and the T-1621 source/e-mail-domain budgets) |
   | `GET /tenants/:id` | write or read | 200 `{tenant_id, status, tier, created_at, expires_at, purged_at}` |
   | `POST /tenants/:id/suspend`, `/resume`, `/expire` | write | 200 `{tenant_id, status}` |
   | `DELETE /tenants/:id` | write | 202 `{tenant_id, status}` (deactivated, waiting for retention), 200 `{tenant_id, status: "deleted"}` (purged), 409 `conflict` (production) |
@@ -76,6 +76,8 @@ defmodule Letflow.Routers.AdminV1 do
       case TenantProvisioner.create(request) do
         {:ok, :created, answer} -> Response.send_json(conn, 201, answer)
         {:ok, :existing, answer} -> Response.send_json(conn, 200, answer)
+        # T-2728: the process create still running (or failed) at the end of the wait.
+        {:ok, :accepted, answer} -> Response.send_json(conn, 202, answer)
         {:error, reason} -> send_failure(conn, reason)
       end
     else

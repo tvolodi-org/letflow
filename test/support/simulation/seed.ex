@@ -356,6 +356,7 @@ defmodule Letflow.Simulation.Seed do
 
     with {:ok, definition} <-
            Definitions.create_with_variable_schemas(attrs, entries, prefix: prefix),
+         :ok <- Letflow.OutboundAllowFixture.allow_definition!(prefix, definition.id),
          {:ok, %{definition: activated}} <- Definitions.activate(definition.id, prefix: prefix) do
       {:ok, activated}
     else

@@ -1,0 +1,131 @@
+{
+  "id": "SEC-ID-04",
+  "bp_entry": "BP-TENANT-ADMIN-45",
+  "title": "Shared stock access value: create, use, rotate, revoke, refused after revoke, never shown in the status; the storekeeper may not manage it",
+  "description": "The tenant administrator reads the shared access status (it must show that no value exists yet, so a value somebody is using is never revoked by this run; the run stops at s2 otherwise). The storekeeper reads, creates and revokes the shared access: each refused with 403 and the same body. The administrator creates the value (shown once, kept in the runner's memory only), the status now says it exists, created by this administrator, and never contains the value. The old phone address accepts the value. The administrator creates it again (rotation): the status shows a rotation time and the old address accepts the new value. The administrator revokes it: the old address refuses the value with 401 (invalid or expired bearer token), the status says it no longer exists, a second revoke answers the plain not-found. The cleanup revokes it if the run stopped in between.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper"},
+    "inputs": {},
+    "old_base_url": "https://qa.bizdala.com/qoimeks/qoimeks-qa2/api"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me"},
+      "expect": {"status": 200},
+      "save": {"admin_id": "$.user_id"}
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 200, "json": {"$.enabled": true, "$.exists": false, "$.value": {"absent": true}}}
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/identity/shared-stock-access", "body": {}},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions", "$.value": {"absent": true}}}
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 403, "json": {"$.title": "Forbidden", "$.detail": "insufficient permissions"}}
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 200, "json": {"$.exists": false}}
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/identity/shared-stock-access", "body": {}},
+      "expect": {"status": 201, "json": {"$.value": {"exists": true}}},
+      "save": {"shared_created": "yes", "shared_access": {"secret": "$.value"}}
+    },
+    {
+      "id": "s8",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 200, "json": {"$.exists": true, "$.created_by": "${admin_id}", "$.created_at": {"exists": true}, "$.value": {"absent": true}}}
+    },
+    {
+      "id": "s9",
+      "http_as": "shared_access",
+      "do": {"api": "GET", "path": "/catalog"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/identity/shared-stock-access", "body": {}},
+      "expect": {"status": 201, "json": {"$.value": {"exists": true}}},
+      "save": {"shared_access": {"secret": "$.value"}}
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 200, "json": {"$.exists": true, "$.rotated_at": {"exists": true}, "$.value": {"absent": true}}}
+    },
+    {
+      "id": "s12",
+      "http_as": "shared_access",
+      "do": {"api": "GET", "path": "/movements"},
+      "expect": {"status": 200}
+    },
+    {
+      "id": "s13",
+      "actor": "admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 204}
+    },
+    {
+      "id": "s14",
+      "http_as": "shared_access",
+      "do": {"api": "GET", "path": "/catalog"},
+      "expect": {"status": 401, "json": {"$.title": "Unauthorized", "$.detail": "invalid or expired bearer token"}}
+    },
+    {
+      "id": "s15",
+      "http_as": "shared_access",
+      "do": {"api": "GET", "path": "/movements"},
+      "expect": {"status": 401, "json": {"$.title": "Unauthorized", "$.detail": "invalid or expired bearer token"}}
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 200, "json": {"$.exists": false, "$.value": {"absent": true}}}
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {"api": "DELETE", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": 404, "json": {"$.title": "Not Found", "$.detail": "the requested resource was not found"}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["shared_created"],
+      "do": {"api": "DELETE", "path": "/api/v1/identity/shared-stock-access"},
+      "expect": {"status": [204, 404]}
+    }
+  ]
+}

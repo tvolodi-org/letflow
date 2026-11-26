@@ -30,6 +30,12 @@ defmodule Letflow.Support.ScriptTaskFixture do
   @spec tenant!(String.t()) :: map()
   def tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
+
+    # T-2597 (pilot gap G14): the graphs these tenants run carry an inline
+    # HTTP step, and the tenant's outbound allow-list is empty by default --
+    # so the door is opened for the hosts they name.
+    TenantFixture.open_outbound_http!(tenant.schema_name, ["example.test", "127.0.0.1"])
+
     :ok = HmacSecret.ensure(%{id: tenant.tenant_id})
     delete_secrets_on_exit(tenant.tenant_id)
     tenant
@@ -302,7 +308,8 @@ defmodule Letflow.Support.ScriptTaskFixture do
                  actor_id: actor_id,
                  idempotency_key: "gh2534-7c-start-#{System.unique_integer([:positive])}"
                },
-               prefix: schema
+               prefix: schema,
+               module_start: true
              )
 
     instance_id

@@ -1,0 +1,169 @@
+{
+  "id": "SEC-STOCK-04",
+  "bp_entry": "BP-STOCK-20",
+  "title": "Cross-tenant read and write of stock documents are refused with the uniform not-found answer",
+  "description": "SECURITY. Two tenants: the home tenant (the run's tenant) and the FOREIGN tenant sss-rehearsal2, whose administrator signs in to their own company (the tenant of a request is the company of the signed-in user). The home storekeeper makes a draft receipt D. The foreign administrator tries to read, change, issue, post, reverse, cancel, delete and print D, to read it as a count, to post it as a count and to cancel it as a workbook load: every call is answered exactly as for an id that does not exist (404, same title and detail). D is unchanged for its owner. The other way round, the home administrator tries to read, reverse and cancel a real document of the foreign tenant (read at run time from the foreign tenant's own list): the same 404, while the foreign administrator still reads it (control). A tenant key in a query is refused 422 invalid_filter. The cleanup deletes D.",
+  "tenant": "${tenant}",
+  "inputs": ["item", "place", "org_unit", "responsible"],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {"admin": "qoimeks-qa2-admin", "storekeeper": "qoimeks-qa2-storekeeper",
+               "sss-rehearsal2-admin": "sss-rehearsal2-admin"},
+    "inputs": {
+      "item": "005fb8be-cf30-4e8f-a113-acd5abf7f9b4",
+      "place": "fb5ba528-6d0c-4298-aec7-b8ee58e3a9f2",
+      "org_unit": "e83ea09f-c216-459b-9081-d5db82a7d917",
+      "responsible": "bbc4b1fa-0f65-4528-b933-815681680dfc"
+    }
+  },
+  "steps": [
+    {
+      "id": "s0",
+      "actor": "admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/00000000-0000-4000-8000-0000000000c1"}},
+      "expect": {"status": 404},
+      "save": {"nf_detail": "$.detail", "nf_title": "$.title"}
+    },
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/modules/stock/balances?sku=${item}&location=${place}&org_unit=${org_unit}&responsible=${responsible}"},
+      "expect": {"status": 200},
+      "save": {"uom": {"pick": "$.rows[0].unit_ref", "if_unset": true}}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents",
+             "body": {"kind": "receipt", "org_unit_id": "${org_unit}", "location_id": "${place}", "responsible_id": "${responsible}",
+                      "event_time": "${now_utc}", "note": "UAT ${run_id} SEC-STOCK-04 D",
+                      "lines": [{"catalog_item_id": "${item}", "catalog_uom_id": "${uom}", "quantity": "1"}]}},
+      "expect": {"status": 201, "json": {"state": "draft"}},
+      "save": {"doc_d": "$.id"}
+    },
+    {
+      "id": "s3",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/${doc_d}"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s4",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "PUT", "path": "/api/v1/modules/stock/documents/${doc_d}",
+             "body": {"kind": "receipt", "org_unit_id": "${org_unit}", "location_id": "${place}", "responsible_id": "${responsible}",
+                      "event_time": "${now_utc}", "note": "changed by another company",
+                      "lines": [{"catalog_item_id": "${item}", "catalog_uom_id": "${uom}", "quantity": "999"}]}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s5",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${doc_d}/issue"},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s6",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${doc_d}/post"},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s7",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${doc_d}/reverse",
+             "body": {"reason_code": "other", "reason_text": "UAT ${run_id} cross-tenant probe"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s8",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${doc_d}/cancel", "body": {"reason": "UAT ${run_id} cross-tenant probe"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s9",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "DELETE", "path": "/api/v1/modules/stock/documents/${doc_d}"},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s10",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/${doc_d}/print"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s11",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/counts/${doc_d}"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s12",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/counts/${doc_d}/post", "body": {}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s13",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/stock-workbook/imports/${doc_d}/cancel", "body": {"reason": "UAT ${run_id} cross-tenant probe"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s14",
+      "actor": "storekeeper",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/${doc_d}"}},
+      "expect": {"status": 200, "json": {"state": "draft", "id": "${doc_d}"}}
+    },
+    {
+      "id": "s15",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents?limit=1"}},
+      "expect": {"status": 200, "json": {"$.rows[0].id": {"exists": true}}},
+      "save": {"foreign_doc": "$.rows[0].id"}
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/${foreign_doc}"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s17",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${foreign_doc}/reverse",
+             "body": {"reason_code": "other", "reason_text": "UAT ${run_id} cross-tenant probe"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s18",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/modules/stock/documents/${foreign_doc}/cancel", "body": {"reason": "UAT ${run_id} cross-tenant probe"}},
+      "expect": {"status": 404, "json": {"detail": "${nf_detail}", "title": "${nf_title}"}}
+    },
+    {
+      "id": "s19",
+      "actor": "sss-rehearsal2-admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/documents/${foreign_doc}"}},
+      "expect": {"status": 200, "json": {"id": "${foreign_doc}"}}
+    },
+    {
+      "id": "s20",
+      "actor": "admin",
+      "do": {"assert_only": {"path": "/api/v1/modules/stock/balances?tenant_id=00000000-0000-4000-8000-0000000000c2"}},
+      "expect_refused": {"status": 422, "code": "invalid_filter"}
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "storekeeper",
+      "requires": ["doc_d"],
+      "do": {"api": "DELETE", "path": "/api/v1/modules/stock/documents/${doc_d}"},
+      "expect": {"status": 204}
+    }
+  ]
+}

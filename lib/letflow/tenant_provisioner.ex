@@ -31,7 +31,8 @@ defmodule Letflow.TenantProvisioner do
   ## Default modules (T-1580, decision 0072 D8)
 
   The last step of `complete/6` installs the configured default modules (`Config.default_modules/0`) with
-  `DefaultModules.ensure/3`. A failed install never fails the create: `tenant_lifecycles.default_modules_state`
+  `Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules.ensure_default_modules/1` (the home of that
+  install since T-2590, pilot gap G1b; the platform step `tenant.install_default_modules` calls it too). A failed install never fails the create: `tenant_lifecycles.default_modules_state`
   becomes `failed` with `"<module_id>:<code>"`, and a replay of the create call retries it. Rows made
   before the column existed are `not_applicable` and install nothing.
 
@@ -53,19 +54,21 @@ defmodule Letflow.TenantProvisioner do
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Oidc.RealmProbe
+  alias Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules
+  alias Letflow.PlatformFunctions.Impl.TenantProvision
   alias Letflow.PlatformTenant
   alias Letflow.Repo
   alias Letflow.TenantLifecycle
-  alias Letflow.TenantOnboarding
+  alias Letflow.TenantProvisioner.Admission
   alias Letflow.TenantProvisioner.Config
-  alias Letflow.TenantProvisioner.DefaultModules
   alias Letflow.TenantProvisioner.Lifecycle
+  alias Letflow.TenantProvisioner.Register
   alias Letflow.TenantProvisioner.Request
   alias Letflow.TenantProvisioning
   alias Letflow.TenantPurge
 
   @type create_result ::
-          {:ok, :created | :existing, map()}
+          {:ok, :created | :existing | :accepted, map()}
           | {:error,
              {:invalid, String.t()} | :conflict | :internal | {:limit, atom(), String.t()}}
 
@@ -74,13 +77,29 @@ defmodule Letflow.TenantProvisioner do
   `{:ok, :created, body}` when this call inserted the tenant row, `{:ok, :existing, body}` for a
   replay; the two bodies are identical.
   """
-  @spec create(Request.t()) :: create_result()
-  def create(%{tenant_id: tenant_id} = request) do
+  @spec create(Request.t(), keyword()) :: create_result()
+  def create(%{tenant_id: tenant_id} = request, opts \\ []) do
     with {:ok, platform_prefix} <- platform_prefix(),
          {:ok, server_url} <- server_url() do
-      with_lock(tenant_id, fn -> do_create(request, platform_prefix, server_url) end)
+      if Register.enabled?() do
+        # T-2728: the process path. The front gate and the start run under the per-tenant lock; the
+        # wait for the instance runs OUTSIDE it (and outside any transaction).
+        wait_ms = Keyword.get(opts, :wait_ms, Config.create_wait_seconds() * 1000)
+        request = Map.put(request, :route, Keyword.get(opts, :route, :admin_v1_tenants_create))
+
+        tenant_id
+        |> with_lock(fn -> Register.admit(request, platform_prefix, server_url) end)
+        |> Register.finish(request, server_url, wait_ms)
+      else
+        with_lock(tenant_id, fn -> do_create(request, platform_prefix, server_url) end)
+      end
     end
   end
+
+  @doc false
+  # The old path's body, for `Register.admit/3` when a tenant already exists without an admission.
+  def create_old_path(request, platform_prefix, server_url),
+    do: do_create(request, platform_prefix, server_url)
 
   @doc """
   The read model of `GET /admin/v1/tenants/:id`: exactly `tenant_id`, `status`, `tier`,
@@ -89,19 +108,76 @@ defmodule Letflow.TenantProvisioner do
   """
   @spec get(term()) :: {:ok, map()} | {:error, :not_found}
   def get(raw_id) do
-    with {:ok, id} <- cast_id(raw_id),
-         %Lifecycle{} = row <- Repo.get(Lifecycle, id) do
-      {:ok,
-       %{
-         tenant_id: row.tenant_id,
-         status: row.lifecycle,
-         tier: row.tier,
-         created_at: iso(row.inserted_at),
-         expires_at: iso(row.expires_at),
-         purged_at: iso(row.purged_at)
-       }}
+    with {:ok, id} <- cast_id(raw_id) do
+      case Repo.get(Admission, id) do
+        # A tenant WITHOUT an admission: today's answer, whatever the setting says (T-2728).
+        nil -> get_plain(id)
+        %Admission{} = admission -> get_admitted(id, admission)
+      end
     else
       _unknown -> {:error, :not_found}
+    end
+  end
+
+  defp get_plain(id) do
+    case Repo.get(Lifecycle, id) do
+      %Lifecycle{} = row ->
+        {:ok,
+         %{
+           tenant_id: row.tenant_id,
+           status: row.lifecycle,
+           tier: row.tier,
+           created_at: iso(row.inserted_at),
+           expires_at: iso(row.expires_at),
+           purged_at: iso(row.purged_at)
+         }}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  defp put_handover(base, id) do
+    with {:ok, server_url} <- server_url(),
+         %OnboardingRecord{hostname: host} when is_binary(host) <-
+           Repo.get_by(OnboardingRecord, tenant_id: id) do
+      Map.merge(base, %{server_url: server_url, handover: %{login_url: "https://" <> host}})
+    else
+      _other -> base
+    end
+  end
+
+  # T-2728 (design 9.3): a tenant made by the process. Order: a non-active lifecycle row, then the
+  # instance's end state (failed + closed reason), then completed, else provisioning.
+  defp get_admitted(id, admission) do
+    lifecycle = Repo.get(Lifecycle, id)
+
+    base = %{
+      tenant_id: id,
+      tier: admission.tier,
+      created_at: iso(admission.inserted_at),
+      expires_at: iso(admission.expires_at),
+      purged_at: iso(lifecycle && lifecycle.purged_at)
+    }
+
+    state =
+      if admission.instance_id, do: Register.instance_state(admission.instance_id), else: :running
+
+    cond do
+      lifecycle != nil and lifecycle.lifecycle != "active" ->
+        {:ok, Map.put(base, :status, lifecycle.lifecycle)}
+
+      state == :failed ->
+        {:ok,
+         base
+         |> Map.put(:status, "failed")
+         |> Map.put(:reason, Register.failure_reason(admission.instance_id))}
+
+      state == :completed ->
+        {:ok, base |> Map.put(:status, "active") |> put_handover(id)}
+
+      true ->
+        {:ok, Map.put(base, :status, "provisioning")}
     end
   end
 
@@ -339,26 +415,52 @@ defmodule Letflow.TenantProvisioner do
 
   # T-1621: creations by one key in the last 24 h, deleted tenants included (an abuse budget, not a live
   # count). Parameterised on a bytea column (INV-7); a nil key or a budget of 0 skips the check.
-  defp check_budget(_field, nil, _budget, _which), do: :ok
-  defp check_budget(_field, _key, 0, _which), do: :ok
+  @doc false
+  def check_budget(_field, nil, _budget, _which), do: :ok
+  def check_budget(_field, _key, 0, _which), do: :ok
 
-  defp check_budget(field, key, budget, which) do
+  def check_budget(field, key, budget, which) do
     cutoff = DateTime.add(DateTime.utc_now(), -86_400, :second)
 
     used =
       Repo.aggregate(
         from(l in Lifecycle, where: field(l, ^field) == ^key and l.inserted_at > ^cutoff),
         :count
-      )
+      ) +
+        Repo.aggregate(
+          from(a in Admission,
+            where:
+              field(a, ^field) == ^key and a.inserted_at > ^cutoff and
+                fragment(
+                  "NOT EXISTS (SELECT 1 FROM tenant_lifecycles l WHERE l.tenant_id = ?)",
+                  a.tenant_id
+                )
+          ),
+          :count
+        )
 
     if used >= budget, do: Repo.rollback({:limit, which}), else: :ok
   end
 
-  defp demo_count do
+  # T-2728: a process create's RESERVATION (an admission whose lifecycle row is not written yet) counts
+  # like the lifecycle row it will become, so the cap holds while instances are in flight.
+  @doc false
+  def demo_count do
     Repo.aggregate(
       from(l in Lifecycle, where: l.tier == "demo" and l.lifecycle != "deleted"),
       :count
-    )
+    ) +
+      Repo.aggregate(
+        from(a in Admission,
+          where:
+            a.tier == "demo" and
+              fragment(
+                "NOT EXISTS (SELECT 1 FROM tenant_lifecycles l WHERE l.tenant_id = ?)",
+                a.tenant_id
+              )
+        ),
+        :count
+      )
   end
 
   # Counts only (no tenant data): one warning per create that leaves the count at or above the threshold.
@@ -392,14 +494,8 @@ defmodule Letflow.TenantProvisioner do
   # the column existed are `not_applicable` and are never touched.
   defp ensure_default_modules(tenant, %Lifecycle{default_modules_state: state} = lifecycle)
        when state in ["pending", "failed"] do
-    opts =
-      case Application.get_env(:letflow, Letflow.TenantProvisioner, [])[:default_modules_install] do
-        nil -> []
-        fun -> [install: fun]
-      end
-
     changes =
-      case DefaultModules.ensure(tenant.id, Config.default_modules(), opts) do
+      case TenantInstallDefaultModules.ensure_default_modules(tenant.id) do
         {:ok, :done} -> [default_modules_state: "done", default_modules_failure: nil]
         {:error, text} -> [default_modules_state: "failed", default_modules_failure: text]
       end
@@ -420,7 +516,7 @@ defmodule Letflow.TenantProvisioner do
   defp ensure_provisioned(%Tenant{status: :active} = tenant), do: {:ok, tenant}
 
   defp ensure_provisioned(%Tenant{id: id}) do
-    case TenantOnboarding.provision_and_migrate(id) do
+    case TenantProvision.provision_and_migrate(id) do
       {:ok, _registration} -> {:ok, Repo.get!(Tenant, id)}
       {:error, _reason} -> {:error, :internal}
     end
@@ -491,7 +587,8 @@ defmodule Letflow.TenantProvisioner do
     end
   end
 
-  defp probe_realm(realm) do
+  @doc false
+  def probe_realm(realm) do
     case RealmProbe.verify(realm) do
       :ok -> :ok
       {:error, :not_found} -> {:error, {:invalid, "idp_realm_id"}}
@@ -499,7 +596,8 @@ defmodule Letflow.TenantProvisioner do
     end
   end
 
-  defp not_taken(request) do
+  @doc false
+  def not_taken(request) do
     cond do
       Letflow.TenantHosts.taken?(request.hostname, nil) ->
         {:error, :conflict}

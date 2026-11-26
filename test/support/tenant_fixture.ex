@@ -198,9 +198,15 @@ defmodule Letflow.TenantFixture do
     "number_sequence_definitions",
     "number_sequence_numbers",
     "notification_deliveries",
+    "notification_files",
+    "notification_outbound_counters",
     "notification_templates",
     "official_form_templates",
+    # T-2597 (pilot gap G14): the per-tenant outbound allow-list (channels and destinations).
+    "outbound_destinations",
     "pending_tenant_admin_grants",
+    # T-2589 (pilot gap G1a): the durable queue and per-step result row of a platform step.
+    "platform_step_dispatches",
     "problem_report_comment_images",
     "problem_report_comments",
     "problem_report_images",
@@ -920,6 +926,33 @@ defmodule Letflow.TenantFixture do
   """
   @spec expected_tenant_tables() :: [String.t()]
   def expected_tenant_tables, do: @expected_tenant_tables
+
+  @doc """
+  T-2597 (pilot gap G14): opens the tenant's OUTBOUND ALLOW-LIST for the HTTP
+  channel and the given hosts, so a test that makes a genuine outbound request
+  is not refused by the guardrail.
+
+  The list is DENY BY DEFAULT, so every tenant that reaches outside itself
+  needs the door opened by someone; in a test that someone is this helper. The
+  door is opened for the tenant of `schema_name` only, and the hosts are the
+  fake ones the tests use (`127.0.0.1` for the local listener,
+  `example.test` for the fixture packs).
+  """
+  @spec open_outbound_channel!(String.t(), String.t(), [String.t()]) :: :ok
+  def open_outbound_channel!(schema_name, channel, hosts \\ [])
+      when is_binary(schema_name) and is_binary(channel) and is_list(hosts) do
+    {:ok, _channel} = Letflow.OutboundDestinations.add(schema_name, nil, channel, nil)
+
+    Enum.each(hosts, fn host ->
+      {:ok, _destination} = Letflow.OutboundDestinations.add(schema_name, nil, channel, host)
+    end)
+
+    :ok
+  end
+
+  @spec open_outbound_http!(String.t(), [String.t()]) :: :ok
+  def open_outbound_http!(schema_name, hosts) when is_list(hosts),
+    do: open_outbound_channel!(schema_name, "http", hosts)
 
   # REQ-376 (lib/letflow/design/req376-partition-event-retirement.md §2/§4.3) gave
   # `events`/`events_archive` a set of physical tables this module's static

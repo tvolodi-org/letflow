@@ -1,0 +1,47 @@
+{
+  "id": "asset_card",
+  "description": "One minimal fixed-asset card (no photo), made through the assets API and marked UAT-FIX-asset_card-<tenant> in its external reference. A second run finds it by that reference and reuses it.",
+  "leaves": "The card is retired by the cleanup, not deleted (assets has no card delete): a retired card named 'UAT fixture asset card' stays on the tenant. A run that only reused an existing card changes and removes nothing.",
+  "provides": ["asset_card_id"],
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/query",
+        "body": {"entity_type": "assets_card", "filters": [{"field": "external_ref_id", "op": "eq", "value": "UAT-FIX-asset_card-${tenant}"}]}
+      },
+      "expect": {"status": 200},
+      "save": {"asset_card_id": {"pick": "$.items[0].record_id", "optional": true}}
+    },
+    {
+      "id": "f2",
+      "actor": "admin",
+      "skip_if": ["asset_card_id"],
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/assets/cards",
+        "body": {
+          "idempotency_key": "uat-fix-asset-card-${tenant}",
+          "inventory_number": "UAT-FIX-${tenant}",
+          "name": "UAT fixture asset card",
+          "kind": "fixed",
+          "external_ref_system": "UAT-FIX",
+          "external_ref_id": "UAT-FIX-asset_card-${tenant}"
+        }
+      },
+      "expect": {"status": 201, "json": {"inventory_number": "UAT-FIX-${tenant}"}},
+      "save": {"asset_card_id": "$.record_id", "asset_card_created": "yes"}
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": ["asset_card_created"],
+      "do": {"api": "POST", "path": "/api/v1/modules/assets/cards/${asset_card_id}/retire", "body": {"idempotency_key": "uat-fix-asset-card-retire-${run_id}"}},
+      "expect": {"status": [200, 404, 409, 422]}
+    }
+  ]
+}

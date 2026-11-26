@@ -1,0 +1,234 @@
+{
+  "id": "BP-MASTER-09",
+  "bp_entry": "BP-MASTER-09",
+  "title": "Receive, assign, scan, release and retire a code",
+  "description": "A tenant administrator makes a location, receives one code, assigns it to the location. The storekeeper scans it (lookup shows it assigned to that location). The administrator releases it, changes its value, retires it, and retires the location. The cleanup retires what is left. Needs the modules codes and locations installed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s1",
+          "code": "UAT-${run_id}-c",
+          "name": "UAT code place",
+          "node_kind": "zone"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "save": {
+        "node": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/receive",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s2",
+          "entries": [
+            {
+              "value": "UAT-${run_id}",
+              "kind": "epc"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$[0].status": "not_assigned",
+          "$[0].value": "UAT-${run_id}"
+        }
+      },
+      "save": {
+        "code_id": "$[0].code_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/assign",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s3",
+          "target_type": "location_node",
+          "target_id": "${node}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "assigned"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/resolve",
+        "body": {
+          "value": "UAT-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "assigned",
+          "target_type": "location_node",
+          "target_id": "${node}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/release",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s5"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "not_assigned"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/value",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s6",
+          "value": "UAT-${run_id}-new"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "value": "UAT-${run_id}-new"
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s7"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "retired"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/resolve",
+        "body": {
+          "value": "UAT-${run_id}-new"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "status": "retired"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09s9"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "active": false
+        }
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/codes/${code_id}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09c1"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "code_id"
+      ]
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/locations/nodes/${node}/retire",
+        "body": {
+          "idempotency_key": "uat-${run_id}-09c2"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          422
+        ]
+      },
+      "requires": [
+        "node"
+      ]
+    }
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  }
+}

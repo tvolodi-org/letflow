@@ -109,6 +109,11 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /movements` | `AssetsRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `AssetsReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
+  `GET /approval-access` (T-2506) writes nothing and answers `{"can_approve": true}` to an
+  interactive tenant-wide holder of `AssetsApprove`, the permission required by the packed assets
+  post, reverse and approve tasks. A role without it gets 403; a scoped or non-interactive caller
+  gets the uniform 404.
+
   The query keys are closed sets. Balances: `basis, cutoff_seq, as_of, as_of_date, limit, cursor,
   format, scope_subtree` and the five slot names (`asset, org_unit, location, material_responsible,
   actual_user`; an empty value is a valid filter for `location` and `actual_user` only). Movements:
@@ -318,6 +323,15 @@ defmodule Letflow.Modules.Assets.Router do
           {:ok, params} -> reconcile(conn, authorized, reconcile_opts(params))
           {:error, reason} -> refuse(conn, reason)
         end
+    end
+  end
+
+  # T-2506: "may I approve, post or reverse what another person prepared?". Writes nothing; it is
+  # the route that names AssetsApprove, the permission the packed assets task nodes require.
+  authz_get "/approval-access", :AssetsApprove do
+    case Access.check(conn, :approve) do
+      {:ok, _access} -> Response.ok(conn, %{"can_approve" => true})
+      :error -> Response.not_found(conn)
     end
   end
 

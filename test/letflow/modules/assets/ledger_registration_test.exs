@@ -34,7 +34,8 @@ defmodule Letflow.Modules.Assets.LedgerRegistrationTest do
              :AssetsRead,
              :AssetsReconcile,
              :AssetsCountOrder,
-             :AssetsCountRecord
+             :AssetsCountRecord,
+             :AssetsApprove
            ]
 
     assert m.role_grants == %{}

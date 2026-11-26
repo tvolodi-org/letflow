@@ -24,6 +24,7 @@ defmodule Letflow.Instances do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Identity.User
+  alias Letflow.Instances.StepLog
   alias Letflow.Repo
 
   @type opts :: [prefix: String.t()]
@@ -210,9 +211,19 @@ defmodule Letflow.Instances do
   total 4-level fallback) and `description` (§3's per-event-type renderer).
   The distinct non-nil `actor_id`s on the page are resolved in one batched
   query (§4) -- never one lookup per event.
+
+  The answer ALSO carries the STEP LOG of the instance (pilot gap G6,
+  `Letflow.Instances.StepLog`): the `steps` key holds one row per node visit
+  -- who ran it, when it started and ended, how it ended, how long it took,
+  how many attempts and the failure kind of the last attempt. The step log
+  carries no VALUE (no input, no output, no body, no URL): a step row is
+  shown on a screen, so it must not be able to carry a secret (INV-4).
+
+  The actors of the page AND of the step log are resolved in ONE batched
+  query: the step log's actors are added to the same id set.
   """
   @spec timeline(instance_id :: String.t(), params :: map(), opts()) ::
-          {:ok, %{items: [map()], next_cursor: String.t() | nil}}
+          {:ok, %{items: [map()], next_cursor: String.t() | nil, steps: [map()]}}
           | {:error, :not_found | :invalid_id | :invalid_cursor | :wrong_endpoint | :expired}
   def timeline(instance_id, params, opts) when is_map(params) and is_list(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
@@ -233,17 +244,19 @@ defmodule Letflow.Instances do
       rows = Repo.all(query, prefix: prefix)
       {page, next_cursor} = split_seq_page(rows, page_size, @timeline_cursor_prefix)
 
+      {:ok, raw_steps} = StepLog.steps(id, prefix: prefix)
+
       distinct_actor_ids =
-        page
-        |> Enum.map(& &1.actor_id)
+        (Enum.map(page, & &1.actor_id) ++ Enum.map(raw_steps, & &1.actor_id))
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
 
       display_names_by_id = fetch_display_names_by_actor_id(distinct_actor_ids, prefix)
 
       items = Enum.map(page, &timeline_item(&1, display_names_by_id))
+      steps = Enum.map(raw_steps, &step_item(&1, display_names_by_id))
 
-      {:ok, %{items: items, next_cursor: next_cursor}}
+      {:ok, %{items: items, next_cursor: next_cursor, steps: steps}}
     end
   end
 
@@ -388,6 +401,30 @@ defmodule Letflow.Instances do
     }
   end
 
+  # ── timeline/3 private: the step log's response-item assembly ───────────
+
+  # One row per node visit (pilot gap G6). The row names the node, the
+  # function the node ran and the OUTCOME -- it never carries a value: no
+  # input, no output, no body, no URL (INV-4). The actor is the engine's own
+  # `actor_id`, resolved with the same fallback chain the event items use.
+  @spec step_item(StepLog.step(), %{optional(Ecto.UUID.t()) => String.t()}) :: map()
+  defp step_item(step, display_names_by_id) do
+    %{
+      node_id: step.node_id,
+      node_type: step.node_type,
+      step: step.step,
+      actor_id: step.actor_id,
+      actor_display_name:
+        resolve_actor_display_name(step.actor_id, step.actor_metadata, display_names_by_id),
+      started_at: step.started_at,
+      ended_at: step.ended_at,
+      duration_ms: step.duration_ms,
+      result: step.result,
+      attempts: step.attempts,
+      last_failure_kind: step.last_failure_kind
+    }
+  end
+
   # ── shared: existence check (INV-5) ────────────────────────────────────
 
   @doc """
@@ -510,7 +547,20 @@ defmodule Letflow.Instances do
     end
   end
 
+  # New cursors carry mint time first and started_at only as the seek key.
+  # Keep accepting the previous two-slot form for cursors already in flight.
   defp decode_list_seek(%Pagination.Cursor{inner: inner}) do
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [instance_id, started_at]} -> {:ok, {started_at, instance_id}}
+      {:error, :invalid_cursor} -> decode_legacy_list_seek(inner)
+    end
+  end
+
+  defp decode_legacy_list_seek(inner) do
     case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
       {:ok, [started_at, instance_id]} -> {:ok, {started_at, instance_id}}
       {:error, :invalid_cursor} = error -> error
@@ -525,10 +575,11 @@ defmodule Letflow.Instances do
   defp split_list_page(rows, _page_size), do: {rows, nil}
 
   defp build_list_next_cursor(%InstanceProjection{instance_id: id, started_at: started_at}) do
+    mint_time_us = System.system_time(:microsecond)
     started_at_us = DateTime.to_unix(started_at, :microsecond)
 
     @list_cursor_prefix
-    |> Pagination.build_raw_cursor(started_at_us, id)
+    |> Pagination.build_raw_cursor_timestamp_key(mint_time_us, id, started_at_us)
     |> Pagination.encode_cursor()
   end
 

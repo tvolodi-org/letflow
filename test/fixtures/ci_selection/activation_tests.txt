@@ -1,0 +1,19 @@
+# T-2737: tests that activate definitions (24 Nov red list); mandatory when an activation check changes.
+test/letflow/engine/swiftroute_escalation_timer_test.exs
+test/letflow/simulation/req206_swiftroute_test.exs
+test/letflow/engine/vortex_escalation_timer_test.exs
+test/letflow/engine/meridian_loan_escalation_timer_test.exs
+test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs
+test/letflow/engine/shipped_definition_variable_schemas_engine_test.exs
+test/letflow/engine/regulatory_review_timer_path_test.exs
+test/letflow/scripts/swiftroute_decision_forms_fixture_test.exs
+test/letflow/engine/req462_meridian_required_outputs_test.exs
+test/letflow/engine/req462_vortex_release_required_outputs_test.exs
+test/letflow/engine/req462_vortex_deviation_required_outputs_test.exs
+test/letflow/engine/req530_incident_required_outputs_test.exs
+test/letflow/definitions/entity_writes_activator_test.exs
+test/letflow/simulation/runner_template_and_outcomes_test.exs
+test/letflow/simulation/seed_idempotency_test.exs
+test/letflow/simulation/runner_test.exs
+test/letflow/engine/sub_process_service_task_after_test.exs
+test/letflow/engine_distinct_from_test.exs

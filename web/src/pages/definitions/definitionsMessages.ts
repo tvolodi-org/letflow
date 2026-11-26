@@ -13,6 +13,8 @@ export interface DefinitionsMessages {
   publish: string
   publishing: string
   saveBeforePublish: string
+  /** {count} open problems of the saved draft. */
+  fixBeforePublish: string
   published: string
   publishFailed: string
   exportButton: string
@@ -21,6 +23,11 @@ export interface DefinitionsMessages {
   noEditPermission: string
   importButton: string
   newDefinition: string
+  guideButton: string
+  guideTitle: string
+  guideClose: string
+  guideUnavailable: string
+  guideNotifyLink: string
   searchPlaceholder: string
   searching: string
   status: string
@@ -66,6 +73,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Publish saved version',
     publishing: 'Publishing…',
     saveBeforePublish: 'Save your changes before publishing.',
+    fixBeforePublish: 'Open problems in the saved draft: {count}. Fix them and save before publishing.',
     published: 'This version is active. New instances will use it.',
     publishFailed: 'Publishing failed. Review the problems below and try again.',
     exportButton: 'Export',
@@ -74,6 +82,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'No edit permission',
     importButton: 'Import',
     newDefinition: '+ New process',
+    guideButton: 'Guide',
+    guideTitle: 'Designer guide',
+    guideClose: 'Close',
+    guideUnavailable: 'The guide is not available.',
+    guideNotifyLink: 'How a notification step works',
     searchPlaceholder: 'Search processes...',
     searching: 'Searching…',
     status: 'Status',
@@ -117,6 +130,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Опубликовать сохранённую версию',
     publishing: 'Публикация…',
     saveBeforePublish: 'Перед публикацией сохраните изменения.',
+    fixBeforePublish: 'В сохранённом черновике открытых проблем: {count}. Исправьте их и сохраните перед публикацией.',
     published: 'Версия активна. Новые экземпляры будут использовать её.',
     publishFailed: 'Не удалось опубликовать. Исправьте ошибки ниже и повторите попытку.',
     exportButton: 'Экспорт',
@@ -125,6 +139,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'Нет разрешения на изменение',
     importButton: 'Импорт',
     newDefinition: '+ Новый процесс',
+    guideButton: 'Руководство',
+    guideTitle: 'Руководство по редактору процессов',
+    guideClose: 'Закрыть',
+    guideUnavailable: 'Руководство недоступно.',
+    guideNotifyLink: 'Как работает шаг уведомления',
     searchPlaceholder: 'Поиск процессов...',
     searching: 'Поиск…',
     status: 'Статус',
@@ -168,6 +187,7 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     publish: 'Сақталған нұсқаны жариялау',
     publishing: 'Жариялануда…',
     saveBeforePublish: 'Жариялау алдында өзгерістерді сақтаңыз.',
+    fixBeforePublish: 'Сақталған жобада ашық мәселелер: {count}. Жариялау алдында түзетіп, сақтаңыз.',
     published: 'Бұл нұсқа белсенді. Жаңа даналар осы нұсқаны қолданады.',
     publishFailed: 'Жариялау сәтсіз аяқталды. Төмендегі қателерді түзетіп, қайталаңыз.',
     exportButton: 'Экспорттау',
@@ -176,6 +196,11 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     noEditPermission: 'Өзгертуге рұқсат жоқ',
     importButton: 'Импорттау',
     newDefinition: '+ Жаңа процесс',
+    guideButton: 'Нұсқаулық',
+    guideTitle: 'Процесс редакторының нұсқаулығы',
+    guideClose: 'Жабу',
+    guideUnavailable: 'Нұсқаулық қолжетімсіз.',
+    guideNotifyLink: 'Хабарландыру қадамы қалай жұмыс істейді',
     searchPlaceholder: 'Процестерді іздеу...',
     searching: 'Іздеу…',
     status: 'Күйі',

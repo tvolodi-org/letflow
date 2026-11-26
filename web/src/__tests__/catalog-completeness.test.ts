@@ -17,6 +17,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { loginMessages } from '@/i18n/loginMessages'
+import { signupMessages } from '@/i18n/signupMessages'
 import { entitiesMessages } from '@/i18n/entitiesMessages'
 import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
@@ -295,6 +296,10 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'org:org.common.code': 'loanword, same spelling in Kazakh',
   'processDiagram:processDiagram.details.script': 'loanword, same spelling in Kazakh',
   'processDiagram:processDiagram.type.TIMER': 'loanword, same spelling in Kazakh',
+  'processDiagram:processDiagram.edit.notify.channel.file':
+    'loanword, same spelling in Kazakh',
+  'processDiagram:processDiagram.edit.platform.function':
+    'loanword, same spelling in Kazakh',
   'reference:docType.stock_reversal':
     'accounting term, used unchanged in Kazakh books and forms',
   'stock:counts.col.item':
@@ -357,6 +362,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('loginMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('login', loginMessages)
+  })
+
+  it('signupMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('signup', signupMessages)
   })
 
   it('entitiesMessages (includes solutionOverrides): all en keys in ru/kk, no empty values', () => {
@@ -577,6 +586,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
   it('kk is not a copy of ru (T-1357): every catalog', () => {
     const flat: Array<[string, Record<Locale, unknown>]> = [
       ['login', loginMessages],
+      ['signup', signupMessages],
       ['entities', entitiesMessages],
       ['solutionOverrides', solutionOverridesMessages],
       ['import', importMessages],

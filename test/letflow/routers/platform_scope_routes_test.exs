@@ -80,7 +80,9 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
     {Letflow.Routers.AdminServices, :post, "/:service_id/versions", "/no-such-service/versions",
      %{}, :AdminServicesManage},
     {Letflow.Routers.AdminServices, :post, "/:service_id/retire", "/no-such-service/retire", nil,
-     :AdminServicesManage}
+     :AdminServicesManage},
+    # T-2588 (pilot gap G2): the COMPILED platform function catalogue (platform scope).
+    {Letflow.Routers.PlatformFunctions, :get, "/", "/", nil, :TenantsManage}
   ]
 
   @groups @routes |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
@@ -130,8 +132,8 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
   end
 
   describe "declared routes" do
-    test "the 33 snapshot rows declare the expected policy keys" do
-      assert length(@routes) == 33
+    test "the 34 snapshot rows declare the expected policy keys" do
+      assert length(@routes) == 34
 
       for {router, method, pattern, _path, _body, key} <- @routes do
         verb = method |> Atom.to_string() |> String.upcase()

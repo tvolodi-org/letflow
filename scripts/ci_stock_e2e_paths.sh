@@ -8,7 +8,8 @@
 #   No arguments, no environment reads.
 #
 # The rule: the stock screens and routes, the task inbox pages the click-through drives, the two GATE B specs and
-# their helpers, the e2e stack scripts. One single-quoted assignment line.
+# their helpers, the e2e stack scripts, and (T-2699) the code that sets what a new tenant starts with: approval rules and
+# their defaults, row approval, tenant provisioning (D-165 turned the click-through red on main with no PR running it). One single-quoted assignment line.
 set -uo pipefail
 
 if [ "$#" -ne 0 ]; then
@@ -18,7 +19,7 @@ fi
 
 CHANGED=$(cat) || exit 1
 
-STOCK_E2E_RE='^(web/src/modules/stock/|web/src/modules/assets/|web/src/pages/tasks/|web/src/hooks/useTaskSubjects\.ts$|web/tests/e2e/gate-b-|web/tests/e2e/support/|web/tests/e2e/helpers\.ts$|web/playwright\.config\.ts$|scripts/e2e/|scripts/ci_stock_e2e_paths\.sh$)'
+STOCK_E2E_RE='^(web/src/modules/stock/|web/src/modules/assets/|web/src/pages/tasks/|web/src/hooks/useTaskSubjects\.ts$|web/tests/e2e/gate-b-|web/tests/e2e/support/|web/tests/e2e/helpers\.ts$|web/playwright\.config\.ts$|scripts/e2e/|scripts/ci_stock_e2e_paths\.sh$|lib/letflow/approval_rules\.ex$|lib/letflow/routers/approval_rules\.ex$|lib/letflow/engine/approval_rule_setting\.ex$|lib/letflow/row_approval(\.ex$|/)|lib/letflow/tenant_provisioning(\.ex$|/)|priv/repo/migrations/[0-9]+_[a-z_]*approval_rule[a-z_]*\.exs$)'
 
 grep -qE "$STOCK_E2E_RE" <<<"$CHANGED"
 case "$?" in

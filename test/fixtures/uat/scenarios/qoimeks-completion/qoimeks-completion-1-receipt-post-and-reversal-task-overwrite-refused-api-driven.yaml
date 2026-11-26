@@ -1,0 +1,206 @@
+# T-2433, group qoimeks-completion (API-driven negative scenarios; QA only, synthetic data, no production). Source: the T-2429 audit
+# (state/tasks/T-2429/audit.md in the team repository: sections 1 and 2, rows S1 and S5; section 3 item 3 asks for exactly these behavioural pins).
+# The fixes T-2430 and T-2431 are queued in the team and not on main when this is written: no requirement entry of them exists on origin/main
+# (grep "output_refused" docs/requirements.yaml finds only REQ-460 and the form hook entries). Their REQ ids are therefore NOT cited; the expectation
+# (a completion that sets a key a write line of the process reads is refused, 422, code output_refused, retryable, nothing posted) comes from the audit
+# and from REQ-460 (the output_refused answer, retryable, instance unchanged). The walk is queued by the operator after the fixes are on QA; before that
+# the expected result is a known product gap and the walk fails on purpose (decision rule: the expectation is what the audit asks for, not today's code).
+# No screen can send a crafted completion body: the crafted steps are marked API-driven; everything else is done on screens.
+# 1. Scope: every scenario of this group has scope qoimeks-qa2, the existing synthetic QA tenant and its realm (actors.yaml, T-2219); the group directory name is not the scope.
+# 2. Actors: actor-qoimeks-qa2-storekeeper (STOREKEEPER) creates and issues the documents; actor-qoimeks-qa2-admin (TENANT_ADMIN, holds StockApprove) claims and completes the posting and reversal tasks; actor-qoimeks-qa2-admin2 is used by the quick count scenario. All are in actors.yaml; their QA logins are an acceptance precondition, not proven by static checks, no login verified in this writing step.
+# 3. Host and screens: tenant host https://qoimeks-qa2.letflow.qa.bizdala.com; screens read on main as in qoimeks-ledger-2 and qoimeks-count-3 (Balances, stock documents list, New document form, My Tasks, "Reverse", "Cancel document"). API routes read in lib/letflow/routers/tasks.ex: GET /api/v1/tasks, GET /api/v1/tasks/:id (returns the public task variables), POST /api/v1/tasks/:id/claim and /complete (policy TasksComplete, body = the output variables).
+# 4. Data: one Balances row with a positive quantity (item, place, org unit, responsible employee, unit) read at run time; the walk creates two receipts of one unit of that item (documents A and B); no seed counts are written here: record the Balances row quantity, the history line count of that row and the stock documents list total at the start and compare to those.
+# 5. Executable: browser for the screen steps, a plain HTTP client with each actor's own sign-in credential for the API steps; the task ids and the variables of every task (document id, version number, org unit id, posting) are read at run time from the task detail, never typed from this file.
+# 6. Dry run: uat.sh preflight not run in this writing step (acceptance credential source and run title UAT qoimeks-completion needed); parse and schema checks only, acceptance runs the preflight.
+# Not walked, with reasons: the count posting task of the formal count (stock_count_posting, audit row S4) needs a signed formal count order, which the QA tenant does not carry for this walk; it is covered by the product test the fix adds (audit section 3 item 3). The assets processes (rows A1 to A4) are not in this tenant's walk.
+# EXPECTATION CORRECTIONS: 3 - (a) the posting task is completed by the administrator because the node requires StockApprove, not by the storekeeper; (b) a receipt has no second-person rule, so the only legitimate completer is any holder of StockApprove; (c) the refused completion must leave the task OPEN and claimable (REQ-460), so the legitimate completion follows on the same task.
+---
+id: qoimeks-completion-1-receipt-post-and-reversal-task-overwrite-refused-api-driven
+scope: qoimeks-qa2
+title: >-
+  API-driven: completing the posting task of receipt A with the keys of another issued receipt B, and
+  completing a reversal task with a foreign ledger entry, are refused with nothing posted; the honest
+  completions still work
+version: '1.0'
+tags:
+- qoimeks
+- stock
+- api-driven
+- refusal
+- security
+- completion
+- en
+description: >-
+  T-2429 audit rows S1 and S5. Two receipts A and B are issued, so each has its own open posting task.
+  The runner reads the task of A and the task of B with the administrator's credential and notes their
+  variables. The administrator takes the task of A and sends a completion whose body names B's document
+  (and B's version number, org unit and posting): refused with 422, code output_refused. Neither
+  document changes, the balance is unchanged, the task of A is still open. The administrator then
+  completes the task of A with an empty body (the form has no fields): it posts A and only A. A is then
+  reversed on the screen; the administrator takes the reversal task and sends a completion whose
+  posting names a ledger entry that is not A's (the entry of a document posted earlier on the tenant,
+  read from the movements history): refused 422, nothing reversed, A still Posted. The honest reversal
+  completion then works. B is cancelled. The tenant is left as it began.
+actors:
+  storekeeper: actor-qoimeks-qa2-storekeeper
+  admin: actor-qoimeks-qa2-admin
+preconditions:
+- description: >-
+    The tenant has a Balances row with a positive quantity B0 (item, place, org unit, responsible employee, unit), no lot, an item without lot tracking.
+  check: system_seeded
+  detail: >-
+    Read it at run time and record the item, place, org unit, responsible employee, B0 and the history line count H0. If no such row exists, BLOCKED-by-environment; create no stock.
+- description: >-
+    At least one posted ledger entry that does NOT belong to this walk exists on the tenant (any earlier posted document), so a foreign entry can be named in step 8.
+  check: system_seeded
+  detail: >-
+    Read its movement identifier from the movements history of the Balances row (the history lists lines of earlier documents). If the tenant has none, step 8 is BLOCKED-by-environment and the rest runs.
+- description: Sign in as actor-qoimeks-qa2-storekeeper and actor-qoimeks-qa2-admin separately at https://qoimeks-qa2.letflow.qa.bizdala.com/?realm=qoimeks-qa2 and confirm the tenant.
+  check: runner_prepared
+  detail: A missing login is BLOCKED-by-environment for the affected steps; no role is granted and no setting is changed to satisfy a precondition. The runner's HTTP client uses each actor's own credential from the acceptance credential source, never one from a file.
+- description: The qa2 stock approval rules are not changed by this walk; nobody else posts to the key during the walk.
+  check: system_seeded
+  detail: UAT assumption, to be confirmed by the process owner. If the balance changes for another reason, keep the evidence, clean up, read a fresh B0 and repeat once.
+steps:
+- step: 1
+  actor: storekeeper
+  action: >-
+    The storekeeper opens Balances and records the row of the preconditions (item, place, org unit, responsible
+    employee, unit) with its quantity B0, opens the history of that balance and notes the line count H0, and notes the
+    total of the stock documents list as N0.
+  via: ui
+- step: 2
+  actor: storekeeper
+  action: >-
+    The storekeeper creates two receipts for the recorded org unit, place, responsible employee, item and base unit,
+    each with quantity 1, the supplier references UAT-COMPLETION-A and UAT-COMPLETION-B, and issues both. The document
+    numbers are noted as REF-A and REF-B. Balances still shows B0.
+  via: ui
+- step: 3
+  actor: admin
+  action: >-
+    API-driven. The runner, with the administrator's credential, lists the open tasks of the tenant and finds the posting
+    task of REF-A (task TA) and the posting task of REF-B (task TB) by the document numbers. It reads the detail of both
+    and records, for each, the variables named document id, version number, org unit id and posting (PA, PB). It checks
+    that the two document ids differ. Then it takes the task TA (claim).
+  via: api
+- step: 4
+  actor: admin
+  action: >-
+    API-driven, crafted body. The runner completes task TA with a body that sets the document id, the version number,
+    the org unit id and the posting to the values PB of document B, and nothing else. The answer is noted as R1.
+  expect_refusal: true
+  via: api
+- step: 5
+  actor: admin
+  action: >-
+    API-driven, crafted body, one key. The runner completes task TA again with a body that sets only the document id
+    to the one of B. The answer is noted as R2. Then the runner reads the detail of TA and TB, the documents REF-A
+    and REF-B through the stock documents read, and the Balances row and its history.
+  expect_refusal: true
+  via: api
+- step: 6
+  actor: admin
+  action: >-
+    The honest completion. The runner completes task TA with an empty JSON body, the way the screen does. The answer is
+    noted as R3. The storekeeper then reads REF-A (Posted), REF-B (still Issued, its task TB still open) and Balances:
+    B0 plus 1, and the history shows one new line, that of REF-A.
+  via: api
+- step: 7
+  actor: storekeeper
+  action: >-
+    On the screen, the storekeeper opens REF-A in the stock documents list, presses "Reverse", chooses the reason "Other",
+    types the note "UAT qoimeks-completion-1 undo" and confirms. REF-A still reads Posted until the reversal task is done.
+  via: ui
+- step: 8
+  actor: admin
+  action: >-
+    API-driven, crafted body. The runner finds the reversal task of REF-A (task TR), reads its variables and takes it
+    (claim). It completes TR with a body whose posting names, as the entry to reverse, the posted ledger entry of the
+    earlier document of the preconditions (not REF-A's entry), with the reason code "other". The answer is noted as R4.
+    The runner then reads REF-A (still Posted), the earlier document (unchanged, not reversed), the task TR (open) and Balances (still B0 plus 1).
+  expect_refusal: true
+  via: api
+- step: 9
+  actor: admin
+  action: >-
+    The honest completion. The runner completes TR with an empty JSON body. The answer is noted as R5. The storekeeper
+    reads REF-A (Reversed) and Balances (B0 again, the history one line more than at step 6).
+  via: api
+- step: 10
+  actor: storekeeper
+  action: >-
+    Cleanup. The storekeeper opens REF-B in the stock documents list, presses "Cancel document", chooses the reason
+    "Other", types the note "UAT qoimeks-completion-1 cleanup" and confirms. Then the storekeeper reads Balances (B0), the
+    history (H0 plus 2 lines: the posting and its reversal of REF-A).
+  via: ui
+- step: 11
+  actor: storekeeper
+  action: >-
+    Refusal of the missing authority. The runner, with the storekeeper's own credential, sends a completion with an empty body for
+    a posting task of this walk's kind: it creates and issues a third receipt UAT-COMPLETION-C on the screen, finds its task
+    TC, and completes TC with the storekeeper's credential. The answer is noted as R6. The storekeeper then cancels the receipt C with the note "UAT qoimeks-completion-1 cleanup C". Last, the storekeeper reads Balances (B0), the history (H0 plus 2) and the documents list total (N0 plus 3: A, B and C).
+  expect_refusal: true
+  via: api
+expected_outcomes:
+- id: EO-001
+  description: >-
+    A completion of the posting task of A that names B's document is refused and changes nothing (T-2429 audit row S1; REQ-460 for the shape of the refusal).
+  verification:
+    method: api_response
+    detail: >-
+      R1 and R2 have HTTP status 422 with the code output_refused (a retryable refusal, content type application/problem+json). After step 5 REF-A and REF-B both read Issued
+      with their original version numbers, Balances shows B0, the history shows H0 lines, task TA is still open and claimable, task TB is
+      still open, and no posting mark exists for either document. The body of R1 and R2 does not echo B's posting.
+    evidence: Status and body of R1 and R2; reads of both documents, both tasks, Balances and the history after step 5.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Whoever may complete one posting task could post a different document and bypass that document's own approver.
+    suggested_action: route_to_backend_dev
+- id: EO-002
+  description: >-
+    The honest completion of A still works and posts only A (the fix does not break the normal path).
+  verification:
+    method: api_response
+    detail: >-
+      R3 is HTTP 200. REF-A reads Posted, REF-B still Issued with TB open, Balances reads B0 plus 1 and the history has exactly one new line, that of REF-A.
+    evidence: Status of R3; document, task and Balances reads after step 6.
+  on_fail:
+    severity: BLOCKER
+    business_impact: Receipts could not be posted any more.
+    suggested_action: route_to_backend_dev
+- id: EO-003
+  description: >-
+    A reversal completion that names a ledger entry which is not the document's own is refused and nothing is reversed (T-2429 audit row S5).
+  verification:
+    method: api_response
+    detail: >-
+      R4 is HTTP 422 with the code output_refused. After step 8 REF-A still reads Posted, the earlier document is unchanged and not reversed, the task TR is still open, and
+      Balances still reads B0 plus 1.
+    evidence: Status and body of R4; reads of REF-A, the earlier document, TR and Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A reversal task could reverse any posted document of the tenant, bypassing the document state and reason checks of the reversal route.
+    suggested_action: route_to_backend_dev
+- id: EO-004
+  description: The honest reversal completes and the tenant is left as it began.
+  verification:
+    method: api_response
+    detail: >-
+      R5 is HTTP 200. REF-A reads Reversed, Balances reads B0 after step 11, REF-B is cancelled, the history line count is H0 plus 2, receipt C is cancelled and the stock documents list total is N0 plus 3 (documents A, B and C; compare to N0 read at step 1).
+    evidence: Status of R5; Balances, history and documents list at the end.
+  on_fail:
+    severity: MAJOR
+    business_impact: The walk would leave stock changed on the tenant.
+    suggested_action: route_to_backend_dev
+- id: EO-005
+  description: A user without the approve permission cannot complete a posting task, with nothing changed.
+  verification:
+    method: api_response
+    detail: >-
+      R6 is a refusal (HTTP 403 or the uniform not-found answer 404 of decision 0093, INV-5; not 200); receipt C stays Issued until cancelled and Balances is unchanged.
+    evidence: Status and body of R6; reads of C and Balances.
+  on_fail:
+    severity: BLOCKER
+    business_impact: A storekeeper could post stock alone.
+    suggested_action: route_to_backend_dev

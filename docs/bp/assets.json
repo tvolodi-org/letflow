@@ -1,0 +1,1471 @@
+[
+  {
+    "id": "BP-ASSETS-01",
+    "area": "assets",
+    "title": "Register, correct and retire an asset card",
+    "description": "The administrator creates an asset card (inventory number, kind fixed / low value / intangible, name, optional ДА-2 attributes), changes it, retires it and prints the official card form ДА-2. A card that has a posted document is locked: its inventory number and kind cannot change.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsCardWrite"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsRead (grantable)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed",
+      "the currency is the tenant currency"
+    ],
+    "inputs": [
+      "inventory_number",
+      "kind",
+      "name"
+    ],
+    "outputs": [
+      "card_id"
+    ],
+    "refusals": [
+      "a role without AssetsCardWrite (never grantable) is 403",
+      "a changed inventory_number or kind on a locked card is refused",
+      "a currency that is not the tenant currency is refused"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage",
+          "admin/assets"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/assets/cards",
+          "PATCH /api/v1/modules/assets/cards/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "web/src/modules/assets/assetsRoutes.tsx:21",
+          "lib/letflow/modules/assets/router.ex:179",
+          "lib/letflow/modules/assets/router.ex:185"
+        ],
+        "result": "the card is created or changed (a managed type: generic record routes answer 403 entity_type_managed)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.held?"
+        ],
+        "route": "GET /api/v1/modules/assets/cards/:id/lock",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/documents/checks.ex:298",
+          "lib/letflow/modules/assets/router.ex:200"
+        ],
+        "result": "whether the card has a posted document (held)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/cards/:id/retire",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:191"
+        ],
+        "result": "the card is retired (inactive); it can no longer be used on documents"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/assets/cards/:id/print",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:220"
+        ],
+        "result": "the official form ДА-2 (pdf or docx, ru or kk)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-02",
+    "area": "assets",
+    "title": "Card photos",
+    "description": "The administrator adds photos to a card, captions and orders them, chooses the main photo, and deletes photos; readers view the original and thumbnail.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsRead + PhotosAdd / PhotosDelete"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsRead (grantable), read only"
+      }
+    ],
+    "preconditions": [
+      "an active asset card"
+    ],
+    "inputs": [
+      "card_id",
+      "image"
+    ],
+    "outputs": [
+      "photo_id"
+    ],
+    "refusals": [
+      "PhotosAdd / PhotosDelete atoms are checked in the handler: 403 without them",
+      "photo_too_large and photo_type_not_allowed are 422",
+      "an unknown card or other tenant's card is 404"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/cards/:id/photos",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:235"
+        ],
+        "result": "a photo (original and optional thumbnail) is stored"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/cards/:id/photos",
+          "GET /api/v1/modules/assets/cards/:id/photos/:photo_id/original",
+          "GET /api/v1/modules/assets/cards/:id/photos/:photo_id/thumbnail"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:231",
+          "lib/letflow/modules/assets/router.ex:239",
+          "lib/letflow/modules/assets/router.ex:243"
+        ],
+        "result": "the gallery list and the two images"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": [
+          "PATCH /api/v1/modules/assets/cards/:id/photos/:photo_id",
+          "POST /api/v1/modules/assets/cards/:id/photos/:photo_id/main",
+          "PUT /api/v1/modules/assets/cards/:id/photos/order"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:247",
+          "lib/letflow/modules/assets/router.ex:251",
+          "lib/letflow/modules/assets/router.ex:255"
+        ],
+        "result": "caption, main photo and order are saved"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": "DELETE /api/v1/modules/assets/cards/:id/photos/:photo_id",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:259"
+        ],
+        "result": "the photo is removed (own-photo delete for non-admins is 403)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-03",
+    "area": "assets",
+    "title": "Commission an asset (enter it in the register)",
+    "description": "A commission document puts cards into the register at an org unit, place, materially responsible person and user; after the post task the register holds the placement.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role (completes the post task)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active"
+    ],
+    "inputs": [
+      "asset cards",
+      "org_unit",
+      "employees"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a caller without AssetsPost is 403; an unknown or other tenant's id is 404",
+      "an issue check failure is 422 with a reason",
+      "asset_already_in_register for a card already commissioned or opened",
+      "a fixed or intangible card is quantity one; low value is a whole positive quantity"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft commission document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.event_time",
+          "Letflow.Modules.Assets.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Assets.Documents.Checks.masters",
+          "Letflow.Modules.Assets.Documents.Checks.org_unit",
+          "Letflow.Modules.Assets.Documents.Checks.employee",
+          "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+          "Letflow.Modules.Assets.Documents.Checks.quantity_ok?"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/checks.ex:54",
+          "lib/letflow/modules/assets/documents/checks.ex:48",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/documents/checks.ex:190",
+          "lib/letflow/modules/assets/documents/checks.ex:200",
+          "lib/letflow/modules/assets/documents/checks.ex:244",
+          "lib/letflow/modules/assets/documents/checks.ex:253",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "the master checks run (refusal reasons 422); the document is fixed (issued) and the post process starts with a task addressed to the tenant administrator role"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_commission/post",
+          "assets.post_document",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:54",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "the administrator claims and completes the task; the document is posted and the asset ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage",
+          "balances -> BalancesPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/documents/:id",
+          "GET /api/v1/modules/assets/balances"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "web/src/modules/assets/assetsRoutes.tsx:27",
+          "lib/letflow/modules/assets/router.ex:408",
+          "lib/letflow/modules/assets/router.ex:263"
+        ],
+        "result": "the document reads posted; the register shows the placement"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-04",
+    "area": "assets",
+    "title": "Change the responsible person or user",
+    "description": "A change document moves an asset's materially responsible person or actual user (and place); the entry has zero sum per asset.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role (completes the post task)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active"
+    ],
+    "inputs": [
+      "asset cards",
+      "org_unit",
+      "employees"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a caller without AssetsPost is 403; an unknown or other tenant's id is 404",
+      "an issue check failure is 422 with a reason"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft change document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.event_time",
+          "Letflow.Modules.Assets.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Assets.Documents.Checks.masters",
+          "Letflow.Modules.Assets.Documents.Checks.org_unit",
+          "Letflow.Modules.Assets.Documents.Checks.employee",
+          "Letflow.Modules.Assets.Documents.Checks.card_lookup"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/checks.ex:54",
+          "lib/letflow/modules/assets/documents/checks.ex:48",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/documents/checks.ex:190",
+          "lib/letflow/modules/assets/documents/checks.ex:200",
+          "lib/letflow/modules/assets/documents/checks.ex:244",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "the master checks run (refusal reasons 422); the document is fixed (issued) and the post process starts with a task addressed to the tenant administrator role"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_change/post",
+          "assets.post_document",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:181",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "the administrator claims and completes the task; the document is posted and the asset ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage",
+          "balances -> BalancesPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/documents/:id",
+          "GET /api/v1/modules/assets/balances"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "web/src/modules/assets/assetsRoutes.tsx:27",
+          "lib/letflow/modules/assets/router.ex:408",
+          "lib/letflow/modules/assets/router.ex:263"
+        ],
+        "result": "the document reads posted; the register shows the placement"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-05",
+    "area": "assets",
+    "title": "Hand over an asset to another org unit",
+    "description": "A hand over moves assets to a destination unit; in the same transaction the card of every fixed or intangible line follows to the destination unit.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role (completes the post task)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active"
+    ],
+    "inputs": [
+      "asset cards",
+      "org_unit",
+      "employees"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a caller without AssetsPost is 403; an unknown or other tenant's id is 404",
+      "an issue check failure is 422 with a reason",
+      "a low value card is not moved by a hand over (owner decision D-111)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft hand over document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.event_time",
+          "Letflow.Modules.Assets.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Assets.Documents.Checks.masters",
+          "Letflow.Modules.Assets.Documents.Checks.org_unit",
+          "Letflow.Modules.Assets.Documents.Checks.employee",
+          "Letflow.Modules.Assets.Documents.Checks.card_lookup"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/checks.ex:54",
+          "lib/letflow/modules/assets/documents/checks.ex:48",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/documents/checks.ex:190",
+          "lib/letflow/modules/assets/documents/checks.ex:200",
+          "lib/letflow/modules/assets/documents/checks.ex:244",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "the master checks run (refusal reasons 422); the document is fixed (issued) and the post process starts with a task addressed to the tenant administrator role"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_handover/post",
+          "assets.post_document",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:243",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "the administrator claims and completes the task; the document is posted and the asset ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage",
+          "balances -> BalancesPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/documents/:id",
+          "GET /api/v1/modules/assets/balances"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "web/src/modules/assets/assetsRoutes.tsx:27",
+          "lib/letflow/modules/assets/router.ex:408",
+          "lib/letflow/modules/assets/router.ex:263"
+        ],
+        "result": "the document reads posted; the register shows the placement"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-06",
+    "area": "assets",
+    "title": "Write off an asset",
+    "description": "A write-off removes assets from the register with a reason; the entry is negative.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role (completes the post task)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active"
+    ],
+    "inputs": [
+      "asset cards",
+      "org_unit",
+      "employees"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "a caller without AssetsPost is 403; an unknown or other tenant's id is 404",
+      "an issue check failure is 422 with a reason",
+      "a write-off without a reason is refused"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft write-off document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.event_time",
+          "Letflow.Modules.Assets.Documents.Checks.lateness_seconds",
+          "Letflow.Modules.Assets.Documents.Checks.masters",
+          "Letflow.Modules.Assets.Documents.Checks.card_lookup",
+          "Letflow.Modules.Assets.Documents.Checks.quantity_ok?"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/checks.ex:54",
+          "lib/letflow/modules/assets/documents/checks.ex:48",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/documents/checks.ex:244",
+          "lib/letflow/modules/assets/documents/checks.ex:253",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "the master checks run (refusal reasons 422); the document is fixed (issued) and the post process starts with a task addressed to the tenant administrator role"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_writeoff/post",
+          "assets.post_document",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:305",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "the administrator claims and completes the task; the document is posted and the asset ledger entry is written"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage",
+          "balances -> BalancesPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/documents/:id",
+          "GET /api/v1/modules/assets/balances"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "web/src/modules/assets/assetsRoutes.tsx:27",
+          "lib/letflow/modules/assets/router.ex:408",
+          "lib/letflow/modules/assets/router.ex:263"
+        ],
+        "result": "the document reads posted; the register shows the placement"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-07",
+    "area": "assets",
+    "title": "Change of kind: a stock item becomes an asset",
+    "description": "A kind-change document turns a quantity of a stock item into asset cards. Posting runs two handlers in one transaction: the assets side (mark, one new card per line, entry kind_change_in) and the stock side (negative leg), under one correlation id.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active",
+      "stock at the from side",
+      "module stock installed"
+    ],
+    "inputs": [
+      "stock item",
+      "quantity",
+      "location",
+      "org_unit"
+    ],
+    "outputs": [
+      "card_ids",
+      "doc_id"
+    ],
+    "refusals": [
+      "a failed master check is 422 with a reason",
+      "stock below zero refuses both legs (nothing commits)"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft kind_change document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.KindChangeChecks.run",
+          "Letflow.Modules.Assets.Documents.Checks.org_unit",
+          "Letflow.Modules.Assets.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/kind_change_checks.ex:40",
+          "lib/letflow/modules/assets/documents/checks.ex:190",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "checks of org unit, catalog items, locations and card register; issued; the assets_kind_change process starts"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_kind_change/post",
+          "assets.post_kind_change",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:391",
+          "lib/letflow/modules/assets/assets.ex:453",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "one transaction: new cards with entry kind_change_in and the stock leg (see BP-STOCK-18)"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-08",
+    "area": "assets",
+    "title": "Opening of the asset register",
+    "description": "Existing cards enter the register through an opening document: one person prepares (submit), a different person approves (approve posts). The check route shows every reason of the header and of each line and writes nothing.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "TENANT_ADMIN task role (approver)"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active",
+      "the approval rule of assets_opening/approve decides whether a second person is required"
+    ],
+    "inputs": [
+      "asset cards",
+      "org_unit",
+      "placements"
+    ],
+    "outputs": [
+      "doc_id",
+      "entry_id"
+    ],
+    "refusals": [
+      "card_not_active, asset_already_in_register and employee reasons per line",
+      "the preparer cannot approve while the rule is ON"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/new -> DocumentNewPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:25",
+          "lib/letflow/modules/assets/router.ex:324"
+        ],
+        "result": "a draft opening document"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.OpeningChecks.check_all",
+          "Letflow.Modules.Assets.Documents.OpeningChecks.header",
+          "Letflow.Modules.Assets.Documents.OpeningChecks.first_failure",
+          "Letflow.Modules.Assets.Documents.OpeningChecks.register_readable?"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/check",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/opening_checks.ex:40",
+          "lib/letflow/modules/assets/documents/opening_checks.ex:53",
+          "lib/letflow/modules/assets/documents/opening_checks.ex:65",
+          "lib/letflow/modules/assets/documents/opening_checks.ex:89",
+          "lib/letflow/modules/assets/router.ex:364"
+        ],
+        "result": "header and per-line reasons; nothing written; the register is read in full only by a whole-register reader (fail closed)"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Assets.Documents.Checks.masters"
+        ],
+        "route": "POST /api/v1/modules/assets/documents/:id/issue",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/documents/checks.ex:67",
+          "lib/letflow/modules/assets/router.ex:348"
+        ],
+        "result": "issued; the assets_opening instance starts with a submit task"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_opening/submit"
+        ],
+        "route": "POST /api/v1/tasks/:id/complete",
+        "code_refs": [
+          "priv/modules/assets/pack.json:432"
+        ],
+        "result": "the preparer completes submit"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_opening/approve",
+          "assets.post_document",
+          "Letflow.Modules.Assets.LedgerPolicy.declare"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:468",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/modules/assets/ledger_policy/declare.ex:57"
+        ],
+        "result": "a second person completes approve; each card enters the register once, at its posting time"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-09",
+    "area": "assets",
+    "title": "Reverse an asset document",
+    "description": "A posted asset document is reversed by the tenant administrator (AssetsReverse is never grantable); the ledger negates the entry; a hand over's card moves back when it is still at the destination.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsReverse"
+      }
+    ],
+    "preconditions": [
+      "a posted asset document"
+    ],
+    "inputs": [
+      "doc_id",
+      "reason"
+    ],
+    "outputs": [
+      "reversal_state"
+    ],
+    "refusals": [
+      "a storekeeper is 403 (AssetsReverse is administrator only)",
+      "a document already reversed is refused 409"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/documents/:id/reverse",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/router.ex:373"
+        ],
+        "result": "the reversal instance starts"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_reversal/reverse",
+          "assets.reverse_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/claim",
+          "POST /api/v1/tasks/:id/complete"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:119",
+          "lib/letflow/modules/assets/assets.ex:437"
+        ],
+        "result": "the document reads reversed; the placement is removed from the register"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-10",
+    "area": "assets",
+    "title": "Find, correct and discard a draft asset document",
+    "description": "Before issue the draft can be listed, read, replaced as a whole or discarded; an issued document prints as an act.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsPost (only when the tenant switched storekeeper_grants on)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsPost"
+      }
+    ],
+    "preconditions": [
+      "module assets installed (assets process definitions ACTIVE)",
+      "the asset cards named by the lines exist and are active",
+      "org unit and employees exist and are active"
+    ],
+    "inputs": [
+      "doc_id"
+    ],
+    "outputs": [
+      "file"
+    ],
+    "refusals": [
+      "document_not_draft when issued or posted",
+      "unknown or other tenant's id is 404"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents -> DocumentsPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/assets/documents",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:24",
+          "lib/letflow/modules/assets/router.ex:399"
+        ],
+        "result": "a page of documents"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": [
+          "PUT /api/v1/modules/assets/documents/:id",
+          "DELETE /api/v1/modules/assets/documents/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/router.ex:330",
+          "lib/letflow/modules/assets/router.ex:339"
+        ],
+        "result": "the draft is replaced or discarded"
+      },
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": "GET /api/v1/modules/assets/documents/:id/print",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/router.ex:417"
+        ],
+        "result": "the plain A4 act or the official form ДА-1, ДА-3 or ДА-4 of an issued document"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-11",
+    "area": "assets",
+    "title": "Asset count: order, sheet, scan, close",
+    "description": "With the tenant's count_enabled setting on, the administrator creates and issues a count order of fixed assets, a commission member opens it (optionally freezing the scope: documents in the frozen scope are refused count_in_progress), records quantities, adds surplus lines or scans codes, closes it and records the sheet signers; the sheet prints on form Инв-8.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsCountOrder"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsCountRecord"
+      }
+    ],
+    "preconditions": [
+      "setting count_enabled is on (otherwise the count routes answer 404)",
+      "an org unit with cards in the register"
+    ],
+    "inputs": [
+      "org_unit",
+      "commission members"
+    ],
+    "outputs": [
+      "count_id",
+      "sheet_document_id"
+    ],
+    "refusals": [
+      "404 while count_enabled is off",
+      "a role without AssetsCountOrder / AssetsCountRecord is 403 (never grantable)",
+      "count_in_progress for a document in the frozen scope"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "counts -> AssetCountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/assets/counts",
+          "PUT /api/v1/modules/assets/counts/:id",
+          "POST /api/v1/modules/assets/counts/:id/issue",
+          "POST /api/v1/modules/assets/counts/:id/cancel"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:29",
+          "lib/letflow/modules/assets/router.ex:433",
+          "lib/letflow/modules/assets/router.ex:439",
+          "lib/letflow/modules/assets/router.ex:445",
+          "lib/letflow/modules/assets/router.ex:453"
+        ],
+        "result": "count order drafted, issued or cancelled"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "counts/:id -> AssetCountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/assets/counts/:id/open",
+          "GET /api/v1/modules/assets/counts",
+          "GET /api/v1/modules/assets/counts/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:30",
+          "lib/letflow/modules/assets/router.ex:474",
+          "lib/letflow/modules/assets/router.ex:461",
+          "lib/letflow/modules/assets/router.ex:467"
+        ],
+        "result": "the count opens; with a freeze the scope is stored and other documents are refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "counts/:id -> AssetCountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/counts/:id/lines",
+          "PUT /api/v1/modules/assets/counts/:id/lines/:line_no",
+          "POST /api/v1/modules/assets/counts/:id/surplus-lines",
+          "POST /api/v1/modules/assets/counts/:id/scan",
+          "GET /api/v1/modules/assets/counts/:id/entries"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:30",
+          "lib/letflow/modules/assets/router.ex:525",
+          "lib/letflow/modules/assets/router.ex:487",
+          "lib/letflow/modules/assets/router.ex:499",
+          "lib/letflow/modules/assets/router.ex:519",
+          "lib/letflow/modules/assets/router.ex:536"
+        ],
+        "result": "found or missing per line, surplus cards, scanner entries in an append-only log"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "counts/:id -> AssetCountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/assets/counts/:id/close",
+          "POST /api/v1/modules/assets/counts/:id/sheet-signatures",
+          "GET /api/v1/modules/assets/counts/:id/sheet-document",
+          "GET /api/v1/modules/assets/counts/:id/print/sheet"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:30",
+          "lib/letflow/modules/assets/router.ex:505",
+          "lib/letflow/modules/assets/router.ex:513",
+          "lib/letflow/modules/assets/router.ex:547",
+          "lib/letflow/modules/assets/router.ex:555"
+        ],
+        "result": "the sheet is issued and signed; printable on Инв-8 or a plain sheet"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-12",
+    "area": "assets",
+    "title": "Asset count: result decisions and signing",
+    "description": "The person holding the tenant's signer role reads the count result, records a decision per line and signs; signing saves DRAFT asset documents and issues the result document; it never posts.",
+    "actors": [
+      {
+        "role": "tenant signer role (count_signer_role, default accountant)",
+        "permission": "AssetsRead + the signer role check in the handler"
+      }
+    ],
+    "preconditions": [
+      "a closed asset count"
+    ],
+    "inputs": [
+      "count_id",
+      "decisions"
+    ],
+    "outputs": [
+      "result_document_id",
+      "draft_document_ids"
+    ],
+    "refusals": [
+      "a caller without the signer role is refused in the handler"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "signer",
+        "forms": [
+          "counts/:id -> AssetCountsPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/counts/:id/result",
+          "PUT /api/v1/modules/assets/counts/:id/result/lines/:line_no",
+          "POST /api/v1/modules/assets/counts/:id/result/sign"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:30",
+          "lib/letflow/modules/assets/router.ex:561",
+          "lib/letflow/modules/assets/router.ex:567",
+          "lib/letflow/modules/assets/router.ex:583"
+        ],
+        "result": "decisions saved; on signing the draft documents are created and assets_count.result is issued"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-13",
+    "area": "assets",
+    "title": "Asset register reports: balances, movements, reconcile",
+    "description": "Readers see where each asset is (balances) and its movement history; the administrator reconciles the asset ledger.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "AssetsRead (grantable)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "AssetsReconcile"
+      }
+    ],
+    "preconditions": [
+      "module assets installed"
+    ],
+    "inputs": [
+      "filters"
+    ],
+    "outputs": [
+      "rows"
+    ],
+    "refusals": [
+      "a tenant key in the query is refused",
+      "reconcile is administrator only"
+    ],
+    "status": "implemented",
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "balances -> BalancesPage",
+          "movements -> MovementsPage",
+          "help/:topic -> AssetsHelpPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/balances",
+          "GET /api/v1/modules/assets/movements"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:27",
+          "web/src/modules/assets/assetsRoutes.tsx:28",
+          "web/src/modules/assets/assetsRoutes.tsx:31",
+          "lib/letflow/modules/assets/router.ex:263",
+          "lib/letflow/modules/assets/router.ex:289"
+        ],
+        "result": "register rows and the movement journal"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [],
+        "route": "GET /api/v1/modules/assets/reconcile",
+        "code_refs": [
+          "lib/letflow/modules/assets/router.ex:311"
+        ],
+        "result": "ledger mismatches and checks"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-14",
+    "area": "assets",
+    "title": "Cross-tenant read and write refused (security)",
+    "description": "A token of tenant A against tenant B's asset document, card, photo or count id is answered with the uniform 404; no list of A holds B's rows.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "two tenants with the assets module and a real card and document in each"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "uniform 404 (INV-5)"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "documents/:id -> DocumentPage"
+        ],
+        "functions": [],
+        "route": [
+          "GET /api/v1/modules/assets/documents/:id",
+          "POST /api/v1/modules/assets/documents/:id/reverse",
+          "GET /api/v1/modules/assets/cards/:id/lock",
+          "GET /api/v1/modules/assets/counts/:id"
+        ],
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:26",
+          "lib/letflow/modules/assets/router.ex:408",
+          "lib/letflow/modules/assets/router.ex:373",
+          "lib/letflow/modules/assets/router.ex:200",
+          "lib/letflow/modules/assets/router.ex:467",
+          "test/letflow/modules/asset_stock_isolation_test.exs:1"
+        ],
+        "result": "uniform 404 for every id route; the owner's token is not 404"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-ASSETS-02-cross-tenant-refused.json",
+    "planned_cases": [
+      "cross-tenant read of a real asset card or document: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)"
+    ]
+  },
+  {
+    "id": "BP-ASSETS-15",
+    "area": "assets",
+    "title": "Permission matrix per role of the assets area (security)",
+    "description": "Each asset route per role: the administrator all; the storekeeper only AssetsRead and AssetsPost and only when the tenant grant is on; AssetsApprove, AssetsReverse, AssetsReconcile, AssetsCardWrite, count order and count record never go to the storekeeper; the auditor holds no assets permission (effective.golden). The packed post, reverse and approve tasks require AssetsApprove.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "see the permission matrix"
+      },
+      {
+        "role": "TENANT_AUDITOR",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "storekeeper grant on, and a second tenant with it off"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "403 for a role without the permission"
+    ],
+    "status": "implemented",
+    "automation": "automated",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [],
+        "route": [
+          "POST /api/v1/modules/assets/cards",
+          "POST /api/v1/modules/assets/documents/:id/reverse",
+          "GET /api/v1/modules/assets/reconcile",
+          "GET /api/v1/modules/assets/approval-access",
+          "POST /api/v1/modules/assets/counts"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/assets/router.ex:179",
+          "lib/letflow/modules/assets/router.ex:373",
+          "lib/letflow/modules/assets/router.ex:311",
+          "lib/letflow/modules/assets/router.ex:433",
+          "lib/letflow/api/authorization.ex:2077",
+          "test/letflow/modules/assets/storekeeper_assets_test.exs:1",
+          "test/letflow/modules/assets/assets_approve_tasks_test.exs:1"
+        ],
+        "result": "403 for the storekeeper, including approval-access; the administrator can_approve; with the grant off, even GET /documents and POST /documents are refused"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-ASSETS-01-approval-permission.json",
+    "note": "Also walked by the wider per-role matrix test/uat/processes/SEC-ASSETS-03-permission-matrix.json (bp_entry BP-ASSETS-15)."
+  },
+  {
+    "id": "BP-ASSETS-16",
+    "area": "assets",
+    "title": "Photo upload types and limits (security)",
+    "description": "Only allowed image types up to the attachment limit are stored; a wrong type or an oversized file is 422 and nothing is stored; the gallery write atoms are required.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "an active card"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 photo_type_not_allowed / photo_too_large"
+    ],
+    "status": "implemented",
+    "automation": "planned",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "cards -> AssetCardsPage"
+        ],
+        "functions": [],
+        "route": "POST /api/v1/modules/assets/cards/:id/photos",
+        "code_refs": [
+          "web/src/modules/assets/assetsRoutes.tsx:23",
+          "lib/letflow/modules/assets/router.ex:235",
+          "lib/letflow/modules/assets/card_photos.ex:308",
+          "test/letflow/modules/assets/card_photos_test.exs:1"
+        ],
+        "result": "photo_type_not_allowed or photo_too_large (422); gallery unchanged"
+      }
+    ],
+    "scenario": null
+  },
+  {
+    "id": "BP-ASSETS-17",
+    "area": "assets",
+    "title": "Crafted completion or start refused (write targets) (security)",
+    "description": "Completing an asset post, reverse or opening task with a body that overwrites a write target, or starting an assets process by POST /instances with chosen variables, is refused and writes nothing.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "see the permission matrix"
+      }
+    ],
+    "preconditions": [
+      "an asset document issued with a pending task"
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "422 output_refused"
+    ],
+    "status": "implemented",
+    "automation": "scripted",
+    "security": true,
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "assets_commission/post",
+          "assets.post_document"
+        ],
+        "route": [
+          "POST /api/v1/tasks/:id/complete",
+          "POST /api/v1/instances"
+        ],
+        "code_refs": [
+          "priv/modules/assets/pack.json:54",
+          "lib/letflow/modules/assets/assets.ex:422",
+          "lib/letflow/engine/write_targets.ex:14",
+          "test/letflow/engine/write_targets_test.exs:1"
+        ],
+        "result": "422 output_refused / refused as unknown definition; register unchanged"
+      }
+    ],
+    "scenario": "test/uat/processes/SEC-ASSETS-04-start-route-refused.json",
+    "planned_cases": [
+      "crafted completion of an asset post or reversal task pointing at another card or document: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)",
+      "change of kind on a foreign asset target: planned, needs an asset data fixture (no asset card or document exists on qoimeks-qa)"
+    ]
+  }
+]

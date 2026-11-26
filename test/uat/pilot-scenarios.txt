@@ -1,0 +1,5 @@
+# Pilot scenarios run by the engine uat_smoke (T-2823). One per line: an id, or "<id> planned".
+# A listed id with no file in test/uat/processes fails the smoke; "planned" prints "not run: planned" and never fails.
+BP-PLATFORM-01
+BP-PLATFORM-02 planned
+BP-PLATFORM-24

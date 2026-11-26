@@ -65,7 +65,7 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
     assert Map.keys(reverse.args) -- Map.keys(post.args) == ["reason_code"]
   end
 
-  test "R1 nine document route policies (incl. print, T-1915), no new permission atom" do
+  test "R1 nine document route policies (incl. print, T-1915), separate approval permission" do
     m = Assets.manifest()
 
     docs =
@@ -87,7 +87,8 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
                :AssetsRead,
                :AssetsReconcile,
                :AssetsCountOrder,
-               :AssetsCountRecord
+               :AssetsCountRecord,
+               :AssetsApprove
              ]
   end
 

@@ -63,7 +63,8 @@ defmodule Letflow.Modules.Stock.VersionBindingConcurrencyTest do
           actor_id: ctx.holder.id,
           idempotency_key: "vbc-#{Ecto.UUID.generate()}"
         },
-        prefix: ctx.schema
+        prefix: ctx.schema,
+        module_start: true
       )
   end
 
@@ -238,7 +239,18 @@ defmodule Letflow.Modules.Stock.VersionBindingConcurrencyTest do
     before_a = P.counts(ctx, doc_a["id"])
     before_b = P.counts(%{schema: schema_b}, issued_b["id"])
 
-    conn = complete_route(task_b, ctx.tok_b, output)
+    # T-2430: the body cannot carry a write target at all (422 `output_refused`, nothing written,
+    # no handler reached); the handler's own cross-tenant check is then reached with B's instance
+    # variables forged directly, as a second line of defence.
+    refused = complete_route(task_b, ctx.tok_b, output)
+    assert refused.status == 422, "expected 422, got #{refused.status}: #{refused.resp_body}"
+    assert Jason.decode!(refused.resp_body)["code"] == "output_refused"
+    refute refused.resp_body =~ doc_a["id"]
+    assert Fixture.audit_rows(schema_b, "entity_write.refused") == []
+    assert task_status(schema_b, task_b) == :pending
+
+    :ok = P.tamper!(%{schema: schema_b}, task_b, output)
+    conn = complete_route(task_b, ctx.tok_b, %{})
 
     assert conn.status == 422, "expected 422, got #{conn.status}: #{conn.resp_body}"
     assert Jason.decode!(conn.resp_body)["error"] == "validation_failed"

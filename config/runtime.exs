@@ -289,6 +289,19 @@ module_upgrade_on_boot =
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 
+# T-2739: seed the shipped platform definitions at boot. Default OFF (production); QA and runner
+# hosts set LETFLOW_SEED_PLATFORM_DEFINITIONS=true. Exactly the string "true" turns it on.
+config :letflow,
+       :seed_platform_definitions_on_boot,
+       System.get_env("LETFLOW_SEED_PLATFORM_DEFINITIONS") == "true"
+
+# T-2703: the platform step runner (pilot gap G1). Default off; exactly the string "true" turns it on.
+config :letflow,
+       :start_platform_step_runner,
+       Letflow.Supervisor.Pollers.parse_platform_step_runner(
+         System.get_env("LETFLOW_START_PLATFORM_STEP_RUNNER")
+       )
+
 # T-1641: release of the QA-only demo module (0.1.0, 0.2.0 or 0.3.0). No effect unless the build included the
 # module (LETFLOW_INCLUDE_RUNTIME_DEMO). Recreate the container after changing it.
 config :letflow,
@@ -439,9 +452,8 @@ if Enum.any?([signup_prov_url, signup_prov_token, signup_hostname_domain], signu
             "The value is not echoed."
   end
 
-  if not signup_enabled do
-    raise "LETFLOW_SIGNUP_PROVISIONER_URL is set but LETFLOW_SIGNUP_ENABLED is not true: refusing to boot."
-  end
+  # T-2781: valid on their own. The pilot wiring (platform.register_tenant creates the tenant's realm)
+  # sets these three with public sign-up OFF; the sign-up routes keep their own flag.
 end
 
 config :letflow, Letflow.Signup,
@@ -634,7 +646,8 @@ provisioner_env =
      LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS
      LETFLOW_PROVISIONER_RETENTION_DAYS LETFLOW_PROVISIONER_DEMO_CAP
      LETFLOW_PROVISIONER_DEMO_ALARM LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES
-     LETFLOW_PROVISIONER_DEFAULT_MODULES LETFLOW_PUBLIC_BASE_URL)
+     LETFLOW_PROVISIONER_DEFAULT_MODULES LETFLOW_PROVISIONER_CREATE_VIA_PROCESS
+     LETFLOW_PROVISIONER_CREATE_WAIT_SECONDS LETFLOW_PUBLIC_BASE_URL)
   |> Map.new(fn name -> {name, System.get_env(name)} end)
 
 case Letflow.TenantProvisioner.Config.parse(provisioner_env, config_env()) do
@@ -805,10 +818,17 @@ if config_env() == :prod do
 
   # REQ-118: allowed CORS origins for the browser-origin SPA. Fail-closed —
   # an unset or empty CORS_ALLOWED_ORIGINS yields [] (no exact origin
-  # trusted; the guarded provisioner suffix list independently permits HTTPS company origins), never a silent fallback to Letflow.Plugs.Cors's dev/test
+  # trusted), never a silent fallback to Letflow.Plugs.Cors's dev/test
   # default (`localhost:5173`/`127.0.0.1:4173`), which would be a security
   # hole in a real deployment. Comma-separated exact origins, e.g.
   # "https://app.example.com,https://staging.example.com".
+  #
+  # T-2621: these are the APP's own origins (the platform host, the PWA host the
+  # SPA is served from); a listed origin is allowed on every host. A company's own
+  # host needs no entry here: Letflow.Plugs.Cors takes the allow decision PER
+  # HOST, so a company origin is allowed on its own host and on no other one. The
+  # guarded provisioner suffix list grants no CORS allowance at all (it is a
+  # provisioning policy: which hostname a company may be given).
   config :letflow,
          :cors_allowed_origins,
          (System.get_env("CORS_ALLOWED_ORIGINS") || "") |> String.split(",", trim: true)

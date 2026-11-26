@@ -227,7 +227,8 @@ defmodule Letflow.Modules.Stock.PostingTest do
         actor_id: ctx.holder.id,
         idempotency_key: "generic-#{tag}-#{Ecto.UUID.generate()}"
       },
-      prefix: ctx.schema
+      prefix: ctx.schema,
+      module_start: true
     )
   end
 
@@ -754,7 +755,7 @@ defmodule Letflow.Modules.Stock.PostingTest do
       output = %{"posting" => Map.put(instance.variables["posting"], "lines", lines)}
 
       assert {:error, {:entity_write_refused, 0, :record_version_conflict}} =
-               P.complete(ctx, task, output: output)
+               P.complete(ctx, task, variables: output)
 
       read = P.get!(ctx, id)
       assert read["state"] == "issued" and read["posting_check"] == nil

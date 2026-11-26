@@ -1,0 +1,136 @@
+{
+  "id": "BP-DESIGNER-24",
+  "bp_entry": "BP-DESIGNER-24",
+  "title": "SECURITY: a storekeeper is refused every designer write; the entity-definition read is allowed",
+  "description": "The storekeeper (no designer, script, webhook, dead-letter or promotion permission) is refused 403 on creating a definition, an entity type, a script version, on the kill switch, a webhook subscription, a dead-letter retry, a promotion and on reading definitions. The storekeeper may read entity definitions (EntitiesDefinitionsRead) and the administrator may read definitions. Nothing is written by any step.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/entities/definitions",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/script-rules/uat-none/versions",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "storekeeper",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/script-policy/kill-switch",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/webhooks/subscriptions",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/dlq/00000000-0000-0000-0000-000000000000/retry"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/promotions",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/entities/definitions"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions"
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

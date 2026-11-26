@@ -1,0 +1,1246 @@
+[
+  {
+    "id": "BP-MASTER-01",
+    "area": "master",
+    "title": "Maintain legal entities and sites",
+    "description": "The tenant administrator keeps the list of the company's legal entities (a code, a name, a 12-digit BIN) and sites (a place the company works at, belonging to a legal entity): adds, renames or corrects, and retires them. A retired entity or site is hidden from new work but never deleted.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "OrgStructureWrite"
+      }
+    ],
+    "preconditions": [
+      "module org installed on the tenant",
+      "the administrator is signed in (a person, not a shared access value)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LegalEntitiesPage",
+          "legal-entities"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.create_legal_entity"
+        ],
+        "route": "POST /api/v1/modules/org/legal-entities",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:44",
+          "lib/letflow/modules/org/masters.ex:65"
+        ],
+        "result": "a legal entity with a code, a name and a BIN of exactly 12 digits (201); a second live entity with the same BIN is refused (422 bin_taken)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LegalEntitiesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.update_legal_entity"
+        ],
+        "route": "PATCH /api/v1/modules/org/legal-entities/:id",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:48",
+          "lib/letflow/modules/org/masters.ex:80"
+        ],
+        "result": "name, BIN or external reference corrected (200); the code cannot be changed (422 field_not_allowed)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LegalEntitiesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.retire_legal_entity"
+        ],
+        "route": "POST /api/v1/modules/org/legal-entities/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:52",
+          "lib/letflow/modules/org/masters.ex:93"
+        ],
+        "result": "the entity is inactive (200); refused while a live site or unit still names it"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "SitesPage",
+          "sites"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.create_site"
+        ],
+        "route": "POST /api/v1/modules/org/sites",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:56",
+          "lib/letflow/modules/org/masters.ex:109"
+        ],
+        "result": "a site of a live legal entity (201); an unknown or inactive entity is refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "SitesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.update_site"
+        ],
+        "route": "PATCH /api/v1/modules/org/sites/:id",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:60",
+          "lib/letflow/modules/org/masters.ex:123"
+        ],
+        "result": "site name or legal entity changed (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "SitesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.retire_site"
+        ],
+        "route": "POST /api/v1/modules/org/sites/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:64",
+          "lib/letflow/modules/org/masters.ex:136"
+        ],
+        "result": "the site is inactive (200); refused while a live unit names it"
+      }
+    ],
+    "inputs": [
+      "code",
+      "name",
+      "bin"
+    ],
+    "outputs": [
+      "legal_entity_id",
+      "site_id"
+    ],
+    "refusals": [
+      "a role without OrgStructureWrite (the STOREKEEPER, the auditor): 403",
+      "a body with a key outside the allow-list: 422 field_not_allowed; a malformed BIN or empty name: 422 field_invalid",
+      "a second live legal entity with the same BIN: 422 bin_taken (a retired entity's BIN may be reused)",
+      "an unknown id, or an id of another tenant: the same 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-02",
+    "area": "master",
+    "title": "Maintain the org unit tree",
+    "description": "The tenant administrator builds the organisation as a tree of units (department, shop, team): adds a unit under a legal entity and a site, optionally under a parent unit, renames or re-assigns it, moves it under another parent, and retires it.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "OrgStructureWrite"
+      }
+    ],
+    "preconditions": [
+      "module org installed",
+      "a live legal entity and a live site exist (BP-MASTER-01)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "UnitsPage",
+          "units"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.create_unit"
+        ],
+        "route": "POST /api/v1/modules/org/units",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:68",
+          "lib/letflow/modules/org/units.ex:42"
+        ],
+        "result": "a unit, root or under a live parent (201)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "UnitsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.update_unit"
+        ],
+        "route": "PATCH /api/v1/modules/org/units/:id",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:72",
+          "lib/letflow/modules/org/units.ex:57"
+        ],
+        "result": "name, legal entity or site changed (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "UnitsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.move_unit"
+        ],
+        "route": "POST /api/v1/modules/org/units/:id/move",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:76",
+          "lib/letflow/modules/org/units.ex:71"
+        ],
+        "result": "the unit and its subtree sit under the new parent (200); a move into its own subtree is refused (cycle)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "UnitsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.retire_unit"
+        ],
+        "route": "POST /api/v1/modules/org/units/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:82",
+          "lib/letflow/modules/org/units.ex:85"
+        ],
+        "result": "the unit is inactive (200)"
+      }
+    ],
+    "inputs": [
+      "code",
+      "name",
+      "legal_entity_id",
+      "site_id",
+      "parent"
+    ],
+    "outputs": [
+      "unit_id"
+    ],
+    "refusals": [
+      "403 for a role without OrgStructureWrite",
+      "422 cycle / depth_exceeded / parent_inactive / legal_entity_inactive / site_inactive with the fixed reason",
+      "an unknown or foreign unit or parent id: the same 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-03",
+    "area": "master",
+    "title": "Maintain positions and employees",
+    "description": "The tenant administrator records the posts of each unit and the people who hold them: adds a position to a unit, an employee to a unit (optionally with a position and the login user), changes their data, transfers an employee to another unit and position, and retires them.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "OrgEmployeesWrite"
+      }
+    ],
+    "preconditions": [
+      "module org installed",
+      "a live unit exists (BP-MASTER-02)",
+      "for a login link: the user exists in this tenant"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "PositionsPage",
+          "positions"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.create_position"
+        ],
+        "route": "POST /api/v1/modules/org/positions",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:86",
+          "lib/letflow/modules/org/people.ex:46"
+        ],
+        "result": "a position of an active unit (201)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "PositionsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.update_position"
+        ],
+        "route": "PATCH /api/v1/modules/org/positions/:id",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:90",
+          "lib/letflow/modules/org/people.ex:59"
+        ],
+        "result": "name changed (200); a position never moves between units"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "PositionsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.retire_position"
+        ],
+        "route": "POST /api/v1/modules/org/positions/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:94",
+          "lib/letflow/modules/org/people.ex:72"
+        ],
+        "result": "the position is inactive (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "EmployeesPage",
+          "employees"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.create_employee"
+        ],
+        "route": "POST /api/v1/modules/org/employees",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:98",
+          "lib/letflow/modules/org/people.ex:102"
+        ],
+        "result": "an employee of an active unit; the position must be active and of that unit; the user must belong to this tenant (201)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "EmployeesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.update_employee"
+        ],
+        "route": "PATCH /api/v1/modules/org/employees/:id",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:102",
+          "lib/letflow/modules/org/people.ex:116"
+        ],
+        "result": "name or login user changed (200); the unit changes only by transfer"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "EmployeesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.transfer_employee"
+        ],
+        "route": "POST /api/v1/modules/org/employees/:id/transfer",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:106",
+          "lib/letflow/modules/org/people.ex:138"
+        ],
+        "result": "the employee is in the new unit with a position of that unit (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "EmployeesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.retire_employee"
+        ],
+        "route": "POST /api/v1/modules/org/employees/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:112",
+          "lib/letflow/modules/org/people.ex:167"
+        ],
+        "result": "the employee is inactive (200)"
+      }
+    ],
+    "inputs": [
+      "code",
+      "full_name",
+      "org_unit_id",
+      "position_id",
+      "user_id"
+    ],
+    "outputs": [
+      "position_id",
+      "employee_id"
+    ],
+    "refusals": [
+      "403 for a role without OrgEmployeesWrite",
+      "422 unit_inactive, field_invalid, record_payload_invalid (duplicate code)",
+      "a user of another tenant: the same 404 user_not_found"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-04",
+    "area": "master",
+    "title": "Maintain the location tree",
+    "description": "The tenant administrator builds the tree of places goods and assets are kept at (warehouse, zone, shelf, bin): adds a place (the address may be composed from the parents' segments), renames it, moves it under another place or to the top, and retires it. A place with live sub-places cannot be retired.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LocationsWrite"
+      }
+    ],
+    "preconditions": [
+      "module locations installed (it needs org)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage",
+          "admin/locations"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.create_node"
+        ],
+        "route": "POST /api/v1/modules/locations/nodes",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:48",
+          "lib/letflow/modules/locations/tree.ex:64"
+        ],
+        "result": "a place, root or under an active parent (201); address_pattern 'segments' composes the address"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.update_node"
+        ],
+        "route": "PATCH /api/v1/modules/locations/nodes/:id",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:52",
+          "lib/letflow/modules/locations/tree.ex:281"
+        ],
+        "result": "name or attributes changed (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.move_node"
+        ],
+        "route": "POST /api/v1/modules/locations/nodes/:id/move",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:56",
+          "lib/letflow/modules/locations/tree.ex:256"
+        ],
+        "result": "the place sits under the new parent, or at the top for a null parent (200); a cycle is refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.retire_node"
+        ],
+        "route": "POST /api/v1/modules/locations/nodes/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:62",
+          "lib/letflow/modules/locations/tree.ex:305"
+        ],
+        "result": "the place is inactive (200); refused 422 has_active_descendants while a live sub-place exists"
+      }
+    ],
+    "inputs": [
+      "code",
+      "name",
+      "node_kind",
+      "parent_id"
+    ],
+    "outputs": [
+      "node_id"
+    ],
+    "refusals": [
+      "403 for a role without LocationsWrite",
+      "422 cycle, has_active_descendants, parent_inactive, field_invalid (address_pattern other than segments)",
+      "unknown or foreign id: the same 404"
+    ],
+    "scenario": "test/uat/processes/BP-MASTER-04-location-tree.json",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-05",
+    "area": "master",
+    "title": "Link org units to locations",
+    "description": "The tenant administrator says which places an org unit works at, so that a unit's people see only their places. A link is created, or reactivated if it was removed, and removed (made inactive; never deleted).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LocationsWrite"
+      }
+    ],
+    "preconditions": [
+      "a live org unit (BP-MASTER-02) and a live location (BP-MASTER-04) exist"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationLinksPage",
+          "links"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.link_unit_location"
+        ],
+        "route": "POST /api/v1/modules/locations/links",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:66",
+          "lib/letflow/modules/locations/links.ex:53"
+        ],
+        "result": "an active link (201, also when an inactive one is reactivated); a retired unit or place is refused"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationLinksPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Locations.unlink_unit_location"
+        ],
+        "route": "POST /api/v1/modules/locations/links/retire",
+        "code_refs": [
+          "lib/letflow/modules/locations/router.ex:77",
+          "lib/letflow/modules/locations/links.ex:82"
+        ],
+        "result": "the link is inactive (200); a pair without an active link is the same 404"
+      }
+    ],
+    "inputs": [
+      "org_unit_id",
+      "location_id"
+    ],
+    "outputs": [
+      "link"
+    ],
+    "refusals": [
+      "403 for a role without LocationsWrite",
+      "422 unit_inactive / location_inactive",
+      "unknown unit, place or link: the same 404"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-06",
+    "area": "master",
+    "title": "Load the catalog (units, items, counterparties) from a file",
+    "description": "Items, units of measure and counterparties are not typed in on a screen: the tenant administrator loads them from a CSV or Excel file with the generic import (one row per record, an external reference for each), as a trial run first and then for real. A row that names an unknown unit or place is refused and writes nothing; re-loading the file updates the same records. The Items screen then shows the result, read only.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsImportAnyType"
+      }
+    ],
+    "preconditions": [
+      "module catalog_items installed",
+      "for default_location_id: module locations installed and the place loaded first"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "ItemsPage",
+          "admin/catalog/items"
+        ],
+        "functions": [
+          "catalog_items:import_row",
+          "Letflow.Modules.CatalogItems.import_row"
+        ],
+        "route": "POST /api/v1/entities/records/:entity_type/import",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:387",
+          "lib/letflow/modules/catalog_items/catalog_items.ex:116",
+          "lib/letflow/modules/catalog_items/import.ex:75"
+        ],
+        "result": "catalog_uom, catalog_item and catalog_counterparty rows created or updated by external reference, one audit entry per changed row"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "ItemsPage"
+        ],
+        "functions": [],
+        "route": null,
+        "code_refs": [
+          "web/src/modules/catalog_items/catalogItemsRoutes.tsx:15"
+        ],
+        "result": "the administrator and the storekeeper (both hold StockRead, the guard of the Items screen) read the items on the Items screen (a query, no write route)"
+      }
+    ],
+    "inputs": [
+      "a file of rows with external_ref_system and external_ref_id"
+    ],
+    "outputs": [
+      "records created or updated"
+    ],
+    "refusals": [
+      "the STOREKEEPER holds Import but not EntitiesRecordsImportAnyType: 403 for any type but stock_opening_line",
+      "more than 200 records in one request, a bad schema version, an unknown column or a malformed file: refused before any row is written",
+      "an unknown or retired reference (unit, place): the row is refused, nothing written",
+      "a managed type without an import function: 403 entity_type_managed"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-07",
+    "area": "master",
+    "title": "Load org units, locations and codes from a file",
+    "description": "To seed a new tenant the administrator loads legal entities, sites, units, location nodes, code tags and code assignments with the same generic import, in dependency order (org, then locations, then catalog, then codes). Each row goes through the owning module's own import function, so the same rules and audit as the screens apply.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsImportAnyType"
+      }
+    ],
+    "preconditions": [
+      "the modules org, locations, catalog_items and codes are installed"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/org",
+          "admin/locations",
+          "admin/codes"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.import_row",
+          "Letflow.Modules.Locations.import_row",
+          "Letflow.Modules.Codes.import_code_tag",
+          "Letflow.Modules.Codes.import_code_assignment"
+        ],
+        "route": "POST /api/v1/entities/records/:entity_type/import",
+        "code_refs": [
+          "lib/letflow/routers/entities.ex:387",
+          "lib/letflow/modules/org/org.ex:162",
+          "lib/letflow/modules/locations/locations.ex:114",
+          "lib/letflow/modules/codes/codes.ex:142",
+          "lib/letflow/modules/codes/codes.ex:151"
+        ],
+        "result": "rows created or updated by external reference; a code assignment row needs its tag and target loaded first"
+      }
+    ],
+    "inputs": [
+      "files of rows"
+    ],
+    "outputs": [
+      "records created or updated"
+    ],
+    "refusals": [
+      "a role without EntitiesRecordsImportAnyType: 403",
+      "a row that names a missing parent or target: refused, nothing written"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-08",
+    "area": "master",
+    "title": "Maintain lots of an item",
+    "description": "The tenant administrator records a lot (batch) of an active item with a code, a producer, a mark and an expiry date, corrects it and retires it. One item has one lot per code.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "CatalogLotsWrite"
+      }
+    ],
+    "preconditions": [
+      "module catalog_items installed",
+      "an active item exists (BP-MASTER-06)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LotsPage",
+          "admin/catalog/lots"
+        ],
+        "functions": [
+          "Letflow.Modules.CatalogItems.create_lot"
+        ],
+        "route": "POST /api/v1/modules/catalog_items/lots",
+        "code_refs": [
+          "lib/letflow/modules/catalog_items/router.ex:31",
+          "lib/letflow/modules/catalog_items/lots.ex:49"
+        ],
+        "result": "a lot of an active item (201); a retired item is refused (item_inactive); a second lot code for the item is refused (422 record_payload_invalid)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LotsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.CatalogItems.update_lot"
+        ],
+        "route": "PATCH /api/v1/modules/catalog_items/lots/:id",
+        "code_refs": [
+          "lib/letflow/modules/catalog_items/router.ex:35",
+          "lib/letflow/modules/catalog_items/lots.ex:66"
+        ],
+        "result": "producer, mark or expiry date (YYYY-MM-DD) corrected (200); the item and the code cannot change"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LotsPage"
+        ],
+        "functions": [
+          "Letflow.Modules.CatalogItems.retire_lot"
+        ],
+        "route": "POST /api/v1/modules/catalog_items/lots/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/catalog_items/router.ex:39",
+          "lib/letflow/modules/catalog_items/lots.ex:83"
+        ],
+        "result": "the lot is inactive (200)"
+      }
+    ],
+    "inputs": [
+      "item_id",
+      "code",
+      "producer",
+      "mark",
+      "expiry_date"
+    ],
+    "outputs": [
+      "lot_id"
+    ],
+    "refusals": [
+      "CatalogLotsWrite has no role grant: only TENANT_ADMIN and PLATFORM_ADMIN; the STOREKEEPER gets 403",
+      "an unknown or foreign item or lot: the same 404",
+      "an invalid date: 422 field_invalid"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-09",
+    "area": "master",
+    "title": "Receive, assign, release and retire a code",
+    "description": "Barcodes, QR codes and RFID tags are first received into the tenant (a batch of values with a kind), then assigned to one place, item or lot, released when the label is taken off, given a new value if the tag is rewritten, and retired when it is lost or destroyed. A scan afterwards shows what the code points at.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "CodesWrite"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "CodesRead"
+      }
+    ],
+    "preconditions": [
+      "module codes installed",
+      "a live location, item or lot to assign to"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage",
+          "admin/codes"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.receive_codes"
+        ],
+        "route": "POST /api/v1/modules/codes/receive",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:59",
+          "lib/letflow/modules/codes/writes.ex:57"
+        ],
+        "result": "one not_assigned code per entry, all or nothing (201); at most 1000 entries; a taken value is refused with its index"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.assign_code"
+        ],
+        "route": "POST /api/v1/modules/codes/:id/assign",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:65",
+          "lib/letflow/modules/codes/writes.ex:194"
+        ],
+        "result": "the code is assigned to one target of type location_node, catalog_item or catalog_lot (200); a second open assignment is refused"
+      },
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Codes.resolve"
+        ],
+        "route": "POST /api/v1/modules/codes/resolve",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:51",
+          "lib/letflow/modules/codes/codes.ex:203",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27",
+          "apps/mobile/lib/features/stock/documents/scan_fill_sheet.dart:27"
+        ],
+        "result": "the scan answer: status, kind, target type and id (the storekeeper scans in the mobile app; no web screen calls this route)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.release_code"
+        ],
+        "route": "POST /api/v1/modules/codes/:id/release",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:71",
+          "lib/letflow/modules/codes/writes.ex:261"
+        ],
+        "result": "the code is not_assigned again (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.change_code_value"
+        ],
+        "route": "POST /api/v1/modules/codes/:id/value",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:79",
+          "lib/letflow/modules/codes/writes.ex:355"
+        ],
+        "result": "the code keeps its record and gets a new value; the old value goes to the value history (200)"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.retire_code"
+        ],
+        "route": "POST /api/v1/modules/codes/:id/retire",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:75",
+          "lib/letflow/modules/codes/writes.ex:293"
+        ],
+        "result": "the code is retired and its open assignment is closed (200)"
+      }
+    ],
+    "inputs": [
+      "value",
+      "kind (barcode, qr, epc, tid)",
+      "target_type",
+      "target_id"
+    ],
+    "outputs": [
+      "code_id"
+    ],
+    "refusals": [
+      "CodesWrite: only TENANT_ADMIN and PLATFORM_ADMIN; the STOREKEEPER gets 403",
+      "422 entry_invalid (index, reason), batch_size, code_retired, value_taken, assignment_conflict",
+      "unknown code or target, or one of another tenant: the same 404"
+    ],
+    "scenario": "test/uat/processes/BP-MASTER-09-codes-lifecycle.json",
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-10",
+    "area": "master",
+    "title": "Print code labels",
+    "description": "A tenant administrator picks up to 1000 received codes on the Codes screen and prints their labels as one PDF (a Code 128 label each, in the order chosen). Nothing is written. The route itself needs only CodesRead, so the STOREKEEPER may call it through the API, but no screen lets that role in: the Codes screen needs CodesWrite.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "CodesWrite (screen), CodesRead (route)"
+      },
+      {
+        "role": "STOREKEEPER",
+        "permission": "CodesRead (API only, no screen)"
+      }
+    ],
+    "preconditions": [
+      "module codes installed",
+      "the codes were received (BP-MASTER-09)"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "CodesPage"
+        ],
+        "functions": [
+          "Letflow.Modules.Codes.Labels.render"
+        ],
+        "route": "POST /api/v1/modules/codes/labels",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:55",
+          "lib/letflow/modules/codes/labels.ex:46",
+          "web/src/modules/codes/codesRoutes.tsx:14",
+          "web/src/modules/codes/useLabelsPrint.ts:16"
+        ],
+        "result": "a PDF attachment 'code-labels.pdf', one label per code in list order (200)"
+      }
+    ],
+    "inputs": [
+      "code_ids"
+    ],
+    "outputs": [
+      "a PDF"
+    ],
+    "refusals": [
+      "an empty list, more than 1000 ids or a non-text id: 422 field_invalid",
+      "a repeated id: 422 entry_invalid duplicate_in_batch",
+      "an id that is not a live code of the tenant: the same 404",
+      "a value that cannot be printed as Code 128: 422 entry_invalid"
+    ],
+    "scenario": null,
+    "status": "implemented"
+  },
+  {
+    "id": "BP-MASTER-11",
+    "area": "master",
+    "title": "Security: permission matrix of the master data routes",
+    "description": "Who may do what in org, locations, catalog lots and codes, and who is refused. The administrator holds every write permission; the STOREKEEPER holds only CodesRead (scan lookup and label print, through the API and the mobile scan screen) and gets 403 on every write; roles without these permissions get 403 as well.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "CodesRead"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "OrgStructureWrite, OrgEmployeesWrite, LocationsWrite, CatalogLotsWrite, CodesWrite, CodesRead"
+      }
+    ],
+    "preconditions": [
+      "the four modules are installed on the tenant (on a tenant without a module its routes answer 404)"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Org.Router",
+          "Letflow.Modules.Locations.Router",
+          "Letflow.Modules.CatalogItems.Router",
+          "Letflow.Modules.Codes.Router"
+        ],
+        "route": [
+          "POST /api/v1/modules/org/legal-entities",
+          "POST /api/v1/modules/locations/nodes",
+          "POST /api/v1/modules/catalog_items/lots",
+          "POST /api/v1/modules/codes/receive"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/org/router.ex:44",
+          "lib/letflow/modules/locations/router.ex:48",
+          "lib/letflow/modules/catalog_items/router.ex:31",
+          "lib/letflow/modules/codes/router.ex:59",
+          "lib/letflow/modules/codes/codes.ex:110",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27"
+        ],
+        "result": "every write route refused with 403 and nothing written; the two reads of the role are allowed"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "STOREKEEPER on any write route of the four modules: 403",
+      "TENANT_AUDITOR, PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER on a write route: 403 (Elixir tests router_test.exs H-cases)",
+      "the scan lookup and the label print are open to the STOREKEEPER"
+    ],
+    "scenario": "test/uat/processes/BP-MASTER-11-permission-matrix.json",
+    "status": "implemented",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "storekeeper refused on 17 write routes, allowed on resolve and labels",
+        "status": "automated",
+        "scenario": "BP-MASTER-11"
+      },
+      {
+        "name": "auditor, designer, operator, worker refused",
+        "status": "planned",
+        "note": "no roster actor yet; Elixir router tests cover it"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-12",
+    "area": "master",
+    "title": "Security: another tenant's data is never reachable (uniform 404)",
+    "description": "A token of tenant A used on an id that belongs to tenant B, on every master route that takes an id, answers the same 404 as an id that does not exist; nothing in tenant B changes. No route takes a tenant from the path or the body: a body with tenant_id is refused (see BP-MASTER-13).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "all master write permissions (tenant A)"
+      }
+    ],
+    "preconditions": [
+      "two tenants with the modules installed and one record of each type in tenant B",
+      "an administrator token of tenant A"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/org",
+          "admin/locations",
+          "admin/codes"
+        ],
+        "functions": [
+          "Letflow.Modules.RouterKit.render"
+        ],
+        "route": [
+          "PATCH /api/v1/modules/locations/nodes/:id",
+          "POST /api/v1/modules/codes/:id/assign",
+          "POST /api/v1/modules/org/units/:id/retire"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/router_kit.ex:162",
+          "lib/letflow/modules/codes/router.ex:49"
+        ],
+        "result": "404 with the body of an unknown path, the record of tenant B unchanged"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "an id of another tenant, a deleted record or an unknown id: the same 404 (INV-5)",
+      "a code assigned to a scoped or undeclared target type: the scan lookup answers the 404 of an unknown code (fail closed)"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "token of tenant A on tenant B's ids, per route",
+        "status": "planned",
+        "note": "the runner holds the actors of one tenant; needs a second tenant in the dry-run block. Covered at API level by the Elixir tests (codes router_test T1, locations router_test, org router_test)"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-13",
+    "area": "master",
+    "title": "Security: crafted write requests are refused and change nothing",
+    "description": "Bodies that no screen sends: an unknown key or a tenant id, no idempotency key, a bad option, an unknown id, the same idempotency key with another body, an empty or oversized code batch. Each answer is a fixed 422 reason, 404 or 409, and nothing is written (a refused call leaves no record and no audit entry).",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "LocationsWrite, OrgStructureWrite, CodesWrite"
+      }
+    ],
+    "preconditions": [
+      "modules locations, org and codes installed"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "LocationTreePage"
+        ],
+        "functions": [
+          "Letflow.Modules.RouterKit.with_request",
+          "Letflow.Modules.RouterKit.check_keys",
+          "Letflow.Modules.RouterKit.pop_key"
+        ],
+        "route": [
+          "POST /api/v1/modules/locations/nodes",
+          "POST /api/v1/modules/locations/nodes/:id/move",
+          "POST /api/v1/modules/codes/receive",
+          "POST /api/v1/modules/org/units/:id/retire"
+        ],
+        "code_refs": [
+          "lib/letflow/modules/router_kit.ex:42",
+          "lib/letflow/modules/router_kit.ex:56",
+          "lib/letflow/modules/router_kit.ex:73",
+          "lib/letflow/modules/locations/router.ex:88"
+        ],
+        "result": "422 field_not_allowed / field_invalid / batch_size, 404, 409 idempotency_key_reuse; no record changed"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "an extra key (tenant_id included): 422 field_not_allowed; a missing key: 422 field_invalid",
+      "no idempotency_key: 422 field_invalid",
+      "the same key with another body: 409 idempotency_key_reuse",
+      "address_pattern other than 'segments': 422 field_invalid"
+    ],
+    "scenario": "test/uat/processes/BP-MASTER-13-crafted-requests.json",
+    "status": "implemented",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "extra key, missing key, bad address_pattern, unknown ids, empty batch, key reuse",
+        "status": "automated",
+        "scenario": "BP-MASTER-13"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-14",
+    "area": "master",
+    "title": "Security: token, host and old-address lookups",
+    "description": "A call with no credential, a wrong or expired token, a token of another tenant never reaches a master route's handler. Not in this area: voice and webhook inputs, four-eyes approval and the old shared-access address - none of the four routers accepts them (the shared access value reaches stock routes only). The unknown-host case is not claimed here: no source for it was found in this area.",
+    "actors": [
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "none needed: the call is refused first"
+      }
+    ],
+    "preconditions": [
+      "a tenant host"
+    ],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "admin/org"
+        ],
+        "functions": [
+          "Letflow.Modules.Org.Router"
+        ],
+        "route": [
+          "POST /api/v1/modules/org/sites"
+        ],
+        "code_refs": [
+          "lib/letflow/plugs/auth_pipeline.ex:216",
+          "lib/letflow/plugs/auth_pipeline.ex:228",
+          "lib/letflow/modules/org/router.ex:56",
+          "lib/letflow/modules/org/router.ex:116"
+        ],
+        "result": "401 without a credential (missing or malformed Authorization header), 401 for a wrong or expired token, 401 for a token whose realm does not match the tenant; nothing written"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "no credential or a wrong token: 401",
+      "a path that no route of the module has: the ordinary unmatched answer (authz_unmatched)"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "no/wrong/expired/other-tenant token, unknown host",
+        "status": "planned",
+        "note": "the runner always sends the actor's own token; a credential-less call needs a runner step kind. Covered by the Elixir tests of the auth pipeline."
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-15",
+    "area": "master",
+    "title": "Security: import types, size and format limits",
+    "description": "The generic import loads master data from files. Only a holder of EntitiesRecordsImportAnyType loads module-managed types; the STOREKEEPER only opening lines. A request over 200 records, with a wrong schema version, an unreadable or oversized xlsx, a header that is not a field, or a malformed CSV is refused before any row is written.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "EntitiesRecordsImport (refused for master types)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "EntitiesRecordsImportAnyType"
+      }
+    ],
+    "preconditions": [
+      "module catalog_items installed"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [
+          "ItemsPage"
+        ],
+        "functions": [
+          "catalog_items:import_row"
+        ],
+        "route": "POST /api/v1/entities/records/:entity_type/import",
+        "code_refs": [
+          "lib/letflow/routers/entities/record_import.ex:81",
+          "lib/letflow/routers/entities/record_import.ex:107"
+        ],
+        "result": "403 for catalog_item, locations, org and codes types; 413 / 422 with a reason for limits"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "the STOREKEEPER importing catalog_item: 403",
+      "more than 200 records: 413 before any row validation (for a file import, a type the caller cannot see answers 404 first, record_import.ex:325)",
+      "xlsx_unreadable, xlsx_too_large, csv_malformed, csv_unknown_header: 422 with the reason"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "storekeeper refused on a master type; limits",
+        "status": "planned",
+        "note": "needs a file upload step in the runner; Elixir tests: import_test.exs of each module and the entities import tests"
+      }
+    ]
+  },
+  {
+    "id": "BP-MASTER-16",
+    "area": "master",
+    "title": "Security: the scan lookup fails closed",
+    "description": "A scan of an unknown code, or of a code assigned to a record type whose scope is not tenant-wide or not declared, is the same 404 for the caller: it cannot tell a missing code from a hidden one. A retired or conflicting code answers 200 with only the sent value and null fields.",
+    "actors": [
+      {
+        "role": "STOREKEEPER",
+        "permission": "CodesRead"
+      }
+    ],
+    "preconditions": [
+      "module codes installed",
+      "one code assigned to a catalog_item or location_node"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER",
+        "forms": [],
+        "functions": [
+          "Letflow.Modules.Codes.resolve"
+        ],
+        "route": "POST /api/v1/modules/codes/resolve",
+        "code_refs": [
+          "lib/letflow/modules/codes/router.ex:189",
+          "lib/letflow/modules/codes/codes.ex:203",
+          "apps/mobile/lib/features/codes/codes_resolve.dart:17",
+          "apps/mobile/lib/features/codes/scan_screen.dart:27",
+          "apps/mobile/lib/features/stock/documents/scan_fill_sheet.dart:27"
+        ],
+        "result": "404 for an unknown value; 200 with the target for a tenant-wide target"
+      }
+    ],
+    "inputs": [],
+    "outputs": [],
+    "refusals": [
+      "unknown code: 404",
+      "assigned to a scoped or undeclared target type: the same 404 (decision 0076 R7 ruling 2)"
+    ],
+    "scenario": null,
+    "status": "partial",
+    "kind": "security",
+    "security_scenarios": [
+      {
+        "name": "unknown value gives 404 (also step s18 of BP-MASTER-11)",
+        "status": "automated",
+        "scenario": "BP-MASTER-11"
+      },
+      {
+        "name": "scoped target hidden",
+        "status": "planned",
+        "note": "needs a scoped target type on the tenant; Elixir resolve_router_test covers it"
+      }
+    ]
+  }
+]

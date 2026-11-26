@@ -1,12 +1,13 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.30.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.24.0
+# modules: assets@0.31.0,catalog_items@0.5.0,codes@0.7.0,exam@0.1.0,locations@0.5.0,maintenance@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.24.0
 # roles: 9
-# permissions: 108
-# rows: 972
+# permissions: 110
+# rows: 990
 # columns: role permission allowed owner via
 AGENT_RUNNER ApprovalRulesManage false core -
+AGENT_RUNNER AssetsApprove false module:assets -
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsCountOrder false module:assets -
 AGENT_RUNNER AssetsCountRecord false module:assets -
@@ -77,6 +78,7 @@ AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER OfficialFormTemplatesManage false core -
 AGENT_RUNNER OrgEmployeesWrite false module:org -
 AGENT_RUNNER OrgStructureWrite false module:org -
+AGENT_RUNNER OutboundDestinationsManage false core -
 AGENT_RUNNER PhotosAdd false core -
 AGENT_RUNNER PhotosDelete false core -
 AGENT_RUNNER PlatformServicesManage false core -
@@ -115,6 +117,7 @@ AGENT_RUNNER TokensManage false core -
 AGENT_RUNNER UsersGroupsRolesManage false core -
 AGENT_RUNNER WebhooksManage false core -
 CANDIDATE ApprovalRulesManage false core -
+CANDIDATE AssetsApprove false module:assets -
 CANDIDATE AssetsCardWrite false module:assets -
 CANDIDATE AssetsCountOrder false module:assets -
 CANDIDATE AssetsCountRecord false module:assets -
@@ -185,6 +188,7 @@ CANDIDATE NumberSequencesManage false core -
 CANDIDATE OfficialFormTemplatesManage false core -
 CANDIDATE OrgEmployeesWrite false module:org -
 CANDIDATE OrgStructureWrite false module:org -
+CANDIDATE OutboundDestinationsManage false core -
 CANDIDATE PhotosAdd false core -
 CANDIDATE PhotosDelete false core -
 CANDIDATE PlatformServicesManage false core -
@@ -223,6 +227,7 @@ CANDIDATE TokensManage false core -
 CANDIDATE UsersGroupsRolesManage false core -
 CANDIDATE WebhooksManage false core -
 PLATFORM_ADMIN ApprovalRulesManage false core -
+PLATFORM_ADMIN AssetsApprove true module:assets core
 PLATFORM_ADMIN AssetsCardWrite true module:assets core
 PLATFORM_ADMIN AssetsCountOrder true module:assets core
 PLATFORM_ADMIN AssetsCountRecord true module:assets core
@@ -293,6 +298,7 @@ PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN OfficialFormTemplatesManage true core core
 PLATFORM_ADMIN OrgEmployeesWrite true module:org core
 PLATFORM_ADMIN OrgStructureWrite true module:org core
+PLATFORM_ADMIN OutboundDestinationsManage true core core
 PLATFORM_ADMIN PhotosAdd true core core
 PLATFORM_ADMIN PhotosDelete true core core
 PLATFORM_ADMIN PlatformServicesManage true core core
@@ -331,6 +337,7 @@ PLATFORM_ADMIN TokensManage true core core
 PLATFORM_ADMIN UsersGroupsRolesManage true core core
 PLATFORM_ADMIN WebhooksManage true core core
 PROCESS_DESIGNER ApprovalRulesManage false core -
+PROCESS_DESIGNER AssetsApprove false module:assets -
 PROCESS_DESIGNER AssetsCardWrite false module:assets -
 PROCESS_DESIGNER AssetsCountOrder false module:assets -
 PROCESS_DESIGNER AssetsCountRecord false module:assets -
@@ -401,6 +408,7 @@ PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER OfficialFormTemplatesManage false core -
 PROCESS_DESIGNER OrgEmployeesWrite false module:org -
 PROCESS_DESIGNER OrgStructureWrite false module:org -
+PROCESS_DESIGNER OutboundDestinationsManage false core -
 PROCESS_DESIGNER PhotosAdd false core -
 PROCESS_DESIGNER PhotosDelete false core -
 PROCESS_DESIGNER PlatformServicesManage false core -
@@ -439,6 +447,7 @@ PROCESS_DESIGNER TokensManage false core -
 PROCESS_DESIGNER UsersGroupsRolesManage false core -
 PROCESS_DESIGNER WebhooksManage false core -
 PROCESS_OPERATOR ApprovalRulesManage false core -
+PROCESS_OPERATOR AssetsApprove false module:assets -
 PROCESS_OPERATOR AssetsCardWrite false module:assets -
 PROCESS_OPERATOR AssetsCountOrder false module:assets -
 PROCESS_OPERATOR AssetsCountRecord false module:assets -
@@ -509,6 +518,7 @@ PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR OfficialFormTemplatesManage false core -
 PROCESS_OPERATOR OrgEmployeesWrite false module:org -
 PROCESS_OPERATOR OrgStructureWrite false module:org -
+PROCESS_OPERATOR OutboundDestinationsManage false core -
 PROCESS_OPERATOR PhotosAdd false core -
 PROCESS_OPERATOR PhotosDelete false core -
 PROCESS_OPERATOR PlatformServicesManage false core -
@@ -547,6 +557,7 @@ PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
 STOREKEEPER ApprovalRulesManage false core -
+STOREKEEPER AssetsApprove false module:assets -
 STOREKEEPER AssetsCardWrite false module:assets -
 STOREKEEPER AssetsCountOrder false module:assets -
 STOREKEEPER AssetsCountRecord false module:assets -
@@ -617,6 +628,7 @@ STOREKEEPER NumberSequencesManage false core -
 STOREKEEPER OfficialFormTemplatesManage false core -
 STOREKEEPER OrgEmployeesWrite false module:org -
 STOREKEEPER OrgStructureWrite false module:org -
+STOREKEEPER OutboundDestinationsManage false core -
 STOREKEEPER PhotosAdd false core -
 STOREKEEPER PhotosDelete false core -
 STOREKEEPER PlatformServicesManage false core -
@@ -655,6 +667,7 @@ STOREKEEPER TokensManage false core -
 STOREKEEPER UsersGroupsRolesManage false core -
 STOREKEEPER WebhooksManage false core -
 TASK_WORKER ApprovalRulesManage false core -
+TASK_WORKER AssetsApprove false module:assets -
 TASK_WORKER AssetsCardWrite false module:assets -
 TASK_WORKER AssetsCountOrder false module:assets -
 TASK_WORKER AssetsCountRecord false module:assets -
@@ -725,6 +738,7 @@ TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER OfficialFormTemplatesManage false core -
 TASK_WORKER OrgEmployeesWrite false module:org -
 TASK_WORKER OrgStructureWrite false module:org -
+TASK_WORKER OutboundDestinationsManage false core -
 TASK_WORKER PhotosAdd false core -
 TASK_WORKER PhotosDelete false core -
 TASK_WORKER PlatformServicesManage false core -
@@ -763,6 +777,7 @@ TASK_WORKER TokensManage false core -
 TASK_WORKER UsersGroupsRolesManage false core -
 TASK_WORKER WebhooksManage false core -
 TENANT_ADMIN ApprovalRulesManage true core core
+TENANT_ADMIN AssetsApprove true module:assets core
 TENANT_ADMIN AssetsCardWrite true module:assets core
 TENANT_ADMIN AssetsCountOrder true module:assets core
 TENANT_ADMIN AssetsCountRecord true module:assets core
@@ -833,6 +848,7 @@ TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN OfficialFormTemplatesManage true core core
 TENANT_ADMIN OrgEmployeesWrite true module:org core
 TENANT_ADMIN OrgStructureWrite true module:org core
+TENANT_ADMIN OutboundDestinationsManage true core core
 TENANT_ADMIN PhotosAdd true core core
 TENANT_ADMIN PhotosDelete true core core
 TENANT_ADMIN PlatformServicesManage false core -
@@ -871,6 +887,7 @@ TENANT_ADMIN TokensManage true core core
 TENANT_ADMIN UsersGroupsRolesManage true core core
 TENANT_ADMIN WebhooksManage true core core
 TENANT_AUDITOR ApprovalRulesManage false core -
+TENANT_AUDITOR AssetsApprove false module:assets -
 TENANT_AUDITOR AssetsCardWrite false module:assets -
 TENANT_AUDITOR AssetsCountOrder false module:assets -
 TENANT_AUDITOR AssetsCountRecord false module:assets -
@@ -941,6 +958,7 @@ TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR OfficialFormTemplatesManage false core -
 TENANT_AUDITOR OrgEmployeesWrite false module:org -
 TENANT_AUDITOR OrgStructureWrite false module:org -
+TENANT_AUDITOR OutboundDestinationsManage false core -
 TENANT_AUDITOR PhotosAdd false core -
 TENANT_AUDITOR PhotosDelete false core -
 TENANT_AUDITOR PlatformServicesManage false core -
