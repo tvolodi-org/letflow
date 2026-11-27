@@ -99,7 +99,7 @@ Remember the id of the document as `doc_id`."*
   Using a name that nobody gave or saved is a mistake that the static check reports.
 * `expect`: what a good answer is. `status` is the answer code (one code or a list: `[200, 201]`; without it any
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
-  `$.rows[0].quantity`), the value is what it must be. A sorted catalogue is read by name, never by position: `$.items[?(@.name=='tenant.validate')].id`. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
+  `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
   Besides "equals" you may write `{"contains": "text"}`, `{"regex": "..."}`, `{"exists": true}`, `{"absent": true}`,
   `{"present": true}`, and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
   * `{"exists": true}` means **a value is really there**: the path was found and the value is neither null nor
@@ -113,6 +113,12 @@ Remember the id of the document as `doc_id`."*
     with a value that is not null.
   * T-3107: `exists` used to mean only "the path was found", so a null passed. The audit of every `exists` in
     `test/uat/processes` and the fix are in `docs/uat/exists-matcher-audit.md`.
+  A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the first item whose
+  `name` is `tenant.validate` (several fields at once: `$.items[?definition_name=x&node_id=y]`). Name the item
+  of a list the server owns (a compiled catalogue): an assertion by position goes red when the server adds
+  an entry, for a reason that has nothing to do with the scenario (T-3105).
+  `check_processes.py` refuses `$.items[<number>]` in a step (T-3105). A list sorted by contract, or filtered to the
+  rows of this run, is exempted by the step key `"positional_ok": "<reason>"`; the reason is required.
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
@@ -783,3 +789,5 @@ activation state, creator and times, and one verdict per name: ok / foreign / no
     python3 -B scripts/uat/runner.py definition-report --tenant qoimeks-qa2 --admin qoimeks-qa2-admin
 
 Output also goes to `<run-dir>/definition_report.json`. The definitions API has no status-change history.
+
+**Dead-newest repair (T-3125).** On the QA tenants of `REPAIR_TENANTS` (runner.py: qoimeks-qa2; never qoimeks-qa, qoimeks-qa1, qoimeks-client1-qa; QA host or loopback only) a run whose "before" definition report shows a dead-newest stock definition (T-3014) calls `POST /api/v1/tenant/modules/stock/ensure-seeds` once as the admin of that tenant, requires the answer to list the process in `process_drafts`/`process_activated`, reads the report again (`definition_report_repaired.json`) and fails if it is still dead. The verdict line prints `fixture repair: ensure-seeds applied: <names> re-activated`. The repair is recorded in `<run-dir root>/fixture-state/definition-repairs-<tenant>.json`; dead-newest AGAIN with that record present fails as a PRODUCT DEFECT (no second repair). A healthy tenant makes no call. The report also says that the module upgrade journal (`left_for_admin` / `failed`) has no read route in the product.

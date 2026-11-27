@@ -122,6 +122,42 @@ class Process(CheckCase):
             problems = self.check(self.mutated(change))
             self.assertTrue(any("${nope}" in p and "step s3" in p for p in problems), (where, problems))
 
+    def test_a_positional_index_into_an_api_list_is_caught_in_expect_and_save(self):
+        for where in ("expect", "save"):
+            def change(doc):
+                if where == "expect":
+                    doc["steps"][2]["expect"] = {"status": 200, "json": {"$.items[12].name": "tenant.validate"}}
+                else:
+                    doc["steps"][2]["save"] = {"first": "$.items[0].id"}
+
+            problems = self.check(self.mutated(change))
+            self.assertTrue(any("positional index" in p and "step s3" in p for p in problems), (where, problems))
+
+    def test_a_name_selector_passes_the_positional_rule(self):
+        def change(doc):
+            doc["steps"][2]["expect"] = {"status": 200, "json": {"$.items[?name=tenant.validate].name": "tenant.validate"}}
+
+        self.assertEqual(self.check(self.mutated(change)), [])
+
+    def test_a_positional_index_with_a_reason_is_exempt_and_an_empty_reason_is_not(self):
+        def exempt(doc):
+            doc["steps"][2]["expect"] = {"status": 200, "json": {"$.items[0].id": {"exists": True}}}
+            doc["steps"][2]["positional_ok"] = "sorted by contract: newest first"
+
+        self.assertEqual(self.check(self.mutated(exempt)), [])
+
+        def empty(doc):
+            exempt(doc)
+            doc["steps"][2]["positional_ok"] = " "
+
+        self.assertTrue(any("positional index" in p for p in self.check(self.mutated(empty))))
+
+    def test_a_database_row_path_is_not_an_api_list(self):
+        def change(doc):
+            doc["steps"][2]["expect"] = {"status": 200, "json": {"$.rows[0].n": 1, "$[0]": 1}}
+
+        self.assertEqual(self.check(self.mutated(change)), [])
+
     def test_a_variable_saved_by_a_later_step_is_undefined_in_an_earlier_one(self):
         doc = self.mutated(lambda d: d["steps"].insert(0, step("s0", "GET", "/api/v1/modules/stock/documents/${doc_id}")))
         problems = self.check(doc)

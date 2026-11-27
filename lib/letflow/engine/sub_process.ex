@@ -472,6 +472,16 @@ defmodule Letflow.Engine.SubProcess do
 
   def child_definitions(_graph_map, _prefix), do: []
 
+  @doc """
+  The same transitive child list for a graph already built (T-3101): used where only the pinned
+  `%Graph{}` is at hand. `[]` for a graph that is not a `%Graph{}` or a prefix that is not a string.
+  """
+  @spec child_definitions_of_graph(Graph.t() | term(), String.t() | term()) :: [map()]
+  def child_definitions_of_graph(%Graph{} = graph, prefix) when is_binary(prefix),
+    do: graph |> child_definitions_of(prefix, MapSet.new(), []) |> Enum.reverse()
+
+  def child_definitions_of_graph(_graph, _prefix), do: []
+
   defp child_definitions_of(graph, prefix, seen, acc) do
     Enum.reduce(graph.nodes, acc, fn node, acc ->
       if node.node_type == :SUB_PROCESS do
