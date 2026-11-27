@@ -62,6 +62,7 @@ defmodule Letflow.Definitions.StartPermission do
 
   alias Letflow.Api.Authorization
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.ModuleCalls
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.PlatformTenant
   alias Letflow.PlatformProcesses.SystemStart
@@ -72,16 +73,21 @@ defmodule Letflow.Definitions.StartPermission do
   @unknown_permission :__unknown_start_permission__
 
   @doc """
-  The permission atoms a definition's `platform_call` steps require of the
+  The permission atoms a definition's `platform_call` and `module_call` (T-3045) steps require of the
   person who starts an instance of it. Empty for an ordinary definition.
   """
   @spec required(Graph.t() | term()) :: [atom()]
-  def required(graph) when is_list(graph), do: PlatformCalls.required_permissions(graph)
+  def required(graph) when is_list(graph), do: required_of_nodes(graph)
 
-  def required(%Graph{nodes: nodes}) when is_list(nodes),
-    do: PlatformCalls.required_permissions(nodes)
+  def required(%Graph{nodes: nodes}) when is_list(nodes), do: required_of_nodes(nodes)
 
   def required(_other), do: []
+
+  defp required_of_nodes(nodes),
+    do:
+      Enum.uniq(
+        PlatformCalls.required_permissions(nodes) ++ ModuleCalls.required_permissions(nodes)
+      )
 
   @doc """
   The permission a definition DECLARES for its start: `{:ok, atom}` for a

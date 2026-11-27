@@ -74,6 +74,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Ecto.Multi
   alias Letflow.Definitions
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.ModuleCalls
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Definitions.SubProcessInterface
@@ -446,7 +447,9 @@ defmodule Letflow.Engine.SubProcess do
   # entry's permission, so the hole this closes is the one a definition edited
   # after the parent started would open.
   defp refuse_platform_call_child(graph) do
-    if PlatformCalls.declares_call?(graph) do
+    # T-3045 (D-204 P2a): a child that carries a `module_call` is refused the same way, for the
+    # same reason (no caller is propagated to the child's activation). P7 hardens module children.
+    if PlatformCalls.declares_call?(graph) or ModuleCalls.declares_call?(graph) do
       {:error, {:definition_not_found, :platform_call_child_start}}
     else
       :ok

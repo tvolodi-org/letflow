@@ -75,6 +75,7 @@ defmodule Letflow.Engine.ServiceTask do
       :script_key,
       :script_version,
       :platform_call,
+      :module_call,
       :notify,
       headers: %{},
       timeout_ms: 30_000,
@@ -82,7 +83,8 @@ defmodule Letflow.Engine.ServiceTask do
       warnings: []
     ]
 
-    @type route_kind :: :inline_url | :catalog_service | :script | :platform_call | :notify
+    @type route_kind ::
+            :inline_url | :catalog_service | :script | :platform_call | :module_call | :notify
     @type http_method :: :GET | :POST | :PUT | :PATCH | :DELETE
     @type warning :: :both_url_and_service_id_provided_url_ignored
 
@@ -96,6 +98,7 @@ defmodule Letflow.Engine.ServiceTask do
             script_key: String.t() | nil,
             script_version: pos_integer() | nil,
             platform_call: map() | nil,
+            module_call: map() | nil,
             notify: map() | nil,
             headers: %{optional(String.t()) => String.t()},
             timeout_ms: pos_integer(),
@@ -213,12 +216,24 @@ defmodule Letflow.Engine.ServiceTask do
     # T-2703 (pilot gap G1 remainder): a node carrying a `platform_call` declaration is route
     # :platform_call. One node carries ONE route: a second one (`endpoint`, `service_id`,
     # `script_key`, entity or module lines) is `:conflicting_routes`, the same answer the graph rule gives at activation.
-    case Map.get(attrs, "platform_call") do
-      call when is_map(call) ->
+    #
+    # T-3045 (D-204 P2a): a node carrying a `module_call` declaration is route :module_call, the
+    # same one-route rule. It is looked at FIRST, so a node that also carries a `platform_call`
+    # is refused as conflicting whichever of the two a reader meets first.
+    case {Map.get(attrs, "module_call"), Map.get(attrs, "platform_call")} do
+      {call, _platform} when is_map(call) ->
+        parse_module_call_config(node_id, call, attrs)
+
+      {nil, call} when is_map(call) ->
         parse_platform_call_config(node_id, call, attrs)
 
-      _no_platform_call ->
+      {nil, _no_platform_call} ->
         parse_notify_or_other(node_id, attrs)
+
+      {_malformed, _platform} ->
+        # A `module_call` that is present but not a map is a refusal, never a fall-through
+        # to another route (the activation fence reports it as `module_call_malformed`).
+        {:error, :conflicting_routes}
     end
   end
 
@@ -281,6 +296,31 @@ defmodule Letflow.Engine.ServiceTask do
            timeout_ms: @default_timeout_ms,
            retry_limit: 0,
            platform_call: call
+         }}
+      end
+    end
+  end
+
+  # T-3045 (D-204 P2a): a module-function step. ONE route per node: any other route attribute
+  # (HTTP, catalogue service, script, platform call, notify, entity or module lines) is a
+  # `:conflicting_routes`, the same answer the graph rule gives at activation. The HTTP fields are
+  # never read on this route; the struct's enforced keys get the HTTP defaults.
+  defp parse_module_call_config(node_id, call, attrs) do
+    with {:ok, node_id} <- fetch_node_id(node_id) do
+      if ref_id(attrs, "endpoint") != nil or ref_id(attrs, "service_id") != nil or
+           ref_id(attrs, "script_key") != nil or Map.get(attrs, "platform_call") != nil or
+           Map.get(attrs, "notify") != nil or Map.get(attrs, "entity_writes") != nil or
+           Map.get(attrs, "module_writes") != nil do
+        {:error, :conflicting_routes}
+      else
+        {:ok,
+         %Config{
+           node_id: node_id,
+           route_kind: :module_call,
+           method: @default_method,
+           timeout_ms: @default_timeout_ms,
+           retry_limit: 0,
+           module_call: call
          }}
       end
     end

@@ -325,6 +325,22 @@ defmodule Letflow.Definitions.PlatformCallWritePathsScanTest do
     end
   end
 
+  # T-3045 (D-204 P2a): the `module_call` fence rides every path the platform fence rides.
+  test "every switching-on entry point reaches the module-call activation fence" do
+    modules = modules()
+
+    for {{module, name}, class} <- @entry_points, class == :switch_on do
+      reached = closure({module, name, arity_of(modules, module, name)}, modules)
+
+      assert MapSet.member?(reached.calls, {:local, :check_module_calls, 3}) or
+               MapSet.member?(
+                 reached.calls,
+                 {:remote, "Letflow.Definitions", :check_module_calls, 3}
+               ),
+             "#{inspect(module)}.#{name} does not reach check_module_calls/3"
+    end
+  end
+
   test "a status-only entry point can never change the graph" do
     modules = modules()
 
