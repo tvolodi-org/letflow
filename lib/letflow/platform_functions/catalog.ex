@@ -65,10 +65,13 @@ defmodule Letflow.PlatformFunctions.Catalog do
   # A refusal here is a COMPILE error: the catalogue is code, and code that
   # does not compile does not ship. The derivation itself never raises (it
   # answers with a code out of `Letflow.PlatformFunctions.ModuleFamily.codes/0`).
-  @module_entries case ModuleFamily.entries() do
-    {:ok, entries} -> entries
-    {:error, code} -> raise "module family entries could not be derived: #{inspect(code)}"
-  end
+  @module_entries (case ModuleFamily.entries() do
+                     {:ok, entries} ->
+                       entries
+
+                     {:error, code} ->
+                       raise "module family entries could not be derived: #{inspect(code)}"
+                   end)
 
   @entries (@entry_modules |> Enum.flat_map(& &1.entries())) ++ @module_entries
 
@@ -77,6 +80,13 @@ defmodule Letflow.PlatformFunctions.Catalog do
   # module leaves this module's compiled list stale on an incremental build, and the registry's
   # compile check refuses the new body ("not declared in the compiled catalogue").
   for module <- @entry_modules do
+    @external_resource module.module_info(:compile) |> Keyword.fetch!(:source) |> to_string()
+  end
+
+  # The same rule for the MODULE FAMILY: the derivation reads the compiled
+  # modules' own manifests, so a change of one of them (a new handler, a new
+  # permission) must recompile this catalogue.
+  for module <- ModuleFamily.source_modules() do
     @external_resource module.module_info(:compile) |> Keyword.fetch!(:source) |> to_string()
   end
 

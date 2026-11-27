@@ -122,7 +122,8 @@ defmodule Letflow.PlatformFunctions.Entry do
   the entry validation refuses any other one.
   """
   @spec side_effect_classes() :: [SideEffect.class()]
-  def side_effect_classes, do: [:ddl, :ledger_post, :outbound, :read, :write_module_record, :write_tenant_registry]
+  def side_effect_classes,
+    do: [:ddl, :ledger_post, :outbound, :read, :write_module_record, :write_tenant_registry]
 
   @enforce_keys [
     :name,
@@ -271,7 +272,8 @@ defmodule Letflow.PlatformFunctions.Entry do
   defp validate_family!(%__MODULE__{family: family}),
     do: raise("platform function entry with a malformed family: #{inspect(family)}")
 
-  defp validate_side_effects!(%__MODULE__{side_effects: side_effects}) when is_list(side_effects) do
+  defp validate_side_effects!(%__MODULE__{side_effects: side_effects})
+       when is_list(side_effects) do
     classes = side_effect_classes()
 
     Enum.each(side_effects, fn

@@ -143,6 +143,8 @@ defmodule Letflow.Modules.ManifestHash do
     with_catalogue_fields(base, handler)
   end
 
+  defp handler_surface(other), do: %{"name" => inspect(other)}
+
   # D-204: the four catalogue fields of the module family, each only when
   # present (a handler that is no catalogue entry keeps its hash). They decide
   # what the call may do (its permission, its outputs, its idempotency key and
@@ -171,14 +173,16 @@ defmodule Letflow.Modules.ManifestHash do
 
     case Map.get(handler, :side_effect_classes) do
       [_ | _] = classes ->
-        Map.put(base, "side_effect_classes", classes |> Enum.map(&Atom.to_string/1) |> Enum.sort())
+        Map.put(
+          base,
+          "side_effect_classes",
+          classes |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+        )
 
       _none ->
         base
     end
   end
-
-  defp handler_surface(other), do: %{"name" => inspect(other)}
 
   defp sorted_list(list) when is_list(list), do: Enum.sort(list)
   defp sorted_list(other), do: other

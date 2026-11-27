@@ -154,8 +154,10 @@ defmodule Letflow.Modules.WriteHandlerSpec do
 
   # D-204: the permission atom the activator and the starter must hold. A
   # handler without one is no catalogue entry (it stays on the owner-stamp
-  # path), so `nil` is the "not in the module family" marker.
-  defp valid_field?(:permission, value), do: is_nil(value) or is_atom(value)
+  # path), so `nil` is the "not in the module family" marker. A boolean is an
+  # atom in Elixir but never a permission.
+  defp valid_field?(:permission, value),
+    do: is_nil(value) or (is_atom(value) and not is_boolean(value))
 
   defp valid_field?(:outputs, outputs) when is_list(outputs) do
     Enum.all?(outputs, fn output ->

@@ -106,6 +106,15 @@ defmodule Letflow.PlatformFunctions.ModuleFamily do
   def codes, do: @codes
 
   @doc """
+  The compiled entry modules the derivation reads: the same list
+  `Letflow.Modules.Catalog` holds. The catalogue names their SOURCE files as
+  external resources, so a change of a module's manifest recompiles the
+  catalogue (T-2727's rule, applied to the module family).
+  """
+  @spec source_modules() :: [module()]
+  def source_modules, do: Catalog.entry_modules()
+
+  @doc """
   The module family's entries of every compiled module, sorted by name.
 
   `{:ok, entries}` or `{:error, code}` -- never a raise.
@@ -137,26 +146,43 @@ defmodule Letflow.PlatformFunctions.ModuleFamily do
   """
   @spec module_entries(module()) :: {:ok, [Entry.t()]} | {:error, atom()}
   def module_entries(entry_module) when is_atom(entry_module) do
-    manifest = entry_module.manifest()
+    case read_manifest(entry_module) do
+      {:ok, manifest} ->
+        case Map.get(manifest, :write_handlers, []) do
+          handlers when is_list(handlers) ->
+            handlers
+            |> Enum.filter(&catalogue_handler?/1)
+            |> Enum.reduce_while({:ok, []}, fn handler, {:ok, acc} ->
+              case derive(manifest, handler) do
+                {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
+                {:error, code} -> {:halt, {:error, code}}
+              end
+            end)
+            |> case do
+              {:ok, entries} -> {:ok, Enum.reverse(entries)}
+              {:error, code} -> {:error, code}
+            end
 
-    case Map.get(manifest, :write_handlers, []) do
-      handlers when is_list(handlers) ->
-        handlers
-        |> Enum.filter(&catalogue_handler?/1)
-        |> Enum.reduce_while({:ok, []}, fn handler, {:ok, acc} ->
-          case derive(manifest, handler) do
-            {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
-            {:error, code} -> {:halt, {:error, code}}
-          end
-        end)
-        |> case do
-          {:ok, entries} -> {:ok, Enum.reverse(entries)}
-          {:error, code} -> {:error, code}
+          _not_a_list ->
+            {:error, :module_entry_handlers_invalid}
         end
 
-      _not_a_list ->
+      :error ->
         {:error, :module_entry_handlers_invalid}
     end
+  end
+
+  # A module whose manifest is not a map, or whose `manifest/0` raises, is a
+  # REFUSAL, not a crash (INV-8): the catalogue turns the code into a compile
+  # error, and no exception text is kept.
+  defp read_manifest(entry_module) do
+    manifest = entry_module.manifest()
+
+    if is_map(manifest), do: {:ok, manifest}, else: :error
+  rescue
+    _exception -> :error
+  catch
+    :exit, _reason -> :error
   end
 
   @doc """
@@ -361,7 +387,7 @@ defmodule Letflow.PlatformFunctions.ModuleFamily do
     do: "reads the module's own records and writes nothing"
 
   defp side_effect_text(:write_module_record, handler),
-    do: "writes the module's own records (#{Enum.join(handler.targets, ", ")})"
+    do: "writes the module's own records (#{handler.targets |> List.wrap() |> Enum.join(", ")})"
 
   defp side_effect_text(:ledger_post, handler),
     do: "posts a ledger entry (#{handler.posts_ledger})"
