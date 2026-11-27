@@ -59,9 +59,19 @@ defmodule Letflow.Routers.PlatformFunctionsTest do
       assert Enum.map(items, & &1["name"]) == Catalog.names()
       assert Enum.map(items, & &1["name"]) == Enum.sort(Enum.map(items, & &1["name"]))
 
+      # D-204 (the module-process conversion, section 1.2): the catalogue holds
+      # two families now. Every PLATFORM entry keeps the platform atom and the
+      # platform-tenant rule; a MODULE entry carries the module's own
+      # permission and runs where the module is installed, not in the platform
+      # tenant only.
       for item <- items do
-        assert item["permission"] == "TenantsManage"
-        assert item["platform_tenant_only"] == true
+        if item["family"] == "platform" do
+          assert item["permission"] == "TenantsManage"
+          assert item["platform_tenant_only"] == true
+        else
+          assert item["platform_tenant_only"] == false
+          assert is_binary(item["permission"])
+        end
       end
     end
 
