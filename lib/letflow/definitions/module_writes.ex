@@ -314,6 +314,55 @@ defmodule Letflow.Definitions.ModuleWrites do
   end
 
   @doc """
+  D-204 (the module-process conversion, section 1.2): the install codes of
+  `module_id` in `prefix` -- the check the OWNER STAMP does today, without a
+  stamp.
+
+  The module family's catalogue entry carries no stamp (a tenant-edited
+  definition has none), so the rule "the module is installed in this tenant and
+  its installed manifest hash is the one compiled into THIS build" moves from
+  the stamp to the entry
+  (`Letflow.PlatformFunctions.ModuleTenantRule`). This function is that check,
+  in one place, with one vocabulary of codes:
+
+    * `:module_write_module_not_installed` -- the module is not installed in
+      the tenant (or it is uninstalled);
+    * `:module_write_hash_mismatch` -- the tenant's install row carries no
+      manifest hash;
+    * `:module_write_upgrade_required` -- the tenant has another module
+      version than the one compiled into this build (no drift tolerance,
+      decision OQ-R3). The compiled hash is accepted when the tenant's install
+      row lists it in `accepted_manifest_hashes`.
+
+  An empty list means the module is installed and current.
+  """
+  @spec module_install_codes(String.t(), String.t()) :: [atom()]
+  def module_install_codes(module_id, prefix) when is_binary(module_id) and is_binary(prefix) do
+    case install_hashes_for(module_id, prefix, nil) do
+      {:error, :not_installed} ->
+        [:module_write_module_not_installed]
+
+      {:error, :no_installed_hash} ->
+        [:module_write_hash_mismatch]
+
+      {:ok, %{installed: installed, accepted: accepted}} ->
+        case Catalog.manifest_hash(module_id) do
+          {:ok, compiled} ->
+            if compiled == installed or compiled in accepted,
+              do: [],
+              else: [:module_write_upgrade_required]
+
+          # The module is not compiled into this build, so it has no catalogue
+          # entry and no call to run: nothing to refuse.
+          {:error, :not_found} ->
+            []
+        end
+    end
+  end
+
+  def module_install_codes(_module_id, _prefix), do: [:module_write_module_not_installed]
+
+  @doc """
   REQ-771: `line_violations/4` for the engine's RUN-TIME authorization. Identical, except that the
   one cause "installed hash differs from the hash compiled into this build" (the tenant's module is
   not upgraded yet) is reported as `:module_write_upgrade_required` instead of

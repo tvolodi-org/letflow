@@ -35,6 +35,31 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   may read one version of one document of its OWN module through
   `Letflow.Entities.HandlerWrites.read_document_version/3`. It is covered by the manifest hash only
   when `true`, so no existing manifest hash changes.
+
+  ## The four catalogue fields (D-204, the module-process conversion, section 1.2)
+
+  A write handler that opts into the MODULE FAMILY of the compiled platform function catalogue
+  declares four more fields. They are the handler's half of a catalogue entry; the entry itself is
+  DERIVED from them (`Letflow.PlatformFunctions.ModuleFamily`), never written by hand:
+
+    * `permission` -- the permission atom the activator and the starter must hold. A handler
+      WITHOUT it stays on the old owner-stamp path (`module_writes`) and is no catalogue entry.
+      The atom must be one the module declares in its own `:permissions`;
+    * `outputs` -- the typed names the call returns, as `[%{name: String.t(), type: atom()}]`
+      (default `[]`);
+    * `idempotency_inputs` -- the argument names that make a repeat the same call, as
+      `[String.t()]` (default `[]`). Every one must be a REQUIRED argument of the handler, and a
+      write-like handler must declare at least one;
+    * `side_effect_classes` -- the classes of the call's side effects, as a list of atoms out of
+      `[:read, :write_module_record, :ledger_post]` (default `[]`).
+
+  The record (design `docs/design-module-process-conversion.md` 1.2) names the last field
+  `side_effect_class` in the singular; the field carries a LIST here, because the record's own
+  worked example (1.3, `stock.post_document`) puts TWO classes on one entry: `:write_module_record`
+  and `:ledger_post`.
+
+  The four fields are covered by the manifest hash only when present, so no existing manifest hash
+  changes.
   """
 
   @enforce_keys [:name, :function, :targets, :args]
@@ -46,7 +71,11 @@ defmodule Letflow.Modules.WriteHandlerSpec do
     posts_ledger: nil,
     updates: %{},
     reads: [],
-    reads_documents: false
+    reads_documents: false,
+    permission: nil,
+    outputs: [],
+    idempotency_inputs: [],
+    side_effect_classes: []
   ]
 
   @type t :: %__MODULE__{
@@ -57,11 +86,24 @@ defmodule Letflow.Modules.WriteHandlerSpec do
           posts_ledger: String.t() | nil,
           updates: %{optional(String.t()) => [String.t()]},
           reads: [String.t()],
-          reads_documents: boolean()
+          reads_documents: boolean(),
+          permission: atom() | nil,
+          outputs: [%{name: String.t(), type: atom()}],
+          idempotency_inputs: [String.t()],
+          side_effect_classes: [atom()]
         }
 
   @required_keys [:name, :function, :targets, :args]
-  @optional_keys [:posts_ledger, :updates, :reads, :reads_documents]
+  @optional_keys [
+    :posts_ledger,
+    :updates,
+    :reads,
+    :reads_documents,
+    :permission,
+    :outputs,
+    :idempotency_inputs,
+    :side_effect_classes
+  ]
   @keys @required_keys ++ @optional_keys
 
   @doc "Builds a spec from a map or keyword list, rejecting missing, unknown or ill-typed fields."
@@ -109,6 +151,28 @@ defmodule Letflow.Modules.WriteHandlerSpec do
     do: is_binary(name) and Letflow.Entities.ManagedTypes.managed_name?(name)
 
   defp valid_field?(:posts_ledger, value), do: is_nil(value) or is_binary(value)
+
+  # D-204: the permission atom the activator and the starter must hold. A
+  # handler without one is no catalogue entry (it stays on the owner-stamp
+  # path), so `nil` is the "not in the module family" marker.
+  defp valid_field?(:permission, value), do: is_nil(value) or is_atom(value)
+
+  defp valid_field?(:outputs, outputs) when is_list(outputs) do
+    Enum.all?(outputs, fn output ->
+      is_map(output) and not is_struct(output) and map_size(output) == 2 and
+        Map.has_key?(output, :name) and Map.has_key?(output, :type) and
+        is_binary(Map.get(output, :name)) and Map.get(output, :name) != "" and
+        is_atom(Map.get(output, :type))
+    end)
+  end
+
+  defp valid_field?(:outputs, _other), do: false
+
+  defp valid_field?(:idempotency_inputs, inputs),
+    do: is_list(inputs) and Enum.all?(inputs, &is_binary/1) and Enum.uniq(inputs) == inputs
+
+  defp valid_field?(:side_effect_classes, classes),
+    do: is_list(classes) and Enum.all?(classes, &is_atom/1) and Enum.uniq(classes) == classes
 
   defp valid_field?(:updates, updates) when is_map(updates) and not is_struct(updates) do
     Enum.all?(updates, fn {type, fields} ->
