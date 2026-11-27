@@ -2145,6 +2145,8 @@ class Runner:
         except (ValueError, RuntimeError) as err:
             raise RunnerError(f"tenant_retention: {err}") from None
         record.update(method="POST", path="/api/v1/instances", tenant_retention=result["lines"])
+        if result.get("failed"):
+            raise RunnerError("tenant_retention: " + "; ".join(l for l in result["lines"] if l.startswith("FAILED")))
         return (200, result, json.dumps(result))
 
     def _save_upload_response(self, spec, result):
