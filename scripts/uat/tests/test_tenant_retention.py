@@ -70,7 +70,7 @@ class Retention(unittest.TestCase):
                           lock_root=self.locks, extra=list(extra), sleep=lambda s: None, out=self.out.append)
 
     def test_young_tenant_is_kept(self):
-        fake = FakePlatform([row("uat-tmp-young", 1)])
+        fake = FakePlatform([row("uat-tmp-young", 0.5)])
         result = self.go(fake)
         self.assertEqual((result["purged"], fake.started), (0, []))
         self.assertIn("uat-tmp-young", fake.tenants)
@@ -153,6 +153,13 @@ class Retention(unittest.TestCase):
         step = next(s for s in doc["cleanup"] if s["id"] == "c11")
         self.assertIsNone(tr.spec_problem(step["do"]["tenant_retention"]))
         self.assertIn("tenant_retention", runner.DO_KINDS)
+        self.assertEqual(step["do"]["tenant_retention"]["days"], 1)
+        self.assertEqual(step["do"]["tenant_retention"]["max_per_run"], 20)
+        self.assertEqual((tr.DEFAULT_DAYS, tr.DEFAULT_MAX_PER_RUN), (1, 20))
+
+    def test_a_batch_of_20_is_allowed_and_26_is_not(self):
+        self.assertIsNone(tr.spec_problem({"max_per_run": 25}))
+        self.assertIsNotNone(tr.spec_problem({"max_per_run": 26}))
 
 
 if __name__ == "__main__":

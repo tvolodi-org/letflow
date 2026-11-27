@@ -4,7 +4,7 @@ Every throwaway tenant costs tables and catalog memory on the QA database (35,97
 the QA crash of 28 Nov). A scenario's cleanup only knows its own tenant, so older ones pile up. This module is the
 `tenant_retention` step kind of the runner (a cleanup step of a platform scenario, as the platform administrator):
 
-    "do": {"tenant_retention": {"days": 3, "max_per_run": 3, "dry_run": false}}
+    "do": {"tenant_retention": {"days": 1, "max_per_run": 20, "dry_run": false}}
 
 It lists the tenant registry (GET /api/v1/tenants), keeps the CANDIDATES (a slug on the allow-list, not on any
 exclusion, older than `days` by `inserted_at`), and for at most `max_per_run` of them, oldest first, starts the seeded
@@ -32,9 +32,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DEFAULT_DAYS = 3
-DEFAULT_MAX_PER_RUN = 3
-HARD_MAX_PER_RUN = 10
+DEFAULT_DAYS = 1
+DEFAULT_MAX_PER_RUN = 20
+HARD_MAX_PER_RUN = 25
 POLL_S = 60  # one lifecycle instance is polled for at most this long
 LOCK_STALE_S = 1800
 ALLOW_RES = (re.compile(r"uat-tmp-[a-z0-9][a-z0-9-]*"), re.compile(r"uat-\d{8}-[a-z0-9][a-z0-9-]*"))

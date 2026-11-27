@@ -717,14 +717,14 @@ the registry and retires the candidates through the product's own `platform.tena
 active, then purge with the slug as confirmation, T-2972); never SQL.
 
 ```json
-"do": {"tenant_retention": {"days": 3, "max_per_run": 3, "dry_run": false}}
+"do": {"tenant_retention": {"days": 1, "max_per_run": 20, "dry_run": false}}
 ```
 
 - Candidates: a slug of `uat-tmp-*` or `uat-<yyyymmdd>-<id>` (or one listed in `test/uat/sweeps/tenant-retention-extra.json`,
-  `extra_allow`, empty: an entry is added per tenant only after the PM's word), older than `days` (default 3) by `inserted_at`.
+  `extra_allow`, empty: an entry is added per tenant only after the PM's word), older than `days` (default 1) by `inserted_at`.
 - Never touched: `uat-tmp-fixture`, `uat-tmp-admin`, `qoimeks-qa2`, `sss-rehearsal2`, `bpm-default`, `owner-*`, the retired
   tenants, a `tenant_type` other than `test`, the tenant of the acting administrator, any slug off the allow-list.
-- At most `max_per_run` tenants per run (default 3, hard cap 10), oldest first, a lock file per tenant so two runs do not
+- At most `max_per_run` tenants per run (default 20, hard cap 25), oldest first, a lock file per tenant so two runs do not
   take the same one. `dry_run: true` only lists. A host that is not a QA host (or loopback) is refused before any request.
 - The product's retention rule decides: a purge that ends in ERROR (not eligible yet) is reported as `LEFT`, not as a
   failure; the next run tries again. Last line: `tenant retention: N purged, M left, K candidate(s)`.
