@@ -545,4 +545,123 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       assert rows_named(target.schema_name, key) == []
     end
   end
+
+  # T-3014: promotion (review apply and the tenants promote route) must not retire or
+  # shadow a module-owned definition of the target tenant; a tenant-owned name still works.
+  describe "T-3014 promotion vs module-owned definitions" do
+    defp owned_active!(schema, name) do
+      {:ok, row} =
+        Definitions.create_owned(
+          %{
+            name: name,
+            version: "1.0.0",
+            graph: trivial_graph(),
+            created_by: Ecto.UUID.generate()
+          },
+          [prefix: schema],
+          Letflow.Entities.ManagedTypes.module_owner(Letflow.Modules.FixtureLedger)
+        )
+
+      {1, _} =
+        from(d in ProcessDefinition, where: d.id == ^row.id)
+        |> Repo.update_all([set: [status: :active]], prefix: schema)
+
+      row
+    end
+
+    defp refused_audit_rows(schema) do
+      from(e in Entry, where: e.action == "definition.promote.refused")
+      |> Repo.all(prefix: schema)
+    end
+
+    test "POST /tenants/:id/promote/:key -> 409, module row stays ACTIVE, audit row", %{
+      source: source,
+      target: target
+    } do
+      key = unique("t3014-owned")
+      raw_definition!(source.schema_name, key, "2.0.0", trivial_graph(), :active)
+      owned = owned_active!(target.schema_name, key)
+
+      resp =
+        build_conn(:post, "/#{source.tenant_id}/promote/#{key}", target, nil) |> tenants()
+
+      assert resp.status == 409, resp.resp_body
+      assert status(target.schema_name, owned.id) == :active
+      assert length(rows_named(target.schema_name, key)) == 1
+      assert [_ | _] = refused_audit_rows(target.schema_name)
+    end
+
+    test "POST /tenants/:id/promote/:key of a tenant-owned name still works (control)", %{
+      source: source,
+      target: target
+    } do
+      key = unique("t3014-plain")
+      raw_definition!(source.schema_name, key, "2.0.0", trivial_graph(), :active)
+
+      resp =
+        build_conn(:post, "/#{source.tenant_id}/promote/#{key}", target, nil) |> tenants()
+
+      assert resp.status == 201, resp.resp_body
+    end
+
+    test "POST /promotions/:id/apply -> 409, module row stays ACTIVE, audit row", %{
+      source: source,
+      target: target
+    } do
+      key = unique("t3014-apply")
+
+      raw_definition!(
+        source.schema_name,
+        key,
+        "2.0.0",
+        around(%{
+          "id" => "ht",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{"role" => "REVIEWER"}
+        }),
+        :active
+      )
+
+      owned = owned_active!(target.schema_name, key)
+
+      submit =
+        build_conn(:post, "/", target, %{
+          "source_tenant_id" => source.tenant_id,
+          "target_tenant_id" => target.tenant_id,
+          "process_key" => key,
+          "base_version" => "1.0.0"
+        })
+        |> promotions()
+
+      assert submit.status == 201, submit.resp_body
+      %{"review_id" => review_id, "plan_digest" => digest} = Jason.decode!(submit.resp_body)
+
+      approve =
+        build_conn(:post, "/#{review_id}/approve", target, %{"plan_digest" => digest})
+        |> promotions()
+
+      assert approve.status == 200, approve.resp_body
+
+      %PromotionAssertionRun{
+        review_id: review_id,
+        idempotency_key: unique("t3014-run"),
+        plan_digest: digest,
+        status: :passed,
+        assertions_total: 1,
+        assertions_passed: 1,
+        assertions_failed: 0,
+        completed_at: DateTime.utc_now()
+      }
+      |> Repo.insert!(prefix: target.schema_name)
+
+      resp =
+        build_conn(:post, "/#{review_id}/apply", target, %{"plan_digest" => digest})
+        |> promotions()
+
+      assert resp.status == 409, resp.resp_body
+      assert status(target.schema_name, owned.id) == :active
+      assert length(rows_named(target.schema_name, key)) == 1
+      assert [_ | _] = refused_audit_rows(target.schema_name)
+    end
+  end
 end
