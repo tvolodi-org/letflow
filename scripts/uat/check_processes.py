@@ -13,6 +13,9 @@ A process file is checked for:
   * every ${name} is an input, a default, a built-in (tenant, run_id, now_utc, old_base_url), saved by
     an EARLIER step of the process, or (in a chain) an input or an output of an EARLIER process explicitly
     named in the chain's `pass` list;
+  * a slice placeholder ${name[a:b]}, ${name|hex} or ${name|hex[a:b]} (T-3151: Python slice of the text of a
+    variable; `hex` removes the dashes first, so ${uuid1|hex[0:20]} is 20 hex digits) must parse; a
+    placeholder with a [ or | that does not parse is a problem, and its name is read like any other name;
   * no literal REPLACE-WITH-* placeholder occurs in any process, chain or fixture file;
   * every api path starts with /api/ and matches a route of lib/letflow/modules/stock/router.ex or
     lib/letflow/routers/*.ex (a loose check: the method and the end of the path, wildcards for :id);
@@ -202,6 +205,23 @@ def calls_of(step) -> list:
 
 def refs(value) -> set:
     return runner.referenced_names(value)
+
+
+def bad_slices(value) -> list:
+    """Placeholders that try the slice/filter syntax but do not parse (never an empty string at run time)."""
+    out = []
+    if isinstance(value, str):
+        for m in runner._PLACEHOLDER.finditer(value):
+            inner = m.group(1).strip()
+            if ("[" in inner or "|" in inner) and runner.parse_slice_expr(inner) is None:
+                out.append(inner)
+    elif isinstance(value, list):
+        for v in value:
+            out += bad_slices(v)
+    elif isinstance(value, dict):
+        for v in value.values():
+            out += bad_slices(v)
+    return out
 
 
 def step_refs(step) -> set:
@@ -403,6 +423,8 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
                     problems.append(f"{where(sid)}actor {role!r} is not in test/fixtures/uat/actors.yaml")
             if not step.get("http_as") and not step.get("actor"):
                 problems.append(f"{where(sid)}no actor")
+            for bad in bad_slices({k: v for k, v in step.items() if k != "id"}):
+                problems.append(f"{where(sid)}${{{bad}}} is not a valid slice (use ${{name[a:b]}}, ${{name|hex}} or ${{name|hex[a:b]}})")
             for name_ in sorted(step_refs(step) - defined):
                 problems.append(f"{where(sid)}${{{name_}}} is not an input and no earlier step or process saves it")
             for method, path in calls_of(step):
