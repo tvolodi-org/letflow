@@ -34,10 +34,8 @@ defmodule Letflow.Engine.ModuleOnlyTransitiveTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Letflow.Definitions.Graph
   alias Letflow.Engine
   alias Letflow.Engine.Task
-  alias Letflow.Engine.WriteTargets
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.ModuleWritesFixture, as: Mw
@@ -235,58 +233,5 @@ defmodule Letflow.Engine.ModuleOnlyTransitiveTest do
                },
                prefix: ctx.schema
              )
-  end
-
-  test "GSUB-2b the exception is the node's own declared list; a child's node of the same id does not lift it" do
-    parent =
-      graph([
-        %{"id" => "ht", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "REVIEWER"}}
-      ])
-
-    child =
-      graph([
-        %{
-          "id" => "ht",
-          "node_type" => "HUMAN_TASK",
-          "attributes" => %{
-            "completer_inputs" => ["label"],
-            "module_writes" => [
-              %{
-                "module" => "fixture_ledger",
-                "handler" => "post_entry",
-                "args" => %{"item" => %{"var" => "label"}, "quantity" => %{"const" => 1}}
-              }
-            ]
-          }
-        }
-      ])
-
-    # the parent's own node declares nothing, so the child's key is refused
-    assert WriteTargets.refused_keys(parent, "ht", %{"label" => "x"}, [child]) == ["label"]
-
-    # the parent's own node declares the key: the exception is the node's own list
-    declaring =
-      graph([
-        %{
-          "id" => "ht",
-          "node_type" => "HUMAN_TASK",
-          "attributes" => %{"role" => "REVIEWER", "completer_inputs" => ["label"]}
-        }
-      ])
-
-    assert WriteTargets.refused_keys(declaring, "ht", %{"label" => "x"}, [child]) == []
-  end
-
-  # A graph of the given nodes (a START, the nodes, an END).
-  defp graph(nodes) do
-    {:ok, g} =
-      Graph.from_map(%{
-        "nodes" =>
-          [%{"id" => "start", "node_type" => "START"}] ++
-            nodes ++ [%{"id" => "end", "node_type" => "END"}],
-        "edges" => []
-      })
-
-    g
   end
 end

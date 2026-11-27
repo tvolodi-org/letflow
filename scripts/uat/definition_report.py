@@ -34,6 +34,13 @@ FIELDS = ("id", "name", "version", "status", "owner_module", "owner_module_versi
           "archived_at")
 
 
+# T-3125: the module upgrade journal (Boot.list_outcomes/0: upgraded / left_for_admin / failed per tenant and module) has
+# NO read route in the product: it is a server-side function over every tenant. Said in the report, never guessed.
+JOURNAL_NOTE = ("module journal outcomes (left_for_admin / failed): not readable - the product has no read route for "
+                "Boot.list_outcomes; smallest: GET /api/v1/tenant/modules/:module_id/upgrade/outcomes "
+                "(ModulesManage, tenant-scoped, allow-listed journal columns)")
+
+
 def is_stock(row):
     return str(row.get("name") or "").startswith("stock") or row.get("owner_module") == "stock"
 
@@ -108,10 +115,12 @@ def main(args, runner, out=None) -> int:
         for r in items:
             print("  " + " ".join(f"{k}={r.get(k)}" for k in FIELDS), file=out)
     print("no stock definition row" if not rows else "end of rows", file=out)
+    print(JOURNAL_NOTE, file=out)
     print("note: the API gives no actor of a status change; archived_at (T-3014) and updated_at are the nearest in time, the actor is in the audit log and the run logs", file=out)
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "definition_report.json").write_text(
-        json.dumps({"tenant": args.tenant, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows},
+        json.dumps({"tenant": args.tenant, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows,
+                    "module_journal": JOURNAL_NOTE},
                    indent=2, sort_keys=True), encoding="utf-8")
     return 0
 
@@ -142,7 +151,7 @@ def capture(run, kind, runner):
     import threading
 
     tenant = run.tenant
-    if kind not in ("before", "after"):
+    if kind not in ("before", "after", "repaired"):
         raise ValueError(kind)
     try:
         role = admin_role(run.actors)
@@ -167,6 +176,8 @@ def capture(run, kind, runner):
         rows = box["rows"]
         result = verdicts(rows)
         dead = dead_names(result)
+        if kind == "repaired":
+            run.dead_after_repair = dead
         if dead and kind == "before":
             if not hasattr(run, "dead_newest"):
                 run.dead_newest = {}
@@ -177,7 +188,8 @@ def capture(run, kind, runner):
             name = f"{base}.{tenant}.json"
         run._definition_names = getattr(run, "_definition_names", set()) | {name}
         run._atomic_write(name, json.dumps(
-            {"tenant": tenant, "kind": kind, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows},
+            {"tenant": tenant, "kind": kind, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows,
+             "module_journal": JOURNAL_NOTE},
             indent=2, sort_keys=True))
         return str((run.run_dir / name).resolve()), None
     except Exception as err:  # noqa: BLE001

@@ -11,7 +11,7 @@ defmodule Letflow.Engine.WriteTargets do
 
   ## Rule
 
-  `refused_keys/4`: of the keys of a task completion's output, every key that ANY node of the
+  `refused_keys/3`: of the keys of a task completion's output, every key that ANY node of the
   instance's PINNED graph reads as a `module_writes` `var` argument is refused, and so is every
   key a `platform_call` step (T-2588) or a NOTIFICATION step (T-2592) reads: the recipient's
   variable and the variables of a notification's values are decided by the person who started
@@ -22,15 +22,6 @@ defmodule Letflow.Engine.WriteTargets do
   `write_target_sources_scan_test.exs` lists every such pair. The engine answers a refusal as a
   retryable 422 `output_refused` and writes nothing, like the `_sys` refusal. Every other write
   input is supplied at instance start (`Engine.create/2` from module code).
-
-  ## The children count with the graph (T-3094, pilot gap G-SUB-2)
-
-  A SUB_PROCESS child inherits the parent's variables, so a key the CHILD reads as a write target
-  is the parent's to protect as well: without this, the completer of a human task in a tenant-made
-  parent forges the key the child reads (`document_id`, `posting`, ...) and the child's own
-  binding (`check_instance`) compares it with the forged map it was started with. The refused set
-  of a graph therefore includes the write-read keys of its TRANSITIVE children; the exception
-  above stays the node's own declared list (`completer_inputs`, `form_schema` properties).
 
   ## Start rule (T-2444, T-2443 review of T-2430)
 
@@ -43,12 +34,6 @@ defmodule Letflow.Engine.WriteTargets do
   (INV-5): this refuses every write-target key at once, so no per-key list is needed on the start side.
   No shipped pack declares a start-node input over a write key, so no exception exists.
 
-  T-3094 (pilot gap G-SUB-1): the test is over the definition's TRANSITIVE children too -- a parent
-  whose SUB_PROCESS child is module-only is module-only itself, because the child inherits the
-  parent's start variables and the caller who starts the parent chooses the child's write targets.
-  The children are read the way `gate_start_permission/2` reads them (the active version of each
-  named child, transitively).
-
   Pure and total (INV-8): a malformed attribute is read as "none declared" on the declaring side
   (so more is refused, never less) and as "reads nothing" on the reading side.
   """
@@ -57,6 +42,7 @@ defmodule Letflow.Engine.WriteTargets do
   alias Letflow.Definitions.Graph.Node
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.PlatformCalls
+  alias Letflow.Engine.SubProcess
 
   @doc """
   The variable names any node of `graph` reads through a `module_writes` `var` argument,
@@ -82,6 +68,24 @@ defmodule Letflow.Engine.WriteTargets do
   def write_read_keys(_other), do: MapSet.new()
 
   @doc """
+  `write_read_keys/1` of the graph plus those of every SUB_PROCESS child it starts, transitively
+  (T-3101, pilot gap G-SUB-2): a child inherits the parent's variables, so a key a child's
+  `module_writes` reads is a write target of the whole instance tree. Children are resolved in the
+  tenant schema `prefix` (the active version of each named child); an unresolved child reads nothing.
+  """
+  @spec write_read_keys(Graph.t() | term(), String.t() | nil) :: MapSet.t(String.t())
+  def write_read_keys(graph, prefix) do
+    graph
+    |> SubProcess.child_definitions_of_graph(prefix)
+    |> Enum.reduce(write_read_keys(graph), fn definition, acc ->
+      case Letflow.Engine.build_graph(definition.graph) do
+        {:ok, child_graph} -> MapSet.union(acc, write_read_keys(child_graph))
+        _not_a_graph -> acc
+      end
+    end)
+  end
+
+  @doc """
   True when any node of `graph` carries a non-empty `module_writes` list: a definition only its
   module may start (T-2444). A graph that is not a `%Graph{}` is `false` (the caller's own graph
   check refuses it).
@@ -95,6 +99,24 @@ defmodule Letflow.Engine.WriteTargets do
   end
 
   def module_writes?(_other), do: false
+
+  @doc """
+  `module_writes?/1` of the graph or of any SUB_PROCESS child it starts, transitively (T-3101, pilot
+  gap G-SUB-1): a parent with no `module_writes` of its own that starts a module-only child passes
+  its start variables to that child, so it is module-only too.
+  """
+  @spec module_writes?(Graph.t() | term(), String.t() | nil) :: boolean()
+  def module_writes?(graph, prefix) do
+    module_writes?(graph) or
+      graph
+      |> SubProcess.child_definitions_of_graph(prefix)
+      |> Enum.any?(fn definition ->
+        case Letflow.Engine.build_graph(definition.graph) do
+          {:ok, child_graph} -> module_writes?(child_graph)
+          _not_a_graph -> false
+        end
+      end)
+  end
 
   @doc """
   The names the node declares as a person's input: its `completer_inputs` list and the properties
@@ -120,21 +142,17 @@ defmodule Letflow.Engine.WriteTargets do
   def completer_inputs(_node), do: []
 
   @doc """
-  The keys of `output_variables` that `node_id`'s completion may not set, sorted.
-
-  `child_graphs` are the graphs of the SUB_PROCESS children the pinned graph starts,
-  transitively (T-3094, pilot gap G-SUB-2): their write-read keys are refused here too, because
-  a child inherits the parent's variables. The `node_id` and its `completer_inputs` are read
-  from `graph` alone -- a child's node of the same id never lifts a refusal here.
+  The keys of `output_variables` that `node_id`'s completion may not set, sorted. With a tenant
+  `prefix` the refused set includes the write-read keys of the SUB_PROCESS children (T-3101).
   """
-  @spec refused_keys(Graph.t() | term(), String.t() | nil, map(), [Graph.t() | term()]) :: [
+  @spec refused_keys(Graph.t() | term(), String.t() | nil, map(), String.t() | nil) :: [
           String.t()
         ]
-  def refused_keys(graph, node_id, output_variables, child_graphs \\ [])
+  def refused_keys(graph, node_id, output_variables, prefix \\ nil)
 
-  def refused_keys(%Graph{nodes: nodes} = graph, node_id, output_variables, child_graphs)
-      when is_list(nodes) and is_map(output_variables) and is_list(child_graphs) do
-    read = read_keys(graph, child_graphs)
+  def refused_keys(%Graph{nodes: nodes} = graph, node_id, output_variables, prefix)
+      when is_list(nodes) and is_map(output_variables) do
+    read = write_read_keys(graph, prefix)
 
     if MapSet.size(read) == 0 do
       []
@@ -149,14 +167,7 @@ defmodule Letflow.Engine.WriteTargets do
     end
   end
 
-  def refused_keys(_graph, _node_id, _output_variables, _child_graphs), do: []
-
-  # The write-read keys of the graph and of its children (T-3094, pilot gap G-SUB-2).
-  defp read_keys(graph, child_graphs) do
-    Enum.reduce(child_graphs, write_read_keys(graph), fn child_graph, read ->
-      MapSet.union(read, write_read_keys(child_graph))
-    end)
-  end
+  def refused_keys(_graph, _node_id, _output_variables, _prefix), do: []
 
   defp node_read_keys(%Node{attributes: %{"module_writes" => writes}}) when is_list(writes) do
     for %{"args" => args} <- writes,
