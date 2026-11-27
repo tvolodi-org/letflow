@@ -939,7 +939,7 @@ defmodule Letflow.Routers.Definitions do
 
   # GH #2590 / REQ-501 R2 (D-R.15): a module-shipped version is immutable to the tenant API.
   defp render_write(conn, {:error, :module_owned_definition}, _success_status),
-    do: Response.conflict(conn, "a module-owned definition version cannot be modified")
+    do: refuse_module_owned(conn)
 
   defp render_write(conn, {:error, reason}, _success_status)
        when reason in [:name_invalid, :version_empty, :graph_structure_invalid],
@@ -1127,8 +1127,7 @@ defmodule Letflow.Routers.Definitions do
   defp render_delete(conn, {:error, :invalid_status_transition}),
     do: Response.conflict(conn, "definition status changed concurrently; retry")
 
-  defp render_delete(conn, {:error, :module_owned_definition}),
-    do: Response.conflict(conn, "a module-owned definition version cannot be retired")
+  defp render_delete(conn, {:error, :module_owned_definition}), do: refuse_module_owned(conn)
 
   defp render_delete(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
@@ -1156,6 +1155,7 @@ defmodule Letflow.Routers.Definitions do
       conn.assigns.scoped_opts
       |> Keyword.put(:service_scope_validator, validator)
       |> Keyword.put(:activator, Letflow.Api.Context.activator(conn))
+      |> Keyword.put(:tenant_request, true)
 
     render_activate(conn, Definitions.activate(raw_id, activate_opts))
   end
@@ -1213,6 +1213,8 @@ defmodule Letflow.Routers.Definitions do
     do: Response.ok(conn, definition_map(definition))
 
   defp render_activate(conn, {:error, :not_found}), do: Response.not_found(conn)
+
+  defp render_activate(conn, {:error, :module_owned_definition}), do: refuse_module_owned(conn)
 
   defp render_activate(conn, {:error, :not_draft}),
     do: Response.conflict(conn, "only a DRAFT definition can be activated")
@@ -1344,10 +1346,29 @@ defmodule Letflow.Routers.Definitions do
 
   # T-3014: a module-shipped version is never retired through the tenant API.
   defp render_transition(conn, {:error, :module_owned_definition}, _conflict_detail),
-    do: Response.conflict(conn, "a module-owned definition version cannot be retired")
+    do: refuse_module_owned(conn)
 
   defp render_transition(conn, {:error, _common_error}, _conflict_detail),
     do: Response.internal_error(conn)
+
+  # T-3014: ONE refusal answer for every tenant mutation of a module-owned definition (the
+  # definition is readable by the caller, so a 409 reveals nothing, INV-5).
+  defp refuse_module_owned(conn) do
+    action =
+      case conn.method do
+        "DELETE" -> "definition.delete"
+        "PUT" -> "definition.update"
+        "PATCH" -> "definition.patch"
+        _ -> "definition." <> List.last(conn.path_info)
+      end
+
+    resource = Map.get(conn.path_params, "id") || Map.get(conn.path_params, "process_key") || ""
+
+    # The refusal rolled its transaction back, so the audit row (server-resolved actor) is
+    # written on its own.
+    Definitions.record_refused_attempt(action, to_string(resource), actor_opts(conn))
+    Response.conflict(conn, "a module-owned definition cannot be changed by a tenant")
+  end
 
   # ── POST /definitions/import (REQ-082, design §"write routes"/import) ──
   #
@@ -1543,6 +1564,7 @@ defmodule Letflow.Routers.Definitions do
           actor_id,
           Keyword.merge(opts,
             activator: Letflow.Api.Context.activator(conn),
+            tenant_request: true,
             permission_checker:
               Letflow.Definitions.PromotionAccess.checker_for(conn.assigns.auth_context),
             event_appender:
@@ -1558,6 +1580,8 @@ defmodule Letflow.Routers.Definitions do
   end
 
   defp render_rollback(conn, {:ok, result}), do: Response.ok(conn, rollback_map(result))
+
+  defp render_rollback(conn, {:error, :module_owned_definition}), do: refuse_module_owned(conn)
 
   defp render_rollback(conn, {:error, :forbidden}),
     do: Response.forbidden(conn, "insufficient permissions")

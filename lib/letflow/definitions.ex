@@ -347,7 +347,10 @@ defmodule Letflow.Definitions do
           | common_error()
 
   @type hard_delete_error ::
-          {:error, :not_found} | {:error, :not_draft} | common_error()
+          {:error, :not_found}
+          | {:error, :not_draft}
+          | {:error, :module_owned_definition}
+          | common_error()
 
   @type list_filters :: %{
           optional(:name) => String.t() | nil,
@@ -749,6 +752,7 @@ defmodule Letflow.Definitions do
           {:ok, %{definition: ProcessDefinition.t(), already_active: boolean()}}
           | {:error, :not_found}
           | {:error, :not_draft}
+          | {:error, :module_owned_definition}
           | {:error, :graph_structure_invalid}
           | {:error, {:service_scope_violation, reason :: term()}}
           | {:error, {:semantic_validation_failed, [Graph.Violation.t()]}}
@@ -769,11 +773,12 @@ defmodule Letflow.Definitions do
     prefix = Keyword.get(opts, :prefix)
     validator = Keyword.get(opts, :service_scope_validator)
     activator = Keyword.get(opts, :activator)
+    tenant_request = Keyword.get(opts, :tenant_request, false)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       try do
         id
-        |> run_activate_transaction(prefix, tenant_id, validator, activator)
+        |> run_activate_transaction(prefix, tenant_id, validator, activator, tenant_request)
         |> interpret_activate_result()
       rescue
         exception -> {:error, {:transaction_failed, exception}}
@@ -1155,6 +1160,7 @@ defmodule Letflow.Definitions do
     permission_checker = Keyword.fetch!(opts, :permission_checker)
     event_appender = Keyword.fetch!(opts, :event_appender)
     activator = Keyword.get(opts, :activator)
+    tenant_request = Keyword.get(opts, :tenant_request, false)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       if permission_checker.(actor_id, tenant_id) do
@@ -1165,7 +1171,8 @@ defmodule Letflow.Definitions do
           tenant_id,
           prefix,
           event_appender,
-          activator
+          activator,
+          tenant_request
         )
       else
         {:error, :forbidden}
@@ -2193,14 +2200,18 @@ defmodule Letflow.Definitions do
       |> where(
         [v],
         v.definition_id in subquery(
-          from(d in ProcessDefinition, where: d.id == ^id and d.status == :draft, select: d.id)
+          from(d in ProcessDefinition,
+            where: d.id == ^id and d.status == :draft and is_nil(d.owner_module),
+            select: d.id
+          )
           |> Map.put(:prefix, prefix)
         )
       )
       |> Repo.delete_all(prefix: prefix)
 
       ProcessDefinition
-      |> where([d], d.id == ^id and d.status == :draft)
+      # T-3014: a module-shipped DRAFT is never hard-deleted through the tenant API either.
+      |> where([d], d.id == ^id and d.status == :draft and is_nil(d.owner_module))
       |> Repo.delete_all(prefix: prefix)
       |> case do
         {1, _} -> :deleted
@@ -2779,7 +2790,7 @@ defmodule Letflow.Definitions do
   # activate/2 helpers (design §6.2)
   # -----------------------------------------------------------------------------------
 
-  defp run_activate_transaction(id, prefix, tenant_id, validator, activator) do
+  defp run_activate_transaction(id, prefix, tenant_id, validator, activator, tenant_request) do
     Repo.transaction(fn ->
       ProcessDefinition
       |> where([d], d.id == ^id)
@@ -2796,6 +2807,11 @@ defmodule Letflow.Definitions do
           Repo.rollback(:not_draft)
 
         %ProcessDefinition{status: :draft} = definition ->
+          # T-3014: a tenant request never activates a module-shipped draft, nor a draft of
+          # a name whose ACTIVE version the module shipped (activation would retire it).
+          if tenant_request and module_owned_activation?(definition, prefix),
+            do: Repo.rollback(:module_owned_definition)
+
           case run_service_scope_validator(definition, tenant_id, validator) do
             :ok ->
               with :ok <- precheck_activation(definition, prefix, activator) do
@@ -2809,6 +2825,48 @@ defmodule Letflow.Definitions do
           end
       end
     end)
+  end
+
+  defp module_owned_activation?(%ProcessDefinition{owner_module: owner}, _prefix)
+       when is_binary(owner),
+       do: true
+
+  defp module_owned_activation?(%ProcessDefinition{name: name}, prefix) do
+    ProcessDefinition
+    |> where([d], d.name == ^name and d.status == :active and not is_nil(d.owner_module))
+    |> Repo.exists?(prefix: prefix)
+  end
+
+  @doc """
+  Writes the audit row of a REFUSED tenant attempt on a module-owned definition (T-3014).
+  The refusal itself rolls its transaction back, so the row is written afterwards, on its
+  own. `resource` is the definition id or the process key the request named. Returns
+  `:ok` always: a failed audit write must not turn the refusal into a 500 (INV-8).
+  """
+  @spec record_refused_attempt(String.t(), String.t(), keyword()) :: :ok
+  def record_refused_attempt(action, resource, opts) when is_binary(action) do
+    prefix = Keyword.get(opts, :prefix)
+    actor_id = Keyword.get(opts, :actor_id)
+
+    try do
+      Audit.insert_entry(
+        Repo,
+        %{
+          actor_id: audit_actor_id(actor_id),
+          action: action <> ".refused",
+          resource_type: "definition",
+          resource_id: resource,
+          before_state: nil,
+          after_state: %{"refused" => "module_owned_definition"},
+          trace_id: nil
+        },
+        prefix
+      )
+    rescue
+      _ -> :ok
+    end
+
+    :ok
   end
 
   @doc """
@@ -3676,6 +3734,9 @@ defmodule Letflow.Definitions do
   defp interpret_activate_result({:error, :not_found}), do: {:error, :not_found}
   defp interpret_activate_result({:error, :not_draft}), do: {:error, :not_draft}
 
+  defp interpret_activate_result({:error, :module_owned_definition}),
+    do: {:error, :module_owned_definition}
+
   defp interpret_activate_result({:error, :graph_structure_invalid}) do
     {:error, :graph_structure_invalid}
   end
@@ -3870,11 +3931,12 @@ defmodule Letflow.Definitions do
          _tenant_id,
          prefix,
          event_appender,
-         activator
+         activator,
+         tenant_request
        ) do
     transaction_result =
       try do
-        run_rollback_transaction(process_key, target_version, prefix, activator)
+        run_rollback_transaction(process_key, target_version, prefix, activator, tenant_request)
       rescue
         exception -> {:error, {:transaction_failed, exception}}
       end
@@ -3907,7 +3969,7 @@ defmodule Letflow.Definitions do
   # exactly one tenant's schema, so the dropped tenant_id filter was redundant with
   # that schema boundary, not an independent safety check. tenant_id is no longer
   # needed by this function at all -- dropped from its parameter list.
-  defp run_rollback_transaction(process_key, target_version, prefix, activator) do
+  defp run_rollback_transaction(process_key, target_version, prefix, activator, tenant_request) do
     Repo.transaction(fn ->
       rows =
         ProcessDefinition
@@ -3923,6 +3985,10 @@ defmodule Letflow.Definitions do
 
         current_active.version == target_version ->
           Repo.rollback(:already_active)
+
+        # T-3014: a tenant request never moves the active pointer of a module-owned name.
+        tenant_request and Enum.any?(rows, &is_binary(&1.owner_module)) ->
+          Repo.rollback(:module_owned_definition)
 
         true ->
           # :active | :deprecated per design §3's SUPERSEDED -> :deprecated mapping;
