@@ -1670,7 +1670,7 @@ The company list, one company's record (also the caller's own), the company crea
 
 **Steps.**
 
-1. **TENANT_ADMIN / STOREKEEPER**: call `GET /api/v1/tenants`, `GET /api/v1/tenants/:slug`, `POST /api/v1/tenants`, `GET /api/v1/platform-status/backup`
+1. **TENANT_ADMIN / STOREKEEPER**: call `GET /api/v1/tenants`, `GET /api/v1/tenants/:slug`, `POST /api/v1/tenants`, `GET /api/v1/platform-status/backup`, `GET /api/v1/platform-status/admission`
    Result: 403 Forbidden, detail 'insufficient permissions' (one body for every refusal)
 2. **PLATFORM_ADMIN**: call `GET /api/v1/me`, `GET /api/v1/tenants`, `GET /api/v1/tenants/:slug`, `GET /api/v1/platform-status/backup`
    Result: 200; me shows platform_tenant true

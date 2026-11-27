@@ -405,13 +405,13 @@ Anyone (no login) can ask whether the build is up and which commit runs, and whe
 **Steps.**
 
 1. **anyone**: call `GET /health`, function `Letflow.BuildInfo.sha`
-   Result: 200 {status: ok, sha}
+   Result: 200 {status: ok, sha, admission: the global admission counters of the node -- the budget that is applied, the units in use, the fair-share divisor and the refusals since the node started; an aggregate figure, no tenant identifier}
 2. **anyone**: call `GET /ready`, function `Letflow.Readiness.run`
    Result: 200 {status: ready, checks} when every part is ok, 503 with the failing part names otherwise
 3. **scraper**: screen `admin/metrics`, call `GET /metrics`, function `Letflow.Metrics.Registry`
    Result: 200 Prometheus text; no tenant_id or other per-tenant label
-4. **PLATFORM_ADMIN**: screen `admin/health`, call `GET /api/v1/platform-status/backup`, function `Letflow.BackupStatus.read`
-   Result: 200 {configured, jobs:[{job,state,ts,age_seconds}]}
+4. **PLATFORM_ADMIN**: screen `admin/health`, call `GET /api/v1/platform-status/backup`, `GET /api/v1/platform-status/admission`, function `Letflow.BackupStatus.read`, `Letflow.Admission.Observability.counters_with_tenants`
+   Result: 200 {configured, jobs:[{job,state,ts,age_seconds}]}; the admission counters answer the budget, the refusals and the per-tenant in-flight rows with hashed tenant names
 5. **PLATFORM_ADMIN**: screen `platform-dashboard`
    Result: the tenants overview (reads GET /api/v1/tenants)
 

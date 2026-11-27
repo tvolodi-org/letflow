@@ -74,9 +74,38 @@ below.
 |---|---|---|
 | `POOL_SIZE` | 30 | Ecto pool size, and the base of the global cap |
 | `RESERVED_HEADROOM` | 2 | slots taken off `POOL_SIZE` for work that is not admission-gated (health, background); global cap = `POOL_SIZE - RESERVED_HEADROOM` |
+| `MAX_INFLIGHT_AGE_MS` | 120000 | age bound of an in-flight admission: an admission held longer than this is logged once with its route class and its age (never released). `0` switches the sweep off |
+| `STALE_SWEEP_INTERVAL_MS` | 1000 | how often the node looks for an over-age in-flight admission |
 
 There is no separate setting for the per-tenant cap; it is always the division above. Never set
 `RESERVED_HEADROOM` to `POOL_SIZE` or more.
+
+## Reading the state of the gates (T-3034)
+
+The node publishes its admission counters, so a refusal can be explained without guessing.
+
+| Where | What it answers | Who may read it |
+|---|---|---|
+| `GET /health` -> `admission` | the budget that is applied (`pool_size`, `reserved_headroom`, `cap`), the units in use (`in_use`), the fair-share divisor (`tracked_tenants`) and the refusals since the node started (`rejections.global` / `rejections.tenant`) | anyone: the figures are aggregate ones of the node, with no tenant identifier in them |
+| `GET /api/v1/platform-status/admission` | the same, plus `tenants` (the top five tenants by in-flight admissions, each with its route class and the age of its oldest admission) and `oldest` (the oldest in-flight admission of the node) | the platform operator only (`PLATFORM_ADMIN` of the platform tenant); the tenant names are hashed, never raw |
+| the log line `admission_rejected` | one line per refusal: the budget in use, the refused request's route class, its tenant as a pseudonym and the oldest in-flight admission (route class and age) | the node's own log; at most one line per second, the withheld ones counted in `suppressed=` |
+| the log line `admission_stale` | one line per admission held longer than `MAX_INFLIGHT_AGE_MS`: its route class and its age | the node's own log |
+
+The route class is the route PATTERN (`/api/v1/instances`), never the request path: the counters and
+the lines name the class of a request, not its ids. The UAT runner saves the counters of the node in
+the run dir (`admission_counter_start.json` at the start of every tenant's leg -- a further tenant of
+the run gets `admission_counter_start_2.json` -- and `admission_counter_503_<n>.json` at every 503
+whose body says capacity) and prints the paths in `summary.md`. A read that fails is a note in the
+summary; it never changes the verdict of the run.
+
+A request whose PROCESS dies releases its slot: the admission server monitors the holder of every
+admission (the request process), so a closed connection cannot leak the budget. The node therefore
+does not need a restart to get its slots back.
+
+There is no long-poll and no SSE route in the product (`grep -rniE "event-stream|long-poll" lib/`
+finds none): every admission is an ordinary request/response, so a slot is held for the length of
+one request and never across a stream. The age bound therefore catches the slow ordinary request
+(a heavy import or export, a long script run), not a streaming consumer.
 
 ## Environments (infra numbers, 2026-11-26, PM relay of the infra discovery)
 
@@ -127,8 +156,17 @@ idle. Open points, to settle when the owner answers the Client 1 question:
 ## Diagnosis
 
 1. Read the detail string: `server at capacity` = global gate, `tenant at capacity` = per-tenant gate.
-2. Count tracked tenants since the last restart (any tenant that sent a request); compute the table
+2. Read `GET /health` -> `admission`: `in_use` and `cap` say whether the budget is really full,
+   `tracked_tenants` is the divisor of the per-tenant cap (the table above), `pool_size` and
+   `reserved_headroom` say what the node actually applied (a `POOL_SIZE` that is not what the
+   deployment believes shows up here), and `rejections` says how many refusals of each kind the node
+   has seen since it started.
+3. The platform operator reads `GET /api/v1/platform-status/admission` for the WHO holds the slots:
+   the top five tenants by in-flight admissions, each with its route class and the age of its oldest
+   admission. The `admission_rejected` line in the log names the same thing at the moment of the
+   refusal.
+4. Count tracked tenants since the last restart (any tenant that sent a request); compute the table
    above.
-3. Check for a concurrent heavy client (a second UAT run, an import, the Poller).
-4. Only then change `POOL_SIZE` / `RESERVED_HEADROOM`, restart the app, and confirm
+5. Check for a concurrent heavy client (a second UAT run, an import, the Poller).
+6. Only then change `POOL_SIZE` / `RESERVED_HEADROOM`, restart the app, and confirm
    the PostgreSQL `max_connections` still has room.
