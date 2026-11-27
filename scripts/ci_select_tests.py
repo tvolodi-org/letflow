@@ -259,6 +259,13 @@ ROUTE_INVENTORY_TESTS = [
     "test/letflow/api/route_scope_resolver_test.exs",
     "test/letflow/api/route_scope_on_flip_blocker_test.exs",
     "test/letflow/api/route_scope_exam_guard_test.exs",
+    # T-3034: the admission counters of the node. One file reads the public
+    # liveness route (the aggregate figures), the other the platform-scope
+    # route (the per-tenant rows): a route change can break either, and the
+    # I4 sibling rule of ci_select_tests_test.exs reads the health one as a
+    # platform-scope sibling by its own text.
+    "test/letflow/admission_health_route_test.exs",
+    "test/letflow/routers/platform_status_admission_test.exs",
 ] + ["test/letflow/api/%s_route_classes_test.exs" % name for name in (
     "tasks", "number_sequences", "notification_templates", "notification_deliveries",
     "labels", "entity_views", "entity_type_extensions", "documents", "currencies",
