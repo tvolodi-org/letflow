@@ -134,6 +134,8 @@ defmodule Letflow.Definitions.SolutionPackOverrideActivation do
              created.id,
              prefix: prefix,
              activator: activator,
+             # T-3167: a tenant request never retires a module-owned ACTIVE row of the name.
+             tenant_request: true,
              service_scope_validator: Keyword.get(opts, :service_scope_validator)
            ),
          :ok <- audit(prefix, actor_id, latest, activated, reason) do
