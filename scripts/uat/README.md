@@ -99,7 +99,7 @@ Remember the id of the document as `doc_id`."*
   Using a name that nobody gave or saved is a mistake that the static check reports.
 * `expect`: what a good answer is. `status` is the answer code (one code or a list: `[200, 201]`; without it any
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
-  `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
+  `$.rows[0].quantity`), the value is what it must be. A sorted catalogue is read by name, never by position: `$.items[?(@.name=='tenant.validate')].id`. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
   Besides "equals" you may write `{"contains": "text"}`, `{"regex": "..."}`, `{"exists": true}`, `{"absent": true}`,
   `{"present": true}`, and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
   * `{"exists": true}` means **a value is really there**: the path was found and the value is neither null nor

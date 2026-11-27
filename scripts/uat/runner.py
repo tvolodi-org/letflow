@@ -375,11 +375,15 @@ def terminal_instance(body) -> bool:
 
 # -- JSON path and assertions -------------------------------------------------------------------
 
-_PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]")
+_PATH_PART = re.compile(
+    r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]"
+    r"|\[\?\(@\.([A-Za-z0-9_\-]+)==(?:'([^']*)'|\"([^\"]*)\")\)\]")
 
 
 def json_path(doc, path: str):
-    """`$.a.b[0].c` -> (found, value). `$` is the whole document."""
+    """`$.a.b[0].c` -> (found, value). `$` is the whole document.
+    `[?(@.name=='x')]` picks the first list element whose key equals the value (so a scenario does not
+    pin a sorted catalogue by position)."""
     if not path.startswith("$"):
         raise RunnerError(f"path {path!r} must start with $")
     rest = path[1:]
@@ -390,8 +394,16 @@ def json_path(doc, path: str):
         if not match:
             raise RunnerError(f"path {path!r}: cannot read {rest[pos:]!r}")
         pos = match.end()
-        key, index, quoted = match.groups()
-        if index is not None:
+        key, index, quoted, fkey, fsingle, fdouble = match.groups()
+        if fkey is not None:
+            want = fsingle if fsingle is not None else fdouble
+            if not isinstance(cur, list):
+                return False, None
+            hit = [e for e in cur if isinstance(e, dict) and e.get(fkey) == want]
+            if not hit:
+                return False, None
+            cur = hit[0]
+        elif index is not None:
             if not isinstance(cur, list) or int(index) >= len(cur):
                 return False, None
             cur = cur[int(index)]

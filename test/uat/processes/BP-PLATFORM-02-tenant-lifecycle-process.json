@@ -46,9 +46,9 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[7].name": "tenant.purge",
-          "$.items[8].name": "tenant.reactivate",
-          "$.items[11].name": "tenant.suspend"
+          "$.items[?(@.name=='tenant.purge')].name": "tenant.purge",
+          "$.items[?(@.name=='tenant.reactivate')].name": "tenant.reactivate",
+          "$.items[?(@.name=='tenant.suspend')].name": "tenant.suspend"
         }
       }
     },

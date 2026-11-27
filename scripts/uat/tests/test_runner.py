@@ -60,6 +60,12 @@ class ExpressionAndSubstitution(unittest.TestCase):
         self.assertEqual(runner.json_path(doc, "$.a.b[5].c"), (False, None))
         self.assertEqual(runner.json_path(doc, "$.nope"), (False, None))
         self.assertEqual(runner.json_path(doc, '$["k-1"]'), (True, True))
+        grown = {"items": [{"name": "tenant.create", "id": 1}, {"name": "tenant.set_script_policy", "id": 2},
+                           {"name": "tenant.validate", "id": 3}]}
+        self.assertEqual(runner.json_path(grown, "$.items[?(@.name=='tenant.validate')].id"), (True, 3))
+        self.assertEqual(runner.json_path(grown, '$.items[?(@.name=="tenant.set_script_policy")].id'), (True, 2))
+        self.assertEqual(runner.json_path(grown, "$.items[?(@.name=='tenant.gone')].id"), (False, None))
+        self.assertEqual(runner.json_path({"items": "x"}, "$.items[?(@.name=='a')]"), (False, None))
         self.assertEqual(runner.json_path(doc, "$"), (True, doc))
 
 
