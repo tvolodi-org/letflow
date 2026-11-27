@@ -20,6 +20,13 @@ defmodule Letflow.Modules.ManifestHash do
   without a manifest change is not detected, so the discipline is to bump
   `:version` whenever handler code changes.
 
+  D-204 adds the four MODULE-FAMILY fields of a write handler (its
+  `permission`, `outputs`, `idempotency_inputs` and `side_effect_classes`), each
+  covered only when the handler declares it: a handler that is no catalogue
+  entry keeps its hash, and a handler that is one has its permission, its
+  contract and its side-effect classes inside the hash, because those decide
+  what the call may do.
+
   **A matching hash is NOT proof of behaviour.** Equal hashes mean "the same declared
   surface", nothing about what a handler (or a permission, route or setting) does. Do not
   treat a stamp comparison as a behavioural guarantee (security review F3 of R1).
@@ -120,20 +127,62 @@ defmodule Letflow.Modules.ManifestHash do
         else: base
 
     # G2: the update allow-list, again only when present (a handler that updates nothing is unchanged).
-    case Map.get(handler, :updates) do
-      updates when is_map(updates) and map_size(updates) > 0 ->
+    base =
+      case Map.get(handler, :updates) do
+        updates when is_map(updates) and map_size(updates) > 0 ->
+          Map.put(
+            base,
+            "updates",
+            Map.new(updates, fn {type, fields} -> {type, sorted_list(fields)} end)
+          )
+
+        _none ->
+          base
+      end
+
+    with_catalogue_fields(base, handler)
+  end
+
+  defp handler_surface(other), do: %{"name" => inspect(other)}
+
+  # D-204: the four catalogue fields of the module family, each only when
+  # present (a handler that is no catalogue entry keeps its hash). They decide
+  # what the call may do (its permission, its outputs, its idempotency key and
+  # its side-effect classes), so a change of one changes the hash.
+  defp with_catalogue_fields(base, handler) do
+    base =
+      case Map.get(handler, :permission) do
+        nil -> base
+        permission -> Map.put(base, "permission", permission)
+      end
+
+    base =
+      case Map.get(handler, :outputs) do
+        [_ | _] = outputs ->
+          Map.put(base, "outputs", Enum.sort_by(outputs, &Map.get(&1, :name, "")))
+
+        _none ->
+          base
+      end
+
+    base =
+      case Map.get(handler, :idempotency_inputs) do
+        [_ | _] = inputs -> Map.put(base, "idempotency_inputs", sorted_list(inputs))
+        _none -> base
+      end
+
+    case Map.get(handler, :side_effect_classes) do
+      [_ | _] = classes ->
         Map.put(
           base,
-          "updates",
-          Map.new(updates, fn {type, fields} -> {type, sorted_list(fields)} end)
+          "side_effect_classes",
+          classes |> Enum.map(&Atom.to_string/1) |> Enum.sort()
         )
 
       _none ->
         base
     end
   end
-
-  defp handler_surface(other), do: %{"name" => inspect(other)}
 
   defp sorted_list(list) when is_list(list), do: Enum.sort(list)
   defp sorted_list(other), do: other
