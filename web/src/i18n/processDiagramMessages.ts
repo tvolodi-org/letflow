@@ -165,7 +165,6 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.refusal.saving': ['The draft is being saved; edit again when it is done.', 'Черновик сохраняется; продолжите правку после сохранения.', 'Жоба сақталуда; сақталған соң қайта өңдеңіз.'],
   'processDiagram.edit.refusal.unknown_edge': ['That connection no longer exists.', 'Такой связи больше нет.', 'Мұндай байланыс енді жоқ.'],
   'processDiagram.edit.announce.connected': ['Connected {from} to {to}', 'Соединено: «{from}» → «{to}»', 'Байланыстырылды: «{from}» → «{to}»'],
-  'processDiagram.edit.announce.connectedReplaced': ['Connected {from} to {to}; replaced the connection to {old}', 'Соединено: «{from}» → «{to}»; прежняя связь с «{old}» заменена', 'Байланыстырылды: «{from}» → «{to}»; «{old}» байланысы ауыстырылды'],
   'processDiagram.edit.announce.deleted': ['Deleted {name}', 'Удалён шаг «{name}»', '«{name}» қадамы жойылды'],
   'processDiagram.edit.announce.connectionDeleted': ['Connection deleted', 'Связь удалена', 'Байланыс жойылды'],
   'processDiagram.edit.announce.scriptReplaced': ['Service binding replaced by a script; enter its key', 'Привязка к сервису заменена скриптом; введите его ключ', 'Сервис байланысы скриптпен ауыстырылды; кілтін енгізіңіз'],

@@ -121,13 +121,6 @@ export function connect(g: DefinitionGraph, source: string, target: string): Edi
   return ok({ ...g, edges: [...g.edges, { id, source, target }] }, id)
 }
 
-/** Targets that `source` pointed to in `before` and no longer does in the result of an edit (D9: tell the user a connection was replaced). */
-export function droppedTargets(before: DefinitionGraph, result: EditResult, source: string): string[] {
-  if (!result.ok) return []
-  const kept = new Set(result.graph.edges.filter((e) => e.source === source).map((e) => e.target))
-  return before.edges.filter((e) => e.source === source && !kept.has(e.target)).map((e) => e.target)
-}
-
 export function deleteNodes(g: DefinitionGraph, ids: string[]): EditResult {
   const drop = new Set(ids)
   if (g.nodes.some((n) => drop.has(n.id) && n.node_type === 'START')) return refuse('delete_start')

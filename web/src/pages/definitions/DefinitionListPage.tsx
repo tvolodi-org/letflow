@@ -273,16 +273,23 @@ export default function DefinitionListPage() {
             </Button>
           )}
           {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => archive.mutate(def.id)}
-              loading={archive.isPending}
-              disabled={def.status !== 'DEPRECATED'}
-              title={def.status !== 'DEPRECATED' ? dm.archiveOnlyDeprecated : undefined}
-            >
-              {dm.archive}
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => archive.mutate(def.id)}
+                loading={archive.isPending}
+                disabled={def.status !== 'DEPRECATED'}
+                aria-describedby={def.status !== 'DEPRECATED' ? `archive-why-${def.id}` : undefined}
+              >
+                {dm.archive}
+              </Button>
+              {def.status !== 'DEPRECATED' && (
+                <span id={`archive-why-${def.id}`} className="lf-hint" data-testid={`archive-why-${def.id}`}>
+                  {dm.archiveOnlyDeprecated}
+                </span>
+              )}
+            </>
           )}
           {hasDesignerRole && (
             <Button variant="secondary" size="sm" data-testid={`btn-copy-${def.id}`} onClick={() => void handleCopy(def)} disabled={createDef.isPending}>

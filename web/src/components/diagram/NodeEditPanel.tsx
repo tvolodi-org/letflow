@@ -19,7 +19,6 @@ import {
   removeNotifyStep,
   removePlatformCall,
   replaceServiceWithScript,
-  droppedTargets,
   scriptBindingHint,
   setEdge,
   setNodeAttr,
@@ -348,14 +347,7 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
               size="sm"
               disabled={target === ''}
               onClick={() => {
-                const res = connect(graph, node.id, target)
-                const old = droppedTargets(graph, res, node.id)
-                onApply(
-                  res,
-                  old.length > 0
-                    ? e('announce.connectedReplaced', { from: name(node.id), to: name(target), old: old.map(name).join(', ') })
-                    : e('announce.connected', { from: name(node.id), to: name(target) }),
-                )
+                onApply(connect(graph, node.id, target), e('announce.connected', { from: name(node.id), to: name(target) }))
                 setTarget('')
               }}
               data-testid="edit-connect-go"

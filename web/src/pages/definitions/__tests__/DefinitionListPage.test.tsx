@@ -254,7 +254,8 @@ describe('T-2815 D5 runner residue and D8 archive refusal', () => {
     renderWithAccess(<DefinitionListPage />, 'designer')
     const btn = screen.getByRole('button', { name: 'Archive' })
     expect(btn).toBeDisabled()
-    expect(btn).toHaveAttribute('title', 'Only a deprecated version can be archived.')
+    expect(screen.getByText('Only a deprecated version can be archived.')).toBeVisible()
+    expect(btn.getAttribute('aria-describedby')).toBe(`archive-why-${ACTIVE_DEF.id}`)
   })
 
   it('says why when archive is refused', async () => {
