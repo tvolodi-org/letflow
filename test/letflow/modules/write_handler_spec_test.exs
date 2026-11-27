@@ -132,6 +132,113 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
     end
   end
 
+  describe "the four MODULE-FAMILY fields (D-204)" do
+    test "T-D204-01 they default to empty, so an unconverted handler keeps its shape" do
+      assert {:ok, spec} = WriteHandlerSpec.new(@valid)
+
+      assert spec.permission == nil
+      assert spec.outputs == []
+      assert spec.idempotency_inputs == []
+      assert spec.side_effect_classes == []
+    end
+
+    test "T-D204-02 permission: an atom or nil" do
+      assert {:ok, %WriteHandlerSpec{permission: :FxlpPost}} =
+               WriteHandlerSpec.new(Map.put(@valid, :permission, :FxlpPost))
+
+      assert {:ok, %WriteHandlerSpec{permission: nil}} =
+               WriteHandlerSpec.new(Map.put(@valid, :permission, nil))
+
+      for bad <- ["FxlpPost", 1, true, [:FxlpPost]] do
+        assert {:error, {:invalid_field, :permission}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :permission, bad))
+      end
+    end
+
+    test "T-D204-03 outputs: a list of {name, type} maps" do
+      outputs = [%{name: "note_id", type: :uuid}]
+
+      assert {:ok, %WriteHandlerSpec{outputs: ^outputs}} =
+               WriteHandlerSpec.new(Map.put(@valid, :outputs, outputs))
+
+      for bad <- [
+            [%{name: "note_id"}],
+            [%{name: "note_id", type: "uuid"}],
+            [%{name: "", type: :uuid}],
+            [%{name: "note_id", type: :uuid, extra: 1}],
+            [%{name: :note_id, type: :uuid}],
+            %{name: "note_id", type: :uuid},
+            "note_id"
+          ] do
+        assert {:error, {:invalid_field, :outputs}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :outputs, bad))
+      end
+    end
+
+    test "T-D204-04 idempotency_inputs: a list of distinct binary names" do
+      assert {:ok, %WriteHandlerSpec{idempotency_inputs: ["item"]}} =
+               WriteHandlerSpec.new(Map.put(@valid, :idempotency_inputs, ["item"]))
+
+      for bad <- ["item", [:item], ["item", "item"], [1]] do
+        assert {:error, {:invalid_field, :idempotency_inputs}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :idempotency_inputs, bad))
+      end
+    end
+
+    test "T-D204-05 side_effect_classes: a list of distinct atoms" do
+      classes = [:write_module_record, :ledger_post]
+
+      assert {:ok, %WriteHandlerSpec{side_effect_classes: ^classes}} =
+               WriteHandlerSpec.new(Map.put(@valid, :side_effect_classes, classes))
+
+      for bad <- [:read, "read", [:read, :read]] do
+        assert {:error, {:invalid_field, :side_effect_classes}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :side_effect_classes, bad))
+      end
+    end
+
+    test "T-D204-06 the manifest hash covers the four fields only when they are present" do
+      base = FixtureLedger.manifest()
+      [first | rest] = base.write_handlers
+
+      put = fn manifest, overrides ->
+        %{manifest | write_handlers: [Map.merge(first, overrides) | rest]}
+      end
+
+      # absent (the default) keeps the hash of the module that has not been converted
+      assert ManifestHash.compute(put.(base, %{})) == ManifestHash.compute(base)
+
+      # each field on its own moves the hash
+      for overrides <- [
+            %{permission: :Probe},
+            %{outputs: [%{name: "id", type: :uuid}]},
+            %{idempotency_inputs: ["item"]},
+            %{side_effect_classes: [:write_module_record]}
+          ] do
+        assert ManifestHash.compute(put.(base, overrides)) != ManifestHash.compute(base)
+      end
+
+      # the order of the outputs and of the classes does not matter
+      assert ManifestHash.compute(
+               put.(base, %{
+                 outputs: [%{name: "b", type: :uuid}, %{name: "a", type: :uuid}]
+               })
+             ) ==
+               ManifestHash.compute(
+                 put.(base, %{
+                   outputs: [%{name: "a", type: :uuid}, %{name: "b", type: :uuid}]
+                 })
+               )
+
+      assert ManifestHash.compute(
+               put.(base, %{side_effect_classes: [:ledger_post, :write_module_record]})
+             ) ==
+               ManifestHash.compute(
+                 put.(base, %{side_effect_classes: [:write_module_record, :ledger_post]})
+               )
+    end
+  end
+
   describe "valid?/1" do
     test "accepts a built struct, refuses a struct with a bad field and plain maps" do
       {:ok, spec} = WriteHandlerSpec.new(@valid)

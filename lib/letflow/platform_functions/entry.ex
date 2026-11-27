@@ -27,6 +27,25 @@ defmodule Letflow.PlatformFunctions.Entry do
     * `platform_tenant_only` -- true for the platform family: the call may run
       only in the platform tenant (INV-10).
 
+  ## Families
+
+  The `family` says WHO owns the function: `:platform` for the core platform
+  family, or the id of the MODULE that owns it (D-204, the module-process
+  conversion, section 1.2). A module family entry is derived from the module's
+  own write-handler registration (see `Letflow.PlatformFunctions.ModuleFamily`),
+  never written by hand.
+
+  The two families have two different TENANT RULES, and the entry says which:
+
+    * the platform family (`platform_tenant_only: true`) may run only in the
+      platform tenant (INV-10);
+    * a module family entry (`platform_tenant_only: false`) may run only in a
+      tenant that has the module INSTALLED, with the compiled module's
+      manifest hash accepted (the check
+      `Letflow.Definitions.ModuleWrites` does today for the owner stamp, moved
+      from the stamp to the entry -- see
+      `Letflow.PlatformFunctions.ModuleTenantRule`).
+
   ## Source classes
 
   `:start` -- the value comes from the start form of the person who started
@@ -75,16 +94,36 @@ defmodule Letflow.PlatformFunctions.Entry do
     One side effect of a catalogue entry, in plain words plus a class.
 
     The classes are closed: `:read`, `:write_tenant_registry`, `:ddl`,
-    `:outbound`.
+    `:outbound`, and -- since D-204 (the module-process conversion, section
+    1.2) -- the two MODULE classes `:write_module_record` and `:ledger_post`.
+
+    The module classes say what a module function does inside its own tenant:
+    it writes a record of the module's own types, or it posts a ledger entry.
+    Both are WRITE-LIKE: a human task may never decide what they write (see
+    the parent module's "Source classes").
     """
 
     @enforce_keys [:text, :class]
     defstruct [:text, :class]
 
-    @type class :: :read | :write_tenant_registry | :ddl | :outbound
+    @type class ::
+            :read
+            | :write_tenant_registry
+            | :ddl
+            | :outbound
+            | :write_module_record
+            | :ledger_post
 
     @type t :: %__MODULE__{text: String.t(), class: class()}
   end
+
+  @doc """
+  The closed set of side-effect classes, sorted. The designer shows them and
+  the entry validation refuses any other one.
+  """
+  @spec side_effect_classes() :: [SideEffect.class()]
+  def side_effect_classes,
+    do: [:ddl, :ledger_post, :outbound, :read, :write_module_record, :write_tenant_registry]
 
   @enforce_keys [
     :name,
@@ -144,6 +183,22 @@ defmodule Letflow.PlatformFunctions.Entry do
   end
 
   @doc """
+  True when the entry belongs to a MODULE family (D-204): its family names the
+  module that owns the function, not the platform.
+  """
+  @spec module_family?(t()) :: boolean()
+  def module_family?(%__MODULE__{family: family}), do: family != :platform
+
+  @doc """
+  The id of the module that owns a MODULE-family entry, or `nil` for the
+  platform family. The module id is what the tenant rule looks up: the module
+  must be installed in the instance's tenant.
+  """
+  @spec module_id(t()) :: String.t() | nil
+  def module_id(%__MODULE__{family: :platform}), do: nil
+  def module_id(%__MODULE__{family: family}) when is_binary(family), do: family
+
+  @doc """
   The compile-time checks of a whole catalogue: no duplicate name, and every
   entry well formed. Raises when the catalogue could not be trusted at run
   time (the catalogue is code, and code that does not compile does not ship).
@@ -161,9 +216,9 @@ defmodule Letflow.PlatformFunctions.Entry do
   end
 
   @doc """
-  One entry's own checks: a name, a permission, the platform flag, inputs
-  whose source class is one of the three known ones, and no `:person` input on
-  a write-like entry.
+  One entry's own checks: a name, a permission, the platform flag, the family
+  the flag belongs to, the side-effect classes, inputs whose source class is one
+  of the three known ones, and no `:person` input on a write-like entry.
   """
   @spec validate!(t()) :: :ok
   def validate!(%__MODULE__{} = entry) do
@@ -179,6 +234,9 @@ defmodule Letflow.PlatformFunctions.Entry do
       raise "platform function entry #{entry.name} without platform_tenant_only"
     end
 
+    validate_family!(entry)
+    validate_side_effects!(entry)
+
     Enum.each(entry.inputs, fn
       %Input{source_class: source_class} when source_class in [:start, :step, :person] ->
         :ok
@@ -193,4 +251,42 @@ defmodule Letflow.PlatformFunctions.Entry do
 
     :ok
   end
+
+  # The two families and the two tenant rules belong together: the platform
+  # flag says which rule the entry runs under, and the family says who owns it.
+  # An entry that claims the platform rule but names a module (or the other way
+  # round) is a contradiction, and a catalogue that carries one cannot be
+  # trusted at run time.
+  defp validate_family!(%__MODULE__{family: :platform, platform_tenant_only: true}), do: :ok
+
+  defp validate_family!(%__MODULE__{family: :platform}),
+    do: raise("a platform family entry must be platform_tenant_only")
+
+  defp validate_family!(%__MODULE__{family: family, platform_tenant_only: false})
+       when is_binary(family) and family != "",
+       do: :ok
+
+  defp validate_family!(%__MODULE__{family: family, platform_tenant_only: true}),
+    do: raise("a module family entry #{family} must not be platform_tenant_only")
+
+  defp validate_family!(%__MODULE__{family: family}),
+    do: raise("platform function entry with a malformed family: #{inspect(family)}")
+
+  defp validate_side_effects!(%__MODULE__{side_effects: side_effects})
+       when is_list(side_effects) do
+    classes = side_effect_classes()
+
+    Enum.each(side_effects, fn
+      %SideEffect{class: class} when is_atom(class) ->
+        unless class in classes do
+          raise "platform function entry with an unknown side-effect class: #{inspect(class)}"
+        end
+
+      other ->
+        raise "platform function entry has a malformed side effect: #{inspect(other)}"
+    end)
+  end
+
+  defp validate_side_effects!(%__MODULE__{side_effects: side_effects}),
+    do: raise("platform function entry with malformed side effects: #{inspect(side_effects)}")
 end
