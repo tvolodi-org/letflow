@@ -191,6 +191,9 @@ class Undefined(RunnerError):
 _TOKEN = re.compile(r"\s*(?:(\d+(?:\.\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|(.))")
 _PLACEHOLDER = re.compile(r"\$\{([^}]*)\}")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# ${name[a:b]}, ${name|hex}, ${name|hex[a:b]}: a slice (Python semantics) of the string of a context
+# variable; the hex filter removes the dashes first (a uuid -> 32 hex digits). a, b may be empty or negative.
+_SLICE_EXPR = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(\|\s*hex\s*)?(?:\[\s*(-?\d*)\s*:\s*(-?\d*)\s*\])?$")
 
 
 def fmt_decimal(value: Decimal) -> str:
@@ -275,8 +278,36 @@ def eval_expression(text: str, ctx: dict) -> str:
     return fmt_decimal(result)
 
 
+def parse_slice_expr(inner: str):
+    """-> (name, hex?, slice) for a ${name[a:b]} / ${name|hex} / ${name|hex[a:b]} placeholder, else None."""
+    m = _SLICE_EXPR.match(inner.strip())
+    if not m or (not m.group(2) and m.group(3) is None):
+        return None
+    sl = None
+    if m.group(3) is not None:
+        sl = slice(*(int(g) if g else None for g in (m.group(3), m.group(4))))
+    return m.group(1), bool(m.group(2)), sl
+
+
+def eval_slice(parsed, ctx: dict, text: str) -> str:
+    name, hexed, sl = parsed
+    if name not in ctx:
+        raise Undefined(name)
+    val = ctx[name]
+    if val is None or isinstance(val, (dict, list, bool)):
+        raise RunnerError(f"${{{text}}}: variable {name} is not a text")
+    out = str(val)
+    if hexed:
+        out = out.replace("-", "")
+    if sl is not None:
+        out = out[sl]
+        if out == "":
+            raise RunnerError(f"${{{text}}}: the slice of {name} is empty")
+    return out
+
+
 def substitute(value, ctx: dict):
-    """${name} and ${a + 1} in strings, recursively. A string that is exactly one ${name}
+    """${name}, ${a + 1} and ${name|hex[0:20]} (slice, see _SLICE_EXPR) in strings, recursively. A string that is exactly one ${name}
     gives the raw value of the variable; anything else gives a string (numbers as plain decimals)."""
     if isinstance(value, str):
         whole = _PLACEHOLDER.fullmatch(value)
@@ -288,6 +319,9 @@ def substitute(value, ctx: dict):
 
         def one(match):
             inner = match.group(1).strip()
+            parsed = parse_slice_expr(inner)
+            if parsed:
+                return eval_slice(parsed, ctx, inner)
             if _NAME.match(inner):
                 if inner not in ctx:
                     raise Undefined(inner)
@@ -307,6 +341,10 @@ def referenced_names(value) -> set:
     names = set()
     if isinstance(value, str):
         for match in _PLACEHOLDER.finditer(value):
+            parsed = parse_slice_expr(match.group(1))
+            if parsed:
+                names.add(parsed[0])
+                continue
             names.update(n for n in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1)))
     elif isinstance(value, list):
         for v in value:
