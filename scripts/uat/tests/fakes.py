@@ -80,6 +80,9 @@ class FakeStock:
         # the platform tenant: the definitions of the tenant and the instances a run starts (G18)
         self.definitions = []  # [{"id", "name", "version", "status"}]
         self.definitions_forbidden = False  # the definitions list answers 403
+        self.ensure_seeds_calls = []  # T-3125: (who, body) of POST .../stock/ensure-seeds
+        self.ensure_seeds_status = 200  # the answer of ensure-seeds
+        self.ensure_seeds_noop = False  # 200, but nothing is repaired and nothing listed
         self.instances = {}  # instance id -> {"status", "variables"}
         self.instance_starts = False  # POST /api/v1/instances may start an instance
         self.instance_status = "ACTIVE"  # the status a started instance gets
@@ -303,6 +306,17 @@ def make_handler(state):
                     return self.reply(404, {"title": "not found"})
                 state.instances[inst]["status"] = "CANCELLED"
                 return self.reply(200, {"instance_id": inst, "status": "CANCELLED"})
+            if method == "POST" and path == "/api/v1/tenant/modules/stock/ensure-seeds":
+                state.ensure_seeds_calls.append((who, body))
+                if state.ensure_seeds_status != 200 or who != "admin":
+                    return self.reply(state.ensure_seeds_status if who == "admin" else 403, {"title": "refused"})
+                fixed = []
+                if not state.ensure_seeds_noop:
+                    for d in state.definitions:
+                        if d.get("status") == "ARCHIVED":
+                            d["status"] = "ACTIVE"
+                            fixed.append(d["name"] + "@" + str(d.get("version")))
+                return self.reply(200, {"module_id": "stock", "process_drafts": [], "process_activated": fixed})
             if method == "GET" and path == "/api/v1/definitions":
                 if state.definitions_forbidden:
                     return self.reply(403, {"title": "Forbidden"})
