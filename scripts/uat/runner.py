@@ -76,7 +76,7 @@ STABLE_EXTRA_S = 120
 ANONYMOUS_ACTOR = "anonymous"
 PAGE_THROUGH_MAX_PAGES = 15
 DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep",
-            "module_installed", "tenant_onboarded", "page_through", "client1_tool")
+            "module_installed", "tenant_onboarded", "page_through", "client1_tool", "tenant_retention")
 # The module names of the product (the syntax the infra script checked before any request).
 MODULE_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 BUILTIN_FIXTURES = ("module_installed", "tenant_onboarded")
@@ -1650,6 +1650,8 @@ class Runner:
             return self._repeat(role, do["repeat"], times, http_as, record, extra)
         if "sweep" in do:
             return [self._sweep(role, do["sweep"], http_as, record)]
+        if "tenant_retention" in do:
+            return [self._tenant_retention(role, do["tenant_retention"], http_as, record)]
         if "page_through" in do:
             return [self._page_through(role, do["page_through"], http_as, record, extra)]
         if "upload" in do:
@@ -2126,6 +2128,23 @@ class Runner:
         print(self.scrub(summary), file=self.out, flush=True)
         record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
         result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
+
+    def _tenant_retention(self, role, spec, http_as, record):
+        """T-3203: purge the throwaway tenants older than N days through the product's own platform.tenant_lifecycle
+        process (see tenant_retention.py for the allow-list, the exclusions, the batch cap and the dry run).
+        -> (200, {"purged": n, "left": m, "candidates": k, "lines": [...]}, text)."""
+        import tenant_retention
+
+        spec = substitute(spec, self.ctx)
+        try:
+            result = tenant_retention.execute(
+                lambda method, path, body=None: self.request(role, method, path, body, http_as=http_as), spec,
+                self.actor_spec(role).get("tenant") or self.tenant, self.actor_base(role), load_retired_checked(),
+                out=lambda text: print(self.scrub(text), file=self.out, flush=True))
+        except (ValueError, RuntimeError) as err:
+            raise RunnerError(f"tenant_retention: {err}") from None
+        record.update(method="POST", path="/api/v1/instances", tenant_retention=result["lines"])
         return (200, result, json.dumps(result))
 
     def _save_upload_response(self, spec, result):
@@ -3534,6 +3553,12 @@ def validate_step(step, where) -> None:
         if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
                                       and all(isinstance(c, int) for c in spec["accept"])):
             raise ConfigError(f"{where}: sweep accept is a list of status codes")
+    elif kind == "tenant_retention":
+        import tenant_retention
+
+        problem = tenant_retention.spec_problem(do["tenant_retention"])
+        if problem:
+            raise ConfigError(f"{where}: {problem}")
     elif kind == "page_through":
         spec = do["page_through"]
         if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \

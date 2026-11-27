@@ -194,6 +194,10 @@ def calls_of(step) -> list:
     if isinstance(do.get("sweep"), dict):
         out.append(("GET", "/api/v1/definitions"))
         out.append(("DELETE", "/api/v1/definitions/${id}"))
+    if isinstance(do.get("tenant_retention"), dict):
+        out.append(("GET", "/api/v1/tenants"))
+        out.append(("POST", "/api/v1/instances"))
+        out.append(("GET", "/api/v1/instances/${id}"))
     for call in do.get("parallel") or []:
         if isinstance(call, dict):
             out.append((str(call.get("api", "")), str(call.get("path", ""))))
