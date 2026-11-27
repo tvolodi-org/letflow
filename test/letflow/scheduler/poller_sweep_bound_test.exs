@@ -67,7 +67,9 @@ defmodule Letflow.Scheduler.PollerSweepBoundTest do
 
     test "init/1 logs the configured bound at boot" do
       Application.put_env(:letflow, Poller, sweep_concurrency: 1)
+      prev_level = Logger.level()
       Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: prev_level) end)
 
       log =
         capture_log([level: :info], fn ->
