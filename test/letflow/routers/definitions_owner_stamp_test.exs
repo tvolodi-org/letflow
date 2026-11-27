@@ -465,9 +465,17 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
                    prefix: schema
                  )
 
+        Letflow.Repo.update_all(
+          from(d in ProcessDefinition, where: d.id == ^active.id),
+          [set: [needs_reactivation_at: DateTime.utc_now(), needs_reactivation_reason: "x"]],
+          prefix: schema
+        )
+
         snapshot = fn ->
           Repo.all(from(d in ProcessDefinition, order_by: d.id), prefix: schema)
-          |> Enum.map(&{&1.id, &1.status, &1.updated_at, &1.description})
+          |> Enum.map(
+            &{&1.id, &1.status, &1.updated_at, &1.description, &1.needs_reactivation_at}
+          )
         end
 
         before = snapshot.()
@@ -478,6 +486,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
           {"DELETE", "/#{dep.id}", nil},
           {"DELETE", "/#{draft.id}", nil},
           {"POST", "/#{active.id}/deprecate", nil},
+          {"POST", "/#{active.id}/reactivate", nil},
           {"POST", "/#{dep.id}/archive", nil},
           {"POST", "/#{draft.id}/activate", nil},
           {"POST", "/#{tenant_draft.id}/activate", nil},
@@ -504,7 +513,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
           []
         )
 
-      assert refused >= length(modules) * 9
+      assert refused >= length(modules) * 10
     end
 
     test "tenant-owned definitions (and a tenant copy of a module definition) stay retirable",

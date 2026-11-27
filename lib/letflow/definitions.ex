@@ -831,6 +831,9 @@ defmodule Letflow.Definitions do
         Repo.rollback(:not_found)
 
       %ProcessDefinition{status: :active, needs_reactivation_at: %DateTime{}} ->
+        # T-3014: reactivate is a tenant-only path (the module seed heals its own flag).
+        if not tenant_may_mutate?(definition, prefix), do: Repo.rollback(:module_owned_definition)
+
         with :ok <- check_entity_writes(definition, prefix, activator),
              :ok <- check_platform_calls(definition, prefix, activator),
              :ok <- check_start_permission(definition, prefix),
@@ -2809,7 +2812,7 @@ defmodule Letflow.Definitions do
         %ProcessDefinition{status: :draft} = definition ->
           # T-3014: a tenant request never activates a module-shipped draft, nor a draft of
           # a name whose ACTIVE version the module shipped (activation would retire it).
-          if tenant_request and module_owned_activation?(definition, prefix),
+          if tenant_request and not tenant_may_mutate?(definition, prefix),
             do: Repo.rollback(:module_owned_definition)
 
           case run_service_scope_validator(definition, tenant_id, validator) do
@@ -2827,14 +2830,25 @@ defmodule Letflow.Definitions do
     end)
   end
 
-  defp module_owned_activation?(%ProcessDefinition{owner_module: owner}, _prefix)
-       when is_binary(owner),
-       do: true
+  @doc """
+  THE policy of T-3014: may a TENANT actor mutate this definition? `false` for a module-owned
+  row (`owner_module` stamped) and for a row whose name has a module-owned ACTIVE version
+  (activating it would retire that one). Every tenant-side mutation that is not a guarded
+  UPDATE asks this one function: activate, rollback, reactivate. (The guarded UPDATEs of
+  update, deprecate and archive and the hard delete carry the same stamp predicate in SQL;
+  promotion apply asks `Promotion.module_owned_name?/2`.) The module-upgrade and seed paths
+  are the named exemption: they never pass `tenant_request`, and `reactivate/2` has no
+  caller but the tenant route.
+  """
+  @spec tenant_may_mutate?(ProcessDefinition.t(), String.t() | nil) :: boolean()
+  def tenant_may_mutate?(%ProcessDefinition{owner_module: owner}, _prefix)
+      when is_binary(owner),
+      do: false
 
-  defp module_owned_activation?(%ProcessDefinition{name: name}, prefix) do
-    ProcessDefinition
-    |> where([d], d.name == ^name and d.status == :active and not is_nil(d.owner_module))
-    |> Repo.exists?(prefix: prefix)
+  def tenant_may_mutate?(%ProcessDefinition{name: name}, prefix) do
+    not (ProcessDefinition
+         |> where([d], d.name == ^name and d.status == :active and not is_nil(d.owner_module))
+         |> Repo.exists?(prefix: prefix))
   end
 
   @doc """
@@ -3987,7 +4001,7 @@ defmodule Letflow.Definitions do
           Repo.rollback(:already_active)
 
         # T-3014: a tenant request never moves the active pointer of a module-owned name.
-        tenant_request and Enum.any?(rows, &is_binary(&1.owner_module)) ->
+        tenant_request and Enum.any?(rows, &(not tenant_may_mutate?(&1, prefix))) ->
           Repo.rollback(:module_owned_definition)
 
         true ->

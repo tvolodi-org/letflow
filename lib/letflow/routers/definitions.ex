@@ -1174,6 +1174,9 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_reactivate(conn, {:error, :not_found}), do: Response.not_found(conn)
 
+  defp render_reactivate(conn, {:error, :module_owned_definition}),
+    do: refuse_module_owned(conn)
+
   defp render_reactivate(conn, {:error, :not_needs_reactivation}),
     do: Response.not_needs_reactivation(conn)
 
@@ -1366,7 +1369,12 @@ defmodule Letflow.Routers.Definitions do
 
     # The refusal rolled its transaction back, so the audit row (server-resolved actor) is
     # written on its own.
-    Definitions.record_refused_attempt(action, to_string(resource), actor_opts(conn))
+    Definitions.record_refused_attempt(
+      action,
+      binary_part(to_string(resource), 0, min(byte_size(to_string(resource)), 64)),
+      actor_opts(conn)
+    )
+
     Response.conflict(conn, "a module-owned definition cannot be changed by a tenant")
   end
 

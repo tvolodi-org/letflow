@@ -25,7 +25,8 @@ defmodule Letflow.Modules.EnsureSeeds do
   call, and running instances stay pinned to their version. One `module.seed_activated` audit entry
   per activation names the module, `"key@version"`, the superseded version and the system actor.
   The activation is tied to the system actor, not to a human; a `needs_reactivation` flag raised
-  later on that definition is cleared by a user with `DefinitionsActivate` (`reactivate/2`).
+  later on that definition is cleared by the module seed itself; a tenant `reactivate/2` of a
+  module-owned row is refused (T-3014).
   An activation that is refused (validator, system actor unavailable) never fails the upgrade: the
   draft stays and is listed.
 

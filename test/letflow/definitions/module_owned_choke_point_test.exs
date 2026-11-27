@@ -72,7 +72,6 @@ defmodule Letflow.Definitions.ModuleOwnedChokePointTest do
     assert promote == [{"POST", "/:test_tenant_id/promote/:process_key"}]
   end
 
-  @retiring ~r/Definitions\.(archive|deprecate|update|delete|patch|rollback_definition_version)\(/
   @activating ~r/Definitions\.activate\(/
 
   defp lib_files do
@@ -84,9 +83,59 @@ defmodule Letflow.Definitions.ModuleOwnedChokePointTest do
     allowed = ["lib/letflow/definitions.ex", "lib/letflow/routers/definitions.ex"]
 
     offenders =
-      for f <- lib_files(), f not in allowed, File.read!(f) =~ @retiring, do: f
+      for f <- lib_files(), f not in allowed, retiring_call?(File.read!(f)), do: f
 
     assert offenders == []
+  end
+
+  # Also resolves `alias Letflow.Definitions, as: X` (module or file scope).
+  defp retiring_call?(src) do
+    aliases =
+      Regex.scan(~r/alias\s+Letflow\.Definitions,\s*as:\s*([A-Z]\w*)/, src)
+      |> Enum.map(fn [_, a] -> a end)
+
+    names = Enum.join(["Definitions" | aliases], "|")
+
+    Regex.match?(
+      ~r/\b(#{names})\.(archive|deprecate|update|delete|patch|rollback_definition_version)\(/,
+      src
+    ) or Regex.match?(~r/Elixir\.Letflow\.Definitions\.(archive|deprecate|update|delete)\(/, src)
+  end
+
+  test "raw status writes on process_definitions live only in the context and promotion" do
+    allowed = ["lib/letflow/definitions.ex", "lib/letflow/definitions/promotion.ex"]
+
+    offenders =
+      for f <- lib_files(), f not in allowed, raw_status_write?(File.read!(f)), do: f
+
+    assert offenders == []
+  end
+
+  # A `ProcessDefinition` query followed within 600 bytes by update_all/Repo.update and `status`.
+  defp raw_status_write?(src) do
+    Regex.scan(~r/ProcessDefinition(?:\s|\)|,)/, src, return: :index)
+    |> Enum.any?(fn [{i, _}] ->
+      window = binary_part(src, i, min(600, byte_size(src) - i))
+      Regex.match?(~r/update_all\(|Repo\.update!?\(/, window) and window =~ "status"
+    end)
+  end
+
+  test "every guarded route's classification is backed by an executed class-table attempt" do
+    table = File.read!("test/letflow/routers/definitions_owner_stamp_test.exs")
+
+    unbacked =
+      for {{verb, path}, kind} <- @definitions_routes,
+          kind not in [:read_only, :creates_unstamped_row],
+          not backed?(table, verb, path),
+          do: {verb, path}
+
+    assert unbacked == [],
+           "classified but never attempted in the class table: #{inspect(unbacked)}"
+  end
+
+  defp backed?(table, verb, path) do
+    suffix = path |> String.replace(~r{^/:(id|process_key)}, "") |> Regex.escape()
+    Regex.match?(~r/\{"#{verb}", "\/#\{[^}]+\}#{suffix}"/, table)
   end
 
   test "activate is called without tenant_request only by the module-upgrade and seed paths" do
