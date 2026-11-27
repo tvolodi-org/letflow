@@ -149,6 +149,7 @@ STANDARD_SECURITY_PROBE_TESTS = [
     "test/letflow/security_probe/g07_cursor_traversal_probe_test.exs",
     "test/letflow/security_probe/g08_uat_safety_equivalence_test.exs",
     "test/letflow/security_probe/g09_migration_impact_test.exs",
+    "test/letflow/security_probe/g12_advisory_gate_test.exs",
     "test/letflow/security_probe/g10_config_registry_test.exs",
     "test/letflow/security_probe/g13_malformed_input_matrix_test.exs",
     "test/letflow/security_probe/g13_route_no_5xx_test.exs",

@@ -659,6 +659,13 @@ jobs:
           version-file: .tool-versions
           version-type: strict
 
+      # G-12 (team repository docs/security-coverage.md 4): the dependency advisory gate reads
+      # the npm registry for the web application, so this job needs Node.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Read pinned Rust version from .tool-versions
         id: rust_pin
         run: |
@@ -822,6 +829,21 @@ jobs:
       # T-1689 (docs/status/ci-isolated-tails-proof.md): the tails hold only Lua/WASM runtime tests, no register
       # check, and no tail test reads a docs/ path in a string literal; a docs-only change cannot affect them.
       # Push to main, schedule and dispatch give docs_only=false, so the tails still run there.
+      # G-12 (team repository docs/security-coverage.md 4): the PR-blocking dependency advisory
+      # gate. It reads the three real advisory sources -- `mix hex.audit` (hex.pm), `npm audit
+      # --omit=dev` (the npm registry) and the OSV `Pub` ecosystem (osv.dev, the real advisory
+      # source for Dart: pub has no audit tool of its own) -- and fails on a medium+ advisory in
+      # a PRODUCTION dependency that priv/security/advisory-allow.json does not accept with an
+      # expiry date in the future. The step is NOT continue-on-error: it blocks the pull
+      # request, which is the whole point of the gap. The SAST half of the same task is a probe
+      # of the backend suite (test/letflow/security_probe/g12_advisory_gate_test.exs).
+      - name: Dependency advisory gate (mix letflow.advisory_gate)
+        if: needs.changes.outputs.backend != 'false'
+        run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- mix letflow.advisory_gate
+        env:
+          MIX_ENV: test
+          WASMEX_BUILD: true
+
       - name: Run isolated tails (mix letflow.check.test --tails-only)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true'
         run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" -- mix letflow.check.test --tails-only

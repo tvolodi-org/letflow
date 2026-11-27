@@ -1,0 +1,334 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "sql_interpolation:lib/letflow/entities/record/projector.ex:fbede5ec",
+      "package": "lib/letflow/entities/record/projector.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:365c9e34",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:edb356a2",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:00f6e107",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:741b0a2b",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:2fc6ee6f",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:bc9c98a0",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:c0b81b9d",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:14e5e75d",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:1268414b",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:16c0c837",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:c724dd4d",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:f97d7717",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:ea1d20a2",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/partition_maintenance.ex:af6f7d35",
+      "package": "lib/letflow/event_store/partition_maintenance.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:5520ce1b",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:2619cbc3",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:ab64091b",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:51771cda",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:ab64091b:2",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:c840ec11",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:9f588e1b",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:bb4d6c12",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/event_store/retention_operations.ex:9f588e1b:2",
+      "package": "lib/letflow/event_store/retention_operations.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/module_upgrade/apply.ex:9a3431f4",
+      "package": "lib/letflow/module_upgrade/apply.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/module_upgrade/apply.ex:646bf83c",
+      "package": "lib/letflow/module_upgrade/apply.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/module_upgrade/rollback.ex:9a3431f4",
+      "package": "lib/letflow/module_upgrade/rollback.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/module_upgrade/rollback.ex:646bf83c",
+      "package": "lib/letflow/module_upgrade/rollback.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:214033d9",
+      "package": "lib/letflow/sandbox_pool.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/sandbox_pool.ex:28ccd539",
+      "package": "lib/letflow/sandbox_pool.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/sandbox_pool/fixture_loader.ex:8b358863",
+      "package": "lib/letflow/sandbox_pool/fixture_loader.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/scope_node_paths.ex:f7d1ed5e",
+      "package": "lib/letflow/scope_node_paths.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/tenant_provisioning.ex:0c2ebe1f",
+      "package": "lib/letflow/tenant_provisioning.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:lib/letflow/tenant_purge.ex:397ba8db",
+      "package": "lib/letflow/tenant_purge.ex",
+      "reason": "The interpolated value is an identifier or a bound this module computes (schema, table, partition, column, lock timeout or time bound), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs:b7af03ac",
+      "package": "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:35267584",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:9845d10f",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261015025331_create_role_scope_grants.exs:6d328474",
+      "package": "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "sql_interpolation:priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs:8f68d41f",
+      "package": "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs",
+      "reason": "The interpolated value is the tenant schema name the migration is given by the provisioning code (the server derives it from the tenant id), never request data. Accepted for the G-12 SAST scan; re-read before the expiry date.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/ledger.ex:0454e25f",
+      "package": "lib/letflow/ledger.ex",
+      "reason": "The atom is :\"k#{i}\" for the index of the closed key-column list of this module: the atom set is bounded by the number of key columns and never comes from request data.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/modules/assets/documents/kinds.ex:89b6eab5",
+      "package": "lib/letflow/modules/assets/documents/kinds.ex",
+      "reason": "String.to_atom/1 over the closed header-key table of this module (the module's own constant), never from input.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/modules/assets/documents/kinds.ex:89b6eab5:2",
+      "package": "lib/letflow/modules/assets/documents/kinds.ex",
+      "reason": "String.to_atom/1 over the closed header-key table of this module (the module's own constant), never from input.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/modules/stock/documents/kinds.ex:89b6eab5",
+      "package": "lib/letflow/modules/stock/documents/kinds.ex",
+      "reason": "String.to_atom/1 over the closed header-key table of this module (the module's own constant), never from input.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/platform_processes.ex:8432262b",
+      "package": "lib/letflow/platform_processes.ex",
+      "reason": "The atom is :\"missing_#{key}\" for a keyword key of a closed option list of this module: the atom set is bounded by that list.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "unsafe_atom:lib/letflow/repository/activation.ex:200656e9",
+      "package": "lib/letflow/repository/activation.ex",
+      "reason": "The atom is :\"audit_step_#{index}\" for the index of the bounded activation step list: the atom set is bounded by the number of steps.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "weak_hash:lib/letflow/engine/lua/script_host.ex:65a8fe20",
+      "package": "lib/letflow/engine/lua/script_host.ex",
+      "reason": "SHA-1 derives a namespace hash for the script host. It is not a credential, a signature or a security digest.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    },
+    {
+      "id": "weak_hash:lib/letflow/obs/alerts.ex:3ae4036e",
+      "package": "lib/letflow/obs/alerts.ex",
+      "reason": "MD5 fingerprints an alert error reason for de-duplication. It is not a credential, a signature or a security digest.",
+      "owner": "team",
+      "expires": "2027-06-30"
+    }
+  ]
+}
