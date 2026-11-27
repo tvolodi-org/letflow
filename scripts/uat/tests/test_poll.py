@@ -55,6 +55,33 @@ def step(poll=None, want="COMPLETED"):
     return doc
 
 
+class Terminal(BaseHTTPRequestHandler):
+    """GET /api/v1/instances/i1: an instance that is already terminal (its answer will not change)."""
+
+    calls = 0
+    status = "COMPLETED"
+
+    def do_GET(self):  # noqa: N802
+        if self.path == "/health":
+            return self.reply({"status": "ok", "sha": "abc123"})
+        if self.path != "/api/v1/instances/i1":
+            return self.reply({})
+        type(self).calls += 1
+        self.reply({"instance_id": "i1", "definition_id": "d1", "status": type(self).status,
+                    "started_at": "2026-11-27T00:00:00Z"})
+
+    def reply(self, doc):
+        data = json.dumps(doc).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
 class Poll(FakeServerCase):
     def setUp(self):
         super().setUp()
@@ -113,6 +140,67 @@ class Poll(FakeServerCase):
         with self.assertRaises(runner.ConfigError):
             runner.validate_step(bad, "P1")
         runner.validate_step(step({"within_s": 5}), "P1")
+
+
+class TerminalInstancePoll(FakeServerCase):
+    """T-3052: a poll of an instance that is already terminal is not asked again -- the answer of a terminal
+    instance will not change, so the window is not waited out."""
+
+    def setUp(self):
+        super().setUp()
+        handler = type("H", (Terminal,), {"calls": 0, "status": "COMPLETED"})
+        self.handler = handler
+        self.other = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.other.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.addCleanup(self.other.server_close)
+        self.addCleanup(self.other.shutdown)
+        self.actors = {"admin": {"user": "admin-user", "tenant": "bpm-default",
+                                 "base_url": f"http://127.0.0.1:{self.other.server_address[1]}"}}
+
+    def run_it(self, *steps):
+        out = io.StringIO()
+        r = runner.Runner({"id": "POLL", "steps": list(steps)}, base_url=self.base, tenant="qoimeks-qa2",
+                          actors=self.actors, run_dir=self.run_dir, inputs={}, poll_interval=0.01, out=out)
+        return r.run()
+
+    def row(self):
+        return next(x for x in self.lines() if x["phase"] == "step" and x["step"] == "P1")
+
+    def step(self, poll):
+        """A step whose expectation can never hold: the poll is what is under test, not the answer."""
+        return {"id": "P1", "actor": "admin", "do": {"api": "GET", "path": "/api/v1/instances/i1"},
+                "expect": {"status": 200, "json": {"$.status": "NEVER"}}, "poll": poll}
+
+    def test_a_poll_of_a_terminal_instance_stops_at_once(self):
+        code = self.run_it(self.step({"within_s": 5, "interval_s": 0.01}))
+        self.assertEqual(1, code)
+        self.assertEqual("fail", self.row()["verdict"])
+        # one read only: the instance is terminal, its answer will not change
+        self.assertEqual(1, self.row()["polls"])
+        self.assertEqual(1, self.handler.calls)
+
+    def test_an_instance_that_is_not_terminal_is_asked_again(self):
+        self.handler.status = "ACTIVE"
+        code = self.run_it(self.step({"within_s": 0.3, "interval_s": 0.01}))
+        self.assertEqual(1, code)
+        self.assertEqual("fail", self.row()["verdict"])
+        self.assertGreater(self.row()["polls"], 1)
+
+    def test_a_page_of_several_instances_is_not_a_terminal_answer(self):
+        # the step may be waiting for one of the others to appear -- the list is sorted newest first
+        self.assertFalse(runner.terminal_instance({"count": 2, "items": [
+            {"instance_id": "i1", "definition_id": "d1", "status": "COMPLETED", "started_at": "t"},
+            {"instance_id": "i2", "definition_id": "d2", "status": "ACTIVE", "started_at": "t"}]}))
+
+    def test_a_page_of_one_terminal_instance_is_a_terminal_answer(self):
+        self.assertTrue(runner.terminal_instance({"count": 1, "items": [
+            {"instance_id": "i1", "definition_id": "d1", "status": "CANCELLED", "started_at": "t"}]}))
+
+    def test_a_task_page_is_not_an_instance_answer(self):
+        # a task item carries an instance_id, but no definition_id -- it is not an instance
+        self.assertFalse(runner.terminal_instance({"count": 1, "items": [
+            {"id": "t1", "instance_id": "i1", "node_id": "work", "status": "COMPLETED"}]}))
+        self.assertFalse(runner.terminal_instance({"status": "COMPLETED"}))
 
 
 if __name__ == "__main__":
