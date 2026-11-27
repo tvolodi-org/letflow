@@ -49,7 +49,8 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.notify_admin",
     "tenant.suspend",
     "tenant.reactivate",
-    "tenant.purge"
+    "tenant.purge",
+    "tenant.set_script_policy"
   ]
 
   # D-204 (the module-process conversion, section 1.2): the MODULE FAMILY of

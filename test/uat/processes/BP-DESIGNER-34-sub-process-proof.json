@@ -258,29 +258,30 @@
     {
       "id": "A7",
       "actor": "admin",
-      "says": "1. The child instance appears: the one instance of C's definition, ACTIVE.",
+      "says": "1. The child instance appears: the child of P, an instance of C's definition, ACTIVE.",
       "do": {
         "api": "GET",
-        "path": "/api/v1/instances?definition_id=${defC}"
+        "path": "/api/v1/instances?parent_instance_id=${instP}"
       },
       "poll": {
-        "within_s": "${run_within_s}",
+        "within_s": 20,
         "interval_s": 2
       },
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].id": {
+          "$.items[0].instance_id": {
             "exists": true
           },
+          "$.items[0].definition_id": "${defC}",
           "$.items[0].status": "ACTIVE"
         }
       },
       "save": {
-        "instC": "$.items[0].id"
+        "instC": "$.items[0].instance_id"
       },
       "requires": [
-        "defC"
+        "instP"
       ]
     },
     {
@@ -699,28 +700,29 @@
     {
       "id": "F6",
       "actor": "admin",
-      "says": "2. C2's task appears.",
+      "says": "2. C2's task appears: the child of P2, an instance of C2's definition.",
       "do": {
         "api": "GET",
-        "path": "/api/v1/instances?definition_id=${defC2}"
+        "path": "/api/v1/instances?parent_instance_id=${instP2}"
       },
       "poll": {
-        "within_s": "${run_within_s}",
+        "within_s": 20,
         "interval_s": 2
       },
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].id": {
+          "$.items[0].instance_id": {
             "exists": true
-          }
+          },
+          "$.items[0].definition_id": "${defC2}"
         }
       },
       "save": {
-        "instC2": "$.items[0].id"
+        "instC2": "$.items[0].instance_id"
       },
       "requires": [
-        "defC2"
+        "instP2"
       ]
     },
     {
@@ -1212,26 +1214,27 @@
       "says": "4. OBSERVED: the child of P4 is an instance of version b (the version active when the node was entered), not of version a that was active when P4 started: the SUB_PROCESS node is late-bound by name.",
       "do": {
         "api": "GET",
-        "path": "/api/v1/instances?definition_id=${defC1b}"
+        "path": "/api/v1/instances?parent_instance_id=${instP4}"
       },
       "poll": {
-        "within_s": "${run_within_s}",
+        "within_s": 20,
         "interval_s": 2
       },
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].id": {
+          "$.items[0].instance_id": {
             "exists": true
           },
+          "$.items[0].definition_id": "${defC1b}",
           "$.items[0].status": "ACTIVE"
         }
       },
       "save": {
-        "instC4": "$.items[0].id"
+        "instC4": "$.items[0].instance_id"
       },
       "requires": [
-        "defC1b"
+        "instP4"
       ]
     },
     {
