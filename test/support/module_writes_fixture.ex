@@ -239,6 +239,60 @@ defmodule Letflow.ModuleWritesFixture do
   end
 
   @doc """
+  An ACTIVE parent definition stamped with the SAME module as `child_def`.
+
+  T-3094 (pilot gap G-SUB-1): a SUB_PROCESS child inherits the parent's start variables, so a
+  parent of a module-only child is module-only ITSELF. A parent a tenant makes is therefore
+  stamped the way a module's own parent is: the owner stamp of the child is copied onto the
+  parent row (the stamp is immutable to the application, so the user triggers are off for the
+  copy), and the parent is activated through the ordinary activation path.
+
+  `parent_graph` is the parent's own graph; its SUB_PROCESS node names the child by
+  `definition_name`.
+  """
+  @spec stamped_parent!(map(), struct(), map()) :: struct()
+  def stamped_parent!(base, child_def, parent_graph) do
+    schema = base.schema
+
+    {:ok, parent_row} =
+      Definitions.create(
+        %{
+          name: Fx.unique("stamped-parent"),
+          version: "1.0",
+          graph: parent_graph,
+          created_by: base.user.id
+        },
+        prefix: schema
+      )
+
+    stamp_owner_module!(schema, parent_row.id, child_def)
+
+    {:ok, %{definition: parent}} = Definitions.activate(parent_row.id, prefix: schema)
+    parent
+  end
+
+  # T-2444: a module-writes child starts only under a parent of the SAME module. The owner stamp
+  # is immutable (trigger), so it is copied in with the user triggers off, as `CrossPostFixture` does.
+  defp stamp_owner_module!(schema, parent_id, child_def) do
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" DISABLE TRIGGER USER))
+
+    from(d in ProcessDefinition, where: d.id == ^parent_id)
+    |> Repo.update_all(
+      [
+        set: [
+          owner_module: child_def.owner_module,
+          owner_module_version: child_def.owner_module_version,
+          owner_manifest_hash: child_def.owner_manifest_hash,
+          owner_body_hash: child_def.owner_body_hash
+        ]
+      ],
+      prefix: schema
+    )
+
+    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" ENABLE TRIGGER USER))
+  end
+
+  @doc """
   GH #2590 R5 (#2695 lock order): a sub-process CHILD whose last node is the handler-calling
   SERVICE_TASK. The stamped child `fxl_svc_child` (HUMAN `ct`, then service `svc`) is started by
   a tenant parent's SUB_PROCESS node; the child's `ct` task is completed and its dispatch row is
@@ -268,37 +322,7 @@ defmodule Letflow.ModuleWritesFixture do
       ]
     }
 
-    {:ok, parent_row} =
-      Definitions.create(
-        %{
-          name: Fx.unique("gh2590-r5-parent"),
-          version: "1.0",
-          graph: parent_graph,
-          created_by: base.user.id
-        },
-        prefix: schema
-      )
-
-    # T-2444: a module-writes child starts only under a parent of the SAME module. The owner stamp
-    # is immutable (trigger), so it is copied in with the user triggers off, as `CrossPostFixture` does.
-    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" DISABLE TRIGGER USER))
-
-    from(d in ProcessDefinition, where: d.id == ^parent_row.id)
-    |> Repo.update_all(
-      [
-        set: [
-          owner_module: child_def.owner_module,
-          owner_module_version: child_def.owner_module_version,
-          owner_manifest_hash: child_def.owner_manifest_hash,
-          owner_body_hash: child_def.owner_body_hash
-        ]
-      ],
-      prefix: schema
-    )
-
-    Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" ENABLE TRIGGER USER))
-
-    {:ok, %{definition: parent}} = Definitions.activate(parent_row.id, prefix: schema)
+    parent = stamped_parent!(base, child_def, parent_graph)
 
     {:ok, %{instance_id: parent_id}} =
       Letflow.Engine.create(
@@ -308,7 +332,10 @@ defmodule Letflow.ModuleWritesFixture do
           actor_id: base.user.id,
           idempotency_key: Fx.unique("gh2590-r5-parent-start")
         },
-        prefix: schema
+        # T-3094 (pilot gap G-SUB-1): the parent's child is module-only, so the parent is
+        # module-only too -- only module code may start it.
+        prefix: schema,
+        module_start: true
       )
 
     child_id =
