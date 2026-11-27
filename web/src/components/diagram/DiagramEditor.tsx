@@ -15,7 +15,7 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import type { DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, type DraftCheck } from '@/hooks/useValidateDraft'
-import { addNode, connect, connectionRefusal, deleteEdges, deleteNodes, moveNode, positionOf, readAttrs, MAX_NODES, type EditRefusal, type EditResult } from '@/utils/canvas/graphEdit'
+import { addNode, connect, connectionRefusal, droppedTargets, deleteEdges, deleteNodes, moveNode, positionOf, readAttrs, MAX_NODES, type EditRefusal, type EditResult } from '@/utils/canvas/graphEdit'
 import { dragCoalescer } from '@/utils/canvas/editHistory'
 import { anchorViolations } from '@/utils/canvas/violationAnchor'
 import { nodeDims } from '@/utils/canvas/readLayout'
@@ -199,7 +199,14 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target) return
-      apply(connect(graph, c.source, c.target), e('announce.connected', { from: nameOf(c.source), to: nameOf(c.target) }))
+      const res = connect(graph, c.source, c.target)
+      const old = droppedTargets(graph, res, c.source)
+      apply(
+        res,
+        old.length > 0
+          ? e('announce.connectedReplaced', { from: nameOf(c.source), to: nameOf(c.target), old: old.map(nameOf).join(', ') })
+          : e('announce.connected', { from: nameOf(c.source), to: nameOf(c.target) }),
+      )
     },
     [apply, graph, e, nameOf],
   )

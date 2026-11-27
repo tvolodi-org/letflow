@@ -42,6 +42,8 @@ export interface DefinitionsMessages {
   colActions: string
   activate: string
   archive: string
+  archiveRefused: string
+  showTestRuns: string
   copyAsDraft: string
   copyFailed: string
   rollback: string
@@ -101,6 +103,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Actions',
     activate: 'Activate',
     archive: 'Archive',
+    archiveRefused: 'This version could not be archived: the server refused it because the version is still in use. Make another version active first, or wait until its instances finish.',
+    showTestRuns: 'Show test-run versions (uat-)',
     copyAsDraft: 'Copy as draft',
     copyFailed: 'Could not copy the process',
     rollback: 'Rollback…',
@@ -158,6 +162,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Действия',
     activate: 'Активировать',
     archive: 'Архивировать',
+    archiveRefused: 'Версию не удалось архивировать: сервер отказал, потому что она ещё используется. Сначала сделайте активной другую версию или дождитесь завершения её экземпляров.',
+    showTestRuns: 'Показать версии тестовых прогонов (uat-)',
     copyAsDraft: 'Копировать как черновик',
     copyFailed: 'Не удалось скопировать процесс',
     rollback: 'Откатить…',
@@ -215,6 +221,8 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Әрекеттер',
     activate: 'Белсендіру',
     archive: 'Мұрағаттау',
+    archiveRefused: 'Нұсқаны мұрағаттау мүмкін болмады: сервер бас тартты, себебі нұсқа әлі қолданыста. Алдымен басқа нұсқаны белсендіріңіз немесе экземплярлардың аяқталуын күтіңіз.',
+    showTestRuns: 'Сынақ нұсқаларын көрсету (uat-)',
     copyAsDraft: 'Жоба ретінде көшіру',
     copyFailed: 'Процесті көшіру мүмкін болмады',
     rollback: 'Кері қайтару…',

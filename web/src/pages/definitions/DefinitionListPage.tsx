@@ -27,6 +27,11 @@ import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
 import { useGuideStore } from '@/stores/guideStore'
 
 
+/** A version made by a UAT runner: its version string (or name) starts with `uat-`. */
+function isRunnerResidue(d: ProcessDefinition): boolean {
+  return /^uat-/.test(d.version ?? '') || /^uat-/.test(d.name ?? '')
+}
+
 export default function DefinitionListPage() {
   const navigate = useNavigate()
   const uiLocale = useUiLocale()
@@ -35,6 +40,7 @@ export default function DefinitionListPage() {
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const [status, setStatus] = useState<DefinitionStatus | undefined>()
+  const [showTestRuns, setShowTestRuns] = useState(false)
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -89,9 +95,11 @@ export default function DefinitionListPage() {
 
   const isSearching = debouncedSearch.trim().length > 0
   const searchResults = searchQuery.data as { items?: { definition: ProcessDefinition; rank: number }[] } | undefined
-  const items: ProcessDefinition[] = isSearching
+  const allItems: ProcessDefinition[] = isSearching
     ? (searchResults?.items?.map((r) => r.definition) ?? [])
     : ((data as { items?: ProcessDefinition[] } | undefined)?.items ?? [])
+  // D5: runner residue (versions named uat-...) is hidden unless the toggle is on.
+  const items = showTestRuns ? allItems : allItems.filter((d) => !isRunnerResidue(d))
   const isLoadingItems = isSearching ? searchQuery.isLoading : isLoading
   const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
@@ -389,6 +397,10 @@ export default function DefinitionListPage() {
             <option value="ARCHIVED">{dm.archived}</option>
           </select>
         </div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
+          <input type="checkbox" data-testid="show-test-runs" checked={showTestRuns} onChange={(e) => setShowTestRuns(e.target.checked)} />
+          {dm.showTestRuns}
+        </label>
       </FilterBar>
 
       <QueryStateBoundary
@@ -406,6 +418,12 @@ export default function DefinitionListPage() {
             <span style={{ display: 'block', marginTop: '.5rem' }}>{dm.emptyHint}</span>
           )}
         </p>
+      )}
+
+      {archive.isError && (
+        <div role="alert" data-testid="archive-error" className="lf-banner lf-banner--danger" style={{ marginBottom: '.5rem' }}>
+          {dm.archiveRefused}
+        </div>
       )}
 
       {copyError && (

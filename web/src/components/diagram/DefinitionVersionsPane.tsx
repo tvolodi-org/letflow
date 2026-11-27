@@ -4,6 +4,9 @@
  *  nothing in this file writes. Render inside ProcessDiagramIntlProvider. */
 import { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
+import { useQueries } from '@tanstack/react-query'
+import { usersApi } from '@/api/identity'
+import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { useDefinitionVersions } from '@/hooks/useDefinitions'
 import type { ProcessDefinition } from '@/types/api'
 import { classifyError } from '@/utils/classifyError'
@@ -42,6 +45,22 @@ export function DefinitionVersionsPane({ def, initialBaseId }: DefinitionVersion
     return items.some((v) => v.id === def.id) ? items : [def, ...items]
   }, [q.data, def])
   const truncated = !!q.data?.next_cursor
+
+  // D7: show the person's name, not the id. A caller who may not read users keeps the short id.
+  const adminKeys = useTenantScopedQueryKeys().admin
+  const authorIds = useMemo(() => [...new Set(versions.map((v) => v.created_by).filter(Boolean))], [versions])
+  const authors = useQueries({
+    queries: authorIds.map((id) => ({
+      queryKey: adminKeys.userDetail(id),
+      queryFn: () => usersApi.get(id),
+      retry: false,
+      staleTime: 5 * 60_000,
+    })),
+  })
+  const authorName = (id: string) => {
+    const u = authors[authorIds.indexOf(id)]?.data
+    return u?.display_name || u?.username || id.slice(0, 8)
+  }
 
   const compareId = compareChoice ?? def.id
   const defaultBase = versions[versions.findIndex((v) => v.id === compareId) + 1]?.id
@@ -96,7 +115,7 @@ export function DefinitionVersionsPane({ def, initialBaseId }: DefinitionVersion
                   </td>
                   <td>
                     <span className="lf-pd-versions__mono" title={v.created_by}>
-                      {v.created_by.slice(0, 8)}
+                      {authorName(v.created_by)}
                     </span>
                     {v.owner_module && <div>{m('versions.module', { name: v.owner_module })}</div>}
                   </td>
