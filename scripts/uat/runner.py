@@ -1273,6 +1273,22 @@ class Runner:
         self.definition_reports.append({"tenant": self.tenant, "kind": kind, "path": path, "note": note})
         print(f"definition report ({kind}) {self.tenant}: {path or note}", file=self.out, flush=True)
 
+    def _definition_health_ok(self, process):
+        """T-3014: a tenant whose definition report shows a dead-newest stock definition fails the stock leg LOUDLY, before
+        the first stock step, with the report path in the verdict line (not only at the 409 later)."""
+        dead = (getattr(self, "dead_newest", None) or {}).get(self.tenant)
+        if not dead:
+            return True
+        path = next((d["path"] for d in self.definition_reports
+                     if d["tenant"] == self.tenant and d["kind"] == "before" and d["path"]), "-")
+        started = time.monotonic()
+        record = {"process": process["id"], "phase": "step", "step": "definition-health", "actor": "-",
+                  "verdict": "fail",
+                  "error": f"DEAD-NEWEST stock definition(s) on {self.tenant}: {', '.join(sorted(dead))} - report {path}"}
+        self._finish(record, started, False)
+        print(f"definition health FAIL {self.tenant}: {record['error']}", file=self.out, flush=True)
+        return False
+
     @staticmethod
     def _is_definition_not_active(status, body):
         return status == 409 and isinstance(body, dict) and "definition_not_active" in (
@@ -2354,6 +2370,8 @@ class Runner:
                     return False
                 if "/modules/stock" in json.dumps(process):
                     self._definition_report("before")
+                    if not self._definition_health_ok(process):
+                        return False
                 # T-3034: the counters at the start of this tenant's leg (a chain process may have
                 # a tenant of its own; the leg's tenant is the one of the process).
                 self._admission_counter_start(self._leg_tenant())
