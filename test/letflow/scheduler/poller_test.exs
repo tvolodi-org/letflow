@@ -1015,7 +1015,7 @@ defmodule Letflow.Scheduler.PollerTest do
   # OWN dedicated coverage.
   # ===================================================================================
 
-  describe "ISS-0421 regression: the 6 gated sweeps' max_concurrency derives live from Admission.global_cap/0, not a hardcoded literal" do
+  describe "ISS-0421 regression: the gated sweeps' max_concurrency derives live via sweep_concurrency/0, not a literal" do
     test "with global_cap forced to 1 (pool_size: 3, reserved_headroom: 2), all 5 schemas' due timers fire within a single tick" do
       # This is the same class of proof REVIEWER and ELIXIR-DEV both
       # independently confirmed by hand (sed-substituting the old hardcoded

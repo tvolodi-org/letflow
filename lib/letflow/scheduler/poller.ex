@@ -78,10 +78,11 @@ defmodule Letflow.Scheduler.Poller do
 
   Two concurrency-bound classes (design §3):
 
-    * The six Admission-gated sweeps (poll-and-fire, retention, alert
-      detection, ordering cycle/sweeper/metrics) use
-      `Letflow.Admission.global_cap/0`'s LIVE return value, read fresh inside
-      `run_sweep/4` every tick, never cached or hoisted -- exactly the same
+    * The Admission-gated sweeps (poll-and-fire, retention, alert
+      detection, ordering cycle/sweeper/metrics) use `sweep_concurrency/0`
+      (T-3055: `min(4, cap div 4)` by default, never above `cap - reserve`),
+      which derives from `Letflow.Admission.global_cap/0`'s LIVE return value,
+      read fresh at every call site every tick, never cached or hoisted -- exactly the same
       "read the real accessor live" convention `maybe_refresh_active_instances/1`
       already uses for `reserved_headroom/0` below (design §3a/§3c, corrected
       per `handoffs/WF03-ISS0421-20260904/step-04-reviewer.json`: a hardcoded
@@ -177,8 +178,8 @@ defmodule Letflow.Scheduler.Poller do
   every tick from `Application.get_env(:letflow, :deadline_sweep, [])`, never
   cached in `state`, exactly like every other config-gated sweep here
   (`:ordering`, `:alert_hooks`). Each configured rule runs as its own
-  `run_sweep/4` call, bounded by the same live `Admission.global_cap/0` value
-  read inside `maybe_run_deadline_sweep/1` on every call, and wrapped in
+  `run_sweep/4` call, bounded by `sweep_concurrency/0` (derived from the live
+  `Admission.global_cap/0`) read inside `maybe_run_deadline_sweep/1` on every call, and wrapped in
   `with_admission/3` plus an inline `try/rescue -> :ok`, matching
   `maybe_run_ordering_cycle/1`'s exact shape -- one tenant raising does not
   stop the sweep for the others. This module carries no vertical-specific
@@ -255,6 +256,11 @@ defmodule Letflow.Scheduler.Poller do
 
   @impl true
   def init(state) do
+    Logger.info(
+      "scheduler sweep concurrency bound: sweep_concurrency=#{sweep_concurrency()} " <>
+        "global_cap=#{Admission.global_cap()}"
+    )
+
     Process.send_after(self(), :tick, 0)
     {:ok, state}
   end
@@ -374,8 +380,8 @@ defmodule Letflow.Scheduler.Poller do
   """
   @spec sweep_concurrency() :: pos_integer()
   def sweep_concurrency do
-    configured =
-      :letflow |> Application.get_env(__MODULE__, []) |> Keyword.get(:sweep_concurrency)
+    env = Application.get_env(:letflow, Letflow.Scheduler.Poller, [])
+    configured = if is_list(env), do: Keyword.get(env, :sweep_concurrency)
 
     sweep_concurrency(Admission.global_cap(), configured)
   end
