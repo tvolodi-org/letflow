@@ -49,15 +49,17 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   setup do
     ctx = S.setup_oidc!([:a, :b, :s])
     a = S.tenant!("sk-a", ctx.names.a)
-    b = S.tenant!("sk-b", ctx.names.b)
 
+    # Tenant B (a full provisioning, seconds each) is built by `with_b/1` only in the two tests that
+    # need it (T-3123: it was provisioned for all 12 and made each case 15-20 s on a loaded runner).
     Map.merge(ctx, %{
       a: a,
-      b: b,
       sk_a: S.token(ctx, :a, ["STOREKEEPER"], sub: "sk-a"),
       sk_b: S.token(ctx, :b, ["STOREKEEPER"], sub: "sk-b")
     })
   end
+
+  defp with_b(ctx), do: Map.put(ctx, :b, S.tenant!("sk-b", ctx.names.b))
 
   defp seed!(schema) do
     here = S.side(@u1, @r1, %{location: @l1})
@@ -240,6 +242,7 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   end
 
   test "G7 INV-10 A on, B off: B's storekeeper is refused; A's admin cannot reach B", ctx do
+    ctx = with_b(ctx)
     seed!(ctx.a.schema_name)
     seed!(ctx.b.schema_name)
     off!(ctx.b.schema_name)
@@ -295,6 +298,7 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   end
 
   test "SA-4 INV-10: B's administrator sees none of A's rows, also by A's ids", ctx do
+    ctx = with_b(ctx)
     seed!(ctx.a.schema_name)
     seed!(ctx.b.schema_name)
     admin_a = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "admin-a")

@@ -217,10 +217,6 @@ export default function DefinitionRollbackPage(): React.ReactElement {
                 rows={3}
                 style={{ width: '100%', padding: '.4rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)', fontFamily: 'inherit' }}
               />
-              <p style={{ fontSize: '.75rem', color: 'var(--text-secondary)', margin: '.35rem 0 0' }}>
-                Recorded in this session's change history below. Not sent to the server — see
-                design note in REQ-371 if this needs to persist across reloads.
-              </p>
             </div>
 
             {phase === 'idle' && (
