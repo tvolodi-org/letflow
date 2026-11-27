@@ -46,10 +46,17 @@ defmodule Letflow.Signup.Provisioning do
 
   @doc "True when the flag is on and the provisioner URL, token and hostname domain are all set."
   @spec configured?() :: boolean()
-  def configured? do
+  def configured?, do: Signup.enabled?() and provisioner_ready?()
+
+  @doc """
+  T-3153: true when the provisioner URL, token and hostname domain are set, whatever the sign-up flag says
+  (the platform step `tenant.provision_realm_and_invite` reuses the same wiring).
+  """
+  @spec provisioner_ready?() :: boolean()
+  def provisioner_ready? do
     cfg = Signup.config()
 
-    Signup.enabled?() and is_binary(cfg.provisioner_url) and is_binary(cfg.hostname_domain) and
+    is_binary(cfg.provisioner_url) and is_binary(cfg.hostname_domain) and
       System.get_env(RealmProvisioner.token_env()) not in [nil, ""]
   end
 
@@ -234,12 +241,7 @@ defmodule Letflow.Signup.Provisioning do
   end
 
   defp send_credential(row, username, password, cfg) do
-    message =
-      if is_binary(password) do
-        Messages.first_credential(row.language, username || row.email, password)
-      else
-        Messages.reset_hint(row.language)
-      end
+    message = Messages.credential_or_hint(row.language, row.email, username, password)
 
     case Mailer.deliver_now(Map.put(message, :to, row.email)) do
       :ok ->
