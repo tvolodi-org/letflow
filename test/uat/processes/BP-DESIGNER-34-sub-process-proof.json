@@ -842,7 +842,7 @@
       "id": "F11",
       "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
-      "says": "2. The dead-letter list is read for P2 (the answer is recorded; an entry, if there is one, is saved for the retry).",
+      "says": "2. The dead-letter list is read for P2 (the answer is recorded; an entry, if there is one, is saved for the retry). T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds an entry.",
       "do": {
         "api": "GET",
         "path": "/api/v1/dlq?instance_id=${instP2}"
@@ -851,7 +851,7 @@
         "status": 200,
         "json": {
           "$.items": {
-            "exists": true
+            "present": true
           }
         }
       },

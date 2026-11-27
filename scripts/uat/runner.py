@@ -112,7 +112,7 @@ EMAIL_SHAPE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
-OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+OPERATORS = {"equals", "contains", "regex", "absent", "exists", "present", "default"}
 
 
 # The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
@@ -471,6 +471,18 @@ def values_equal(actual, expected) -> bool:
     return numeric if numeric is not None else actual == expected
 
 
+def value_present(found, actual) -> bool:
+    """Is there a value at this path? T-3107: `exists` means a value that is really there.
+
+    A path that is not found, a value of null and an empty value ('', [], {}) are NOT a
+    value: `exists` used to accept all three, so a step could pass on a null (the pilot
+    scenario BP-PLATFORM-01 read `$.idp_realm_id` as null and step C3 passed). A false and
+    a zero are values: they are not "nothing"."""
+    if not found or actual is None:
+        return False
+    return not (isinstance(actual, (str, list, tuple, dict, set)) and len(actual) == 0)
+
+
 def check_matcher(found, actual, matcher):
     """One matcher against one path result -> (ok, short description of what was expected)."""
     if isinstance(matcher, dict) and matcher.keys() & OPERATORS:
@@ -494,7 +506,12 @@ def check_matcher(found, actual, matcher):
             absent = (not found) or actual is None
             return (absent if matcher["absent"] else not absent), {"absent": matcher["absent"]}
         if "exists" in matcher:
-            return (found if matcher["exists"] else not found), {"exists": matcher["exists"]}
+            present = value_present(found, actual)
+            return (present if matcher["exists"] else not present), {"exists": matcher["exists"]}
+        if "present" in matcher:
+            # T-3107: the explicit "the key is there" matcher: the value may be null or empty.
+            # A step that uses it says so in its own words.
+            return (found if matcher["present"] else not found), {"present": matcher["present"]}
     return found and values_equal(actual, matcher), {"equals": matcher}
 
 
