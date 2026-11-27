@@ -347,8 +347,7 @@ defmodule Letflow.ModuleWritesFixture do
     Map.merge(base, %{instance_id: child_id, parent_id: parent_id, dispatch: dispatch})
   end
 
-  defp advanced!(base, definition) do
-    pending = Fx.start_service_instance!(base, definition)
+  defp advanced!(base, definition) do    pending = Fx.start_service_instance!(base, definition)
 
     dispatch =
       pending.dispatch

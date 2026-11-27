@@ -931,10 +931,15 @@ defmodule Letflow.Engine do
   # The public route, a scheduled job and any other caller answer as for an unknown definition
   # (INV-5), before the status case; the cause goes to the server log only. A child start of a
   # SUB_PROCESS node is refused alike in `SubProcess.resolve_child_definition/2`.
+  #
+  # T-3094 (pilot gap G-SUB-1): the definition's own graph is not the whole of it -- a SUB_PROCESS
+  # child inherits the parent's start variables, so a parent whose child is module-only is
+  # module-only itself: the caller that starts the parent chooses the child's write targets.
+  # The children are read the way `gate_start_permission/2` reads them (the active version of
+  # each named child, transitively), so the two fences see the same set.
   defp gate_module_only_start({:ok, definition} = found, opts) do
     with false <- Keyword.get(opts, :module_start, false) == true,
-         {:ok, graph} <- build_graph(definition.graph),
-         true <- WriteTargets.module_writes?(graph) do
+         true <- module_only_definition?(definition, opts) do
       Logger.info("start refused: module-only definition definition_id=#{definition.id}")
       {:error, :not_found}
     else
@@ -943,6 +948,35 @@ defmodule Letflow.Engine do
   end
 
   defp gate_module_only_start(lookup, _opts), do: lookup
+
+  # The definition's own graph carries `module_writes`, or one of its transitive children does.
+  defp module_only_definition?(definition, opts) do
+    case build_graph(definition.graph) do
+      {:ok, graph} ->
+        WriteTargets.module_writes?(graph) or
+          Enum.any?(
+            child_graphs(definition.graph, Keyword.get(opts, :prefix)),
+            &WriteTargets.module_writes?/1
+          )
+
+      _not_a_graph ->
+        false
+    end
+  end
+
+  # The graphs of the SUB_PROCESS children a graph starts, transitively (the active version of
+  # each named child, as `SubProcess.child_definitions/2` resolves them). A child that does not
+  # resolve is skipped: the child's own activation refuses it later.
+  defp child_graphs(graph_map, prefix) do
+    graph_map
+    |> SubProcess.child_definitions(prefix)
+    |> Enum.flat_map(fn child ->
+      case build_graph(child.graph) do
+        {:ok, graph} -> [graph]
+        _not_a_graph -> []
+      end
+    end)
+  end
 
   # T-2588 (pilot gap G2; decision record
   # docs/migration/decisions/0094-platform-call-authority.md, decision (e)): a definition
@@ -3318,6 +3352,7 @@ defmodule Letflow.Engine do
            required: [String.t()],
            allowed: [String.t()],
            graph: Graph.t(),
+           child_graphs: [Graph.t()],
            node_id: String.t()
          }
 
@@ -3963,6 +3998,7 @@ defmodule Letflow.Engine do
                               task: task,
                               snapshot_and_state: %{
                                 graph: graph,
+                                child_graphs: child_graphs,
                                 seed_instance_state: seed_state
                               },
                               instance_projection: projection,
@@ -3996,7 +4032,7 @@ defmodule Letflow.Engine do
             output_labels,
             repo,
             prefix,
-            refusal_context(graph, task)
+            refusal_context(graph, child_graphs, task)
           )
           |> prepend_form_expression_events(form_events)
       end
@@ -4924,7 +4960,7 @@ defmodule Letflow.Engine do
   # tasks/tokens/instance_projections rows -- not a full REQ-053 event-log
   # replay (design doc §6, MAJOR OQ-2).
   defp build_snapshot_and_state(repo, %Task{} = task, %InstanceProjection{} = projection, prefix) do
-    with {:ok, graph, definition_version, definition_name} <-
+    with {:ok, graph, raw_graph, definition_version, definition_name} <-
            fetch_graph_and_version(task.instance_id, prefix) do
       active_token_records = load_active_tokens(repo, task.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
@@ -4936,6 +4972,10 @@ defmodule Letflow.Engine do
         {:ok,
          %{
            graph: graph,
+           # T-3094 (pilot gap G-SUB-2): the graphs of the SUB_PROCESS children the pinned
+           # graph starts, transitively. A child inherits the parent's variables, so the keys
+           # the child reads as write targets are refused to the parent's completer too.
+           child_graphs: child_graphs(raw_graph, prefix),
            # T-1986: the pinned definition's name (the four-eyes setting is per process and step).
            definition_name: definition_name,
            # GH #3409 (F-3): the snapshot row's `definition_ver`, a fact of the form hook (no query).
@@ -4966,12 +5006,14 @@ defmodule Letflow.Engine do
     with {:ok, graph, _raw} <- fetch_graph_with_raw(instance_id, prefix), do: {:ok, graph}
   end
 
-  # The pinned graph and the snapshot row's definition version (same single read as `fetch_graph/2`).
+  # The pinned graph, the raw snapshot map it was built from and the snapshot row's definition
+  # version (same single read as `fetch_graph/2`). The raw map carries the SUB_PROCESS nodes'
+  # `definition_name` attributes, which `SubProcess.child_definitions/2` reads (T-3094).
   defp fetch_graph_and_version(instance_id, prefix) do
     case SnapshotStore.get_by_instance_id(instance_id, prefix: prefix) do
       {:ok, snapshot} ->
         with {:ok, graph} <- build_graph(snapshot.graph),
-             do: {:ok, graph, snapshot.definition_ver, snapshot.definition_name}
+             do: {:ok, graph, snapshot.graph, snapshot.definition_ver, snapshot.definition_name}
 
       {:error, reason} ->
         {:error, reason}
@@ -5139,6 +5181,8 @@ defmodule Letflow.Engine do
         {:ok,
          %{
            graph: graph,
+           # T-3094: the timer path completes no human task, so it refuses no output key.
+           child_graphs: [],
            seed_instance_state: seed_instance_state,
            original_active_tokens: active_token_records,
            own_token_id: own_token.token_id
@@ -8755,7 +8799,13 @@ defmodule Letflow.Engine do
          output_labels,
          repo,
          prefix,
-         %{required: required, allowed: allowed, graph: graph, node_id: node_id}
+         %{
+           required: required,
+           allowed: allowed,
+           graph: graph,
+           child_graphs: child_graphs,
+           node_id: node_id
+         }
        ) do
     # GH #2587 (decision 0054 D1a, design D-A1.3): a reserved key in the CORRECTED
     # output is a caller error, refused as a retryable 422 before the schema read and
@@ -8764,10 +8814,13 @@ defmodule Letflow.Engine do
     # T-2430: the same refusal for a key a `module_writes` `var` argument of the pinned
     # graph reads (a write target is never the completer's to set), unless the node
     # declares it in `completer_inputs`.
+    # T-3094 (pilot gap G-SUB-2): the children's write-read keys are refused here too --
+    # a SUB_PROCESS child inherits the parent's variables, so a key the child reads as a
+    # write target is the parent's completer's to forge.
     case Enum.sort(
            Enum.uniq(
              VariableMerge.reserved_keys(output_variables) ++
-               WriteTargets.refused_keys(graph, node_id, output_variables)
+               WriteTargets.refused_keys(graph, node_id, output_variables, child_graphs)
            )
          ) do
       [] ->
@@ -8950,17 +9003,19 @@ defmodule Letflow.Engine do
 
   defp find_node(%Graph{nodes: nodes}, node_id), do: Enum.find(nodes, &(&1.id == node_id))
 
-  # The per-task data merge_output_variables/8 needs for rule C: the node's
+  # The per-task data merge_output_variables/9 needs for rule C: the node's
   # required keys and the names a refusal may report (task's own pinned
-  # form_schema.properties union required_outputs; INV-2).
-  @spec refusal_context(Graph.t(), Task.t()) :: refusal_context()
-  defp refusal_context(graph, %Task{} = task) do
+  # form_schema.properties union required_outputs; INV-2), and the graphs of the
+  # SUB_PROCESS children whose write-read keys are refused too (T-3094, G-SUB-2).
+  @spec refusal_context(Graph.t(), [Graph.t()], Task.t()) :: refusal_context()
+  defp refusal_context(graph, child_graphs, %Task{} = task) do
     required = RequiredOutputs.required_outputs(find_node(graph, task.node_id))
 
     %{
       required: required,
       allowed: RequiredOutputs.allowed_keys(task.form_schema, required),
       graph: graph,
+      child_graphs: child_graphs,
       node_id: task.node_id
     }
   end
