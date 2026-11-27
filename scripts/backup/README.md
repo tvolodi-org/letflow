@@ -12,14 +12,17 @@ only PostgreSQL client tools (reached through `PG_EXEC` when Postgres runs in a 
 | `backup.sh base` | weekly (WAL mode only): `pg_basebackup`; refuses while `archive_mode` is off |
 | `wal_archive.sh %p %f` | the `archive_command` helper (WAL mode only) |
 | `prune.sh [--dry-run]` | retention from `retention.conf` |
-| `restore_test.sh [--set DIR]` | restore the latest dump set into a throwaway database and check it; one report line |
+| `restore_test.sh [--set DIR] [--tenant SCHEMA]` | restore the latest dump set into a throwaway database and check it; one report line. `--tenant` restores public + that ONE tenant schema only and reconciles the registry rows |
 | `manifest.sql` | the read-only count/digest query used by both backup and restore test |
 | `retention.conf` | retention policy (`KEY=number` lines, parsed, never sourced) |
 
 ## Output layout (default `BACKUP_ROOT=/opt/backups/<BACKUP_ENV>`, dirs 0700, files 0600)
 
 ```
-dump/<db>/<UTC stamp>/<db>.dump[.gpg]  <db>.dump[.gpg].sha256  manifest.txt (Letflow db only)  VERIFIED (after a passed restore test)
+dump/<db>/<UTC stamp>/<db>.dump[.gpg]  <db>.dump[.gpg].sha256   (every database but the Letflow one)
+dump/<letflow db>/<UTC stamp>/public.dump  <tenant schema>.dump ...  globals.sql   (T-3149: one file per schema, each [.gpg] + .sha256)
+dump/<letflow db>/<UTC stamp>/manifest.tsv (schema, file, bytes, sha256, timestamp, format, pg_version, schema_version, modules_digest)  manifest.txt (counts)
+dump/<db>/<UTC stamp>/VERIFIED (after a passed whole-set restore test)
 dump/<db>/LATEST -> <stamp>
 base/<UTC stamp>/base.tar.gz[.gpg]  .sha256  base.info
 wal/<segment>
@@ -43,6 +46,7 @@ unit's `EnvironmentFile=`. Every name below is new; the reason is in the second 
 | `PGHOST` `PGPORT` `PGUSER` `PGPASSFILE` | libpq | connection (with `PG_EXEC` they apply inside the container) |
 | `BACKUP_ENCRYPT` | `none` | `none` or `gpg` |
 | `BACKUP_GPG_RECIPIENT` | — | public key id/e-mail when `gpg`; the host holds no private key |
+| `BACKUP_JOBS` | `2` | Letflow database only: schema dumps in parallel, 1 to 8 (infra advises 2 to 3). Every dump is its own `pg_dump -n <schema>` transaction |
 | `BACKUP_PRUNE` | `1` | run `prune.sh` at the end of `backup.sh` |
 | `RETENTION_FILE` | `retention.conf` next to the scripts | policy file; keys `DUMP_KEEP_DAYS`, `DUMP_KEEP_MIN`, `BASE_KEEP`, `WAL_KEEP_DAYS` |
 | `WAL_ARCHIVE_DIR` | `$BACKUP_ROOT/wal` | destination of `wal_archive.sh` |
