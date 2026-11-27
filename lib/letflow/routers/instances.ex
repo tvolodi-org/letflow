@@ -154,6 +154,27 @@ defmodule Letflow.Routers.Instances do
   and grants. A restriction removed later exposes the values that earlier history wrote
   while it applied (decision 0059 D2).
 
+  ## `GET /instances` — the list filters (T-3052)
+
+  The list reads `status`, `definition_id`, `correlation_key`,
+  `parent_instance_id`, `started_after`/`started_before`, `cursor` and
+  `page_size`. `parent_instance_id` is the durable child->parent link of a
+  sub-process child (`instance_projections.parent_instance_id`, REQ-062): it
+  answers "the children of THIS parent instance". Nothing else in the API could
+  answer that -- a caller that knows the parent could not find the child
+  through the list, because the child's own definition is not necessarily known
+  to it.
+
+  A UUID-shaped filter (`definition_id`, `parent_instance_id`) is cast in the
+  ROUTER, never handed to the query as a string: a non-UUID value is a Postgres
+  "invalid input syntax for type uuid", which Ecto raises out of the route -- a
+  detail-free 500 on a caller's typo (INV-8). A malformed value is the one 422
+  of `handle_list/1`; an absent filter is no filter.
+
+  The list is tenant-scoped by the schema its query runs in, so a parent of
+  another tenant matches nothing -- the same empty page an unknown id gets
+  (INV-5: no existence oracle).
+
   ## Response shape
 
   `changes` maps `rebind_result().changed` element-wise into hand-built
@@ -1117,11 +1138,14 @@ defmodule Letflow.Routers.Instances do
     with {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size),
          {:ok, started_after} <- parse_optional_timestamp(Map.get(query, "started_after")),
-         {:ok, started_before} <- parse_optional_timestamp(Map.get(query, "started_before")) do
+         {:ok, started_before} <- parse_optional_timestamp(Map.get(query, "started_before")),
+         {:ok, definition_id} <- parse_optional_uuid(Map.get(query, "definition_id")),
+         {:ok, parent_instance_id} <- parse_optional_uuid(Map.get(query, "parent_instance_id")) do
       params = %{
         status: Map.get(query, "status"),
-        definition_id: Map.get(query, "definition_id"),
+        definition_id: definition_id,
         correlation_key: Map.get(query, "correlation_key"),
+        parent_instance_id: parent_instance_id,
         started_after: started_after,
         started_before: started_before,
         cursor: Map.get(query, "cursor"),
@@ -1140,6 +1164,12 @@ defmodule Letflow.Routers.Instances do
         Response.unprocessable(
           conn,
           "started_after/started_before must be valid ISO 8601 timestamps"
+        )
+
+      {:error, :invalid_uuid} ->
+        Response.unprocessable(
+          conn,
+          "definition_id/parent_instance_id must be a valid UUID"
         )
     end
   end
@@ -1347,6 +1377,20 @@ defmodule Letflow.Routers.Instances do
     case DateTime.from_iso8601(raw) do
       {:ok, dt, _offset} -> {:ok, dt}
       {:error, _reason} -> {:error, :invalid_timestamp}
+    end
+  end
+
+  # A UUID-shaped query filter is cast HERE, never handed to the query as a
+  # string: `where: p.definition_id == ^value` with a non-UUID value is a
+  # Postgres "invalid input syntax for type uuid", which Ecto raises -- a
+  # detail-free 500 on a caller typo (INV-8). An absent filter stays nil
+  # (no filter), a malformed one is the 422 below.
+  defp parse_optional_uuid(nil), do: {:ok, nil}
+
+  defp parse_optional_uuid(raw) when is_binary(raw) do
+    case Ecto.UUID.cast(raw) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_uuid}
     end
   end
 
