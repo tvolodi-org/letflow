@@ -251,6 +251,23 @@ describe('T-3161 search combined with the status filter', () => {
   })
 })
 
+describe('T-3161 rendered row', () => {
+  it('shows the active row the search answers for word + status Active', async () => {
+    mockAuth()
+    mockDefinitions([])
+    vi.mocked(useDefinitionSearch).mockImplementation(
+      (q: string, o?: { status?: string }) =>
+        (q === 'register' && o?.status === 'ACTIVE'
+          ? { data: { items: [{ definition: ACTIVE_DEF, rank: 1 }] }, isLoading: false, isFetching: false }
+          : { data: undefined, isLoading: false, isFetching: false }) as unknown as ReturnType<typeof useDefinitionSearch>,
+    )
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    fireEvent.change(screen.getByTestId('status-filter-select'), { target: { value: 'ACTIVE' } })
+    fireEvent.change(screen.getByTestId('definition-search'), { target: { value: 'register' } })
+    expect(await screen.findByTestId(`open-process-${ACTIVE_DEF.id}`)).toBeInTheDocument()
+  })
+})
+
 describe('T-2815 D5 runner residue and D8 archive refusal', () => {
   const RESIDUE = { ...ACTIVE_DEF, id: 'def-res', name: 'platform.register_tenant', version: 'uat-20261125-ab12', status: 'DEPRECATED' as const }
 
