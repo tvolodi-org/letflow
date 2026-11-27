@@ -31,6 +31,8 @@ export interface DefinitionVersionsPaneProps {
 
 const KINDS = ['added', 'removed', 'changed'] as const
 
+const AUTHOR_STALE_MS = 5 * 60_000
+
 export function DefinitionVersionsPane({ def, initialBaseId }: DefinitionVersionsPaneProps) {
   const intl = useIntl()
   const t = useDiagramText()
@@ -54,7 +56,7 @@ export function DefinitionVersionsPane({ def, initialBaseId }: DefinitionVersion
       queryKey: adminKeys.userDetail(id),
       queryFn: () => usersApi.get(id),
       retry: false,
-      staleTime: 5 * 60_000,
+      staleTime: AUTHOR_STALE_MS,
     })),
   })
   const authorName = (id: string) => {
