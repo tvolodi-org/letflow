@@ -29,7 +29,9 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].name": "platform.validate_registration"
+          "$.items[?name=platform.validate_registration]": {
+            "exists": true
+          }
         }
       }
     },

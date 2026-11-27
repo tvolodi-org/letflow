@@ -93,18 +93,34 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[1].name": "tenant.bind_realm",
-          "$.items[2].name": "tenant.create",
-          "$.items[3].name": "tenant.grant_first_admins",
-          "$.items[5].name": "tenant.notify_admin",
-          "$.items[6].name": "tenant.provision",
-          "$.items[9].name": "tenant.record_lifecycle",
-          "$.items[10].name": "tenant.record_onboarding",
-          "$.items[12].name": "tenant.validate",
-          "$.items[1].inputs[0].name": {
+          "$.items[?name=tenant.bind_realm]": {
             "exists": true
           },
-          "$.items[2].outputs[0].name": {
+          "$.items[?name=tenant.create]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.grant_first_admins]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.notify_admin]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.provision]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.record_lifecycle]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.record_onboarding]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.validate]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.bind_realm].inputs[0].name": {
+            "exists": true
+          },
+          "$.items[?name=tenant.create].outputs[0].name": {
             "exists": true
           }
         }
@@ -121,8 +137,10 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[7].template_key": "tenant_registered",
-          "$.items[7].placeholders": {
+          "$.items[?template_key=tenant_registered]": {
+            "exists": true
+          },
+          "$.items[?template_key=tenant_registered].placeholders": {
             "contains": "tenant_name"
           }
         }

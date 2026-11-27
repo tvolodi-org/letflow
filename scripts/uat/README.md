@@ -102,6 +102,10 @@ Remember the id of the document as `doc_id`."*
   `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
   Besides "equals" you may write `{"contains": "text"}`, `{"regex": "..."}`, `{"exists": true}`, `{"absent": true}`,
   and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
+  A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the first item whose
+  `name` is `tenant.validate` (several fields at once: `$.items[?definition_name=x&node_id=y]`). Name the item
+  of a list the server owns (a compiled catalogue): an assertion by position goes red when the server adds
+  an entry, for a reason that has nothing to do with the scenario (T-3105).
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.

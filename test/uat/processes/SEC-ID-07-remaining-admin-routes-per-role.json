@@ -119,7 +119,7 @@
       "id": "s17",
       "actor": "admin",
       "do": {"api": "GET", "path": "/api/v1/identity/roles"},
-      "expect": {"status": 200, "json": {"$.items[0].id": "${first_role_before}"}}
+      "expect": {"status": 200, "json": {"$.items[?id=${first_role_before}]": {"exists": true}}}
     }
   ],
   "outputs": {},

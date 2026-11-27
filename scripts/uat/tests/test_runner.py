@@ -62,6 +62,22 @@ class ExpressionAndSubstitution(unittest.TestCase):
         self.assertEqual(runner.json_path(doc, '$["k-1"]'), (True, True))
         self.assertEqual(runner.json_path(doc, "$"), (True, doc))
 
+    def test_json_path_names_a_list_item_instead_of_counting_it(self):
+        """T-3105: an assertion by position breaks when the server grows the list."""
+        doc = {"items": [{"name": "a", "id": "1"}, {"name": "tenant.validate", "id": "2", "inputs": [{"name": "x"}]}]}
+        self.assertEqual(runner.json_path(doc, "$.items[?name=tenant.validate]"),
+                         (True, {"name": "tenant.validate", "id": "2", "inputs": [{"name": "x"}]}))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=tenant.validate].inputs[0].name"), (True, "x"))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=nope]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=a&id=1]"), (True, {"name": "a", "id": "1"}))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=a&id=2]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.items[?id=2].name"), (True, "tenant.validate"))
+        # a number of the answer compares as a number
+        self.assertEqual(runner.json_path(doc, "$.items[?count=2]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.nope[?name=a]"), (False, None))
+        with self.assertRaises(runner.RunnerError):
+            runner.json_path(doc, "$.items[?name]")
+
 
 class Assertions(unittest.TestCase):
     def check(self, expect, status=200, body=None):
@@ -96,6 +112,14 @@ class Assertions(unittest.TestCase):
     def test_default_for_a_missing_path(self):
         self.assertEqual(self.check({"json": {"$.rows[0].quantity": {"equals": "0", "default": "0"}}}, 200, {"rows": []}), [True])
         self.assertEqual(self.check({"json": {"$.rows[0].quantity": {"equals": "0"}}}, 200, {"rows": []}), [False])
+
+    def test_a_named_item_is_found_whatever_the_order_of_the_list_is(self):
+        """T-3105: the assertion names the item, so a catalogue that grows does not move it."""
+        body = {"items": [{"name": "a"}, {"name": "tenant.validate"}]}
+        self.assertEqual(self.check({"json": {"$.items[?name=tenant.validate]": {"exists": True}}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.items[?name=nope]": {"exists": True}}}, 200, body), [False])
+        self.assertEqual(self.check({"json": {"$.items[?name=tenant.validate].name": "tenant.validate"}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.items[?name=a].name": "tenant.validate"}}, 200, body), [False])
 
 
 class Loader(unittest.TestCase):
