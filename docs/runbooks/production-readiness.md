@@ -148,12 +148,14 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 | `LETFLOW_VOICE_STT_MODEL` | no | nil: that voice step is off | `config/runtime.exs` (REQ-740) |
 | `LETFLOW_VOICE_STT_PROVIDER` | no | nil: that voice step is off | `config/runtime.exs` (REQ-740) |
 | `LOG_LEVEL` | no | default value info outside test; an unrecognised value raises | `config/runtime.exs` (REQ-193) |
+| `MAX_INFLIGHT_AGE_MS` | no | default value 120000 (prod block): an admission held longer than this is logged once with its route class and its age; it is never released. 0 switches the sweep off. An unrecognised value raises | `config/runtime.exs` (T-3034) |
 | `OIDC_CLIENT_ID` | no | default value: a placeholder client id (prod block); set it for a real Keycloak | `config/runtime.exs` |
 | `OIDC_ISSUER` | no | legacy fallback only: used to derive the Keycloak base URL when `OIDC_KEYCLOAK_BASE_URL` is unset; never decides trust (REQ-370) | `config/runtime.exs` (REQ-370) |
 | `OIDC_KEYCLOAK_BASE_URL` | yes in practice | falls back to `OIDC_ISSUER`, then to a placeholder `.invalid` URL: sign-in cannot work (prod block) | `config/runtime.exs` (REQ-370) |
 | `POOL_SIZE` | no | default value 30 (prod block) | `config/runtime.exs` (ISS-0908) |
 | `PORT` | no | default value 4000 (prod block) | `config/runtime.exs` (ISS-0015) |
 | `RESERVED_HEADROOM` | no | default value 2 (prod block) | `config/runtime.exs` (ISS-0908) |
+| `STALE_SWEEP_INTERVAL_MS` | no | default value 1000 (prod block): how often the node looks for an over-age in-flight admission. An unrecognised value raises | `config/runtime.exs` (T-3034) |
 
 ### QA deploy wiring
 

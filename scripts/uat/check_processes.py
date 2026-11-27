@@ -372,7 +372,8 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
             for name_ in sorted(step_refs(step) - defined):
                 problems.append(f"{where(sid)}${{{name_}}} is not an input and no earlier step or process saves it")
             for method, path in calls_of(step):
-                check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access")
+                check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access",
+                           platform_route=step.get("platform_route") is True)
             if "wait_mail" in (step.get("do") or {}):
                 check_wait_mail(step, where(sid), problems)
             defined |= saves(step)
@@ -386,10 +387,14 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
     return set(outputs)
 
 
-def check_path(problems, where, routes, method, path, shared=False):
+def check_path(problems, where, routes, method, path, shared=False, platform_route=False):
     if not method or not path:
         problems.append(f"{where}a call needs a method and a path")
         return
+    if platform_route:  # T-3108: only a step flagged `platform_route: true`, only the provisioner mount
+        if not path.startswith("/admin/v1/") or ".." in path:
+            problems.append(f"{where}path {path!r} of a platform_route step must start with /admin/v1/")
+        return  # the provisioner router is not in the router files compared below
     if not shared and not path.startswith("/api/"):
         problems.append(f"{where}path {path!r} must start with /api/")
         return

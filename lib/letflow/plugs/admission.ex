@@ -110,6 +110,30 @@ defmodule Letflow.Plugs.Admission do
   nothing in this codebase's stack ever wraps a raise in `Plug.Conn.WrapperError`
   (it does, for the route-handler case — see above).
 
+  ## The route class and the refusal line (T-3034)
+
+  Every admission carries the ROUTE CLASS of the request: the route PATTERN
+  the router compiled in (`/api/v1/instances/:id`), never the request path,
+  never a path parameter and never a query value. It is attached to the
+  admission when it is acquired, so the admission counters and the refusal
+  line can name WHICH kind of request holds the budget — the answer to "the
+  503s hit many paths, so who is holding the slots?".
+
+  The route class is available because `Letflow.Plugs.ApiPipeline` matches the
+  route BEFORE this plug runs (its own `plug(:match)` is the first plug of the
+  chain since T-3034). At the mount level of that pipeline the pattern is the
+  MOUNT class (`/api/v1/instances`), because the sub-router of the request
+  matches during the dispatch that follows the gate; `"unmatched"` is the
+  answer for a request that matched no route at all.
+
+  A refusal emits ONE structured line through `Letflow.Admission.Observability`
+  (rate limited to one per second, node-wide): the budget in use, the cap, the
+  refused request's route class, its tenant as a keyed pseudonym (`none` at the
+  global gate, where the tenant is not known yet — the tenant is resolved
+  after authentication) and the oldest in-flight admission with its route
+  class and age. The line carries no token, no header, no body, no request
+  path and no raw tenant id.
+
   ## Tenant-derivation-failure branches — deliberately undefended
 
   `{:error, :invalid_tenant_id}` from `schema_name_for_tenant/1`, and a missing
@@ -129,6 +153,7 @@ defmodule Letflow.Plugs.Admission do
   import Plug.Conn
 
   alias Letflow.Admission
+  alias Letflow.Admission.Observability
   alias Letflow.Api.Response
   alias Letflow.TenantProvisioning
 
@@ -138,6 +163,12 @@ defmodule Letflow.Plugs.Admission do
 
   @global_rejection_detail "server at capacity, retry shortly"
   @tenant_rejection_detail "tenant at capacity, retry shortly"
+
+  # The admission server this plug talks to: the application-supervised
+  # singleton (the same one `Letflow.Admission.usage/1` and the metrics
+  # exposition read). Named here so the call site below reads as "the default
+  # server" instead of repeating the alias.
+  @server Letflow.Admission
 
   # See moduledoc's "Ref storage and release" section, and design doc §5/§9 --
   # follows the SAME {ModuleName, :purpose_atom} convention
@@ -164,17 +195,23 @@ defmodule Letflow.Plugs.Admission do
   @spec call(Plug.Conn.t(), mount_opt()) :: Plug.Conn.t()
   def call(conn, opts) do
     pool = Keyword.fetch!(opts, :pool)
-    {pool_selector, assign_key, rejection_detail} = resolve(pool, conn)
+    {pool_selector, assign_key, rejection_detail, tenant_schema} = resolve(pool, conn)
 
-    case Admission.try_acquire(pool_selector) do
+    # T-3034: the ROUTE CLASS of the request (the route pattern the router
+    # compiled in -- never the request path) is attached to the admission, so
+    # the counters and the refusal line can name WHICH kind of request holds
+    # the budget. "unmatched" when the chain has not matched a route yet.
+    route = Observability.route_class(conn)
+
+    case Admission.try_acquire(pool_selector, @server, class: route) do
       {:ok, ref} -> admit(conn, ref, assign_key)
-      {:error, :capacity} -> reject(conn, rejection_detail)
+      {:error, :capacity} -> reject(conn, rejection_detail, pool, route, tenant_schema)
     end
   end
 
   # See §2 of the design doc: pool-selector derivation per mount.
   defp resolve(:global, _conn) do
-    {:global, :global_admission_ref, @global_rejection_detail}
+    {:global, :global_admission_ref, @global_rejection_detail, nil}
   end
 
   defp resolve(:tenant, conn) do
@@ -182,7 +219,7 @@ defmodule Letflow.Plugs.Admission do
     # see moduledoc's "Tenant-derivation-failure branches" section).
     tenant_id = conn.assigns.auth_context.tenant_id
     {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(tenant_id)
-    {{:tenant, schema_name}, :tenant_admission_ref, @tenant_rejection_detail}
+    {{:tenant, schema_name}, :tenant_admission_ref, @tenant_rejection_detail, schema_name}
   end
 
   # §5: success path -- dual storage (conn.assigns + process dictionary), then
@@ -237,7 +274,15 @@ defmodule Letflow.Plugs.Admission do
   end
 
   # §3: {:error, :capacity} -- halt and respond.
-  defp reject(conn, detail) do
+  #
+  # T-3034: one structured line per refusal (rate limited to one per second,
+  # node-wide) naming the budget, the refused request's route class and the
+  # oldest in-flight admission. The line carries no token, no body, no path and
+  # no raw tenant id; the tenant is a keyed pseudonym. A failure of the line
+  # never changes the answer: the 503 is still the 503.
+  defp reject(conn, detail, kind, route, tenant_schema) do
+    Observability.log_rejection(%{kind: kind, tenant: tenant_schema, route: route})
+
     conn
     |> put_resp_header("retry-after", Integer.to_string(retry_after_seconds()))
     |> Response.service_unavailable(detail)
