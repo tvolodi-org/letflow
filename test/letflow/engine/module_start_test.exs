@@ -7,7 +7,9 @@ defmodule Letflow.Engine.ModuleStartTest do
   a SUB_PROCESS child of a tenant parent (S2) and a scheduled job (S3).
   Tests: ES-1 `create/2` by name and by id, ES-2 a module definition without write lines is unchanged,
   ES-3 a sub-process child of a tenant parent is refused, ES-4 a scheduled job is refused and the job
-  fails closed with `definition_not_found`, ES-5 only the three start sites in `lib/` set the option.
+  fails closed with `definition_not_found`, ES-5 only the three start sites in `lib/` set the option, ES-6 (T-3101, G-SUB-1) a parent with no
+  write lines whose transitive child has them is module-only too, ES-7 (T-3101, G-SUB-2) the refused
+  completion keys include the children's.
   """
 
   use Letflow.DataCase, async: false
@@ -15,6 +17,7 @@ defmodule Letflow.Engine.ModuleStartTest do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Definitions
+  alias Letflow.Engine.WriteTargets
   alias Letflow.Engine
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.ModuleWritesFixture, as: Mw
@@ -135,6 +138,89 @@ defmodule Letflow.Engine.ModuleStartTest do
     assert row.last_outcome == "definition_not_found"
     assert row.consecutive_failures == 1
     assert count(ctx.schema) == 0
+  end
+
+  defp parent_of!(ctx, child_name) do
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{"id" => "ht", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "A"}},
+        %{
+          "id" => "sub",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => child_name}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "p0", "source" => "start", "target" => "ht"},
+        %{"id" => "p1", "source" => "ht", "target" => "sub"},
+        %{"id" => "p2", "source" => "sub", "target" => "end"}
+      ]
+    }
+
+    {:ok, row} =
+      Definitions.create(
+        %{
+          name: "ms-tparent-#{System.unique_integer([:positive])}",
+          version: "1.0",
+          graph: graph,
+          created_by: ctx.user.id
+        },
+        prefix: ctx.schema
+      )
+
+    {:ok, %{definition: parent}} = Definitions.activate(row.id, prefix: ctx.schema)
+    parent
+  end
+
+  test "ES-6 a parent whose transitive child has module_writes is module-only: public start 404",
+       ctx do
+    parent = parent_of!(ctx, ctx.writes.name)
+
+    for ref <- [%{definition_id: parent.id}, %{definition_name: parent.name}] do
+      assert {:error, :definition_not_found} = Engine.create(attrs(ref), prefix: ctx.schema)
+    end
+
+    assert count(ctx.schema) == 0
+
+    assert {:ok, %{instance_id: _}} =
+             Engine.create(attrs(%{definition_id: parent.id}),
+               prefix: ctx.schema,
+               module_start: true
+             )
+
+    # a parent of a plain child still starts publicly
+    plain_parent = parent_of!(ctx, ctx.plain.name)
+
+    assert {:ok, %{instance_id: _}} =
+             Engine.create(attrs(%{definition_id: plain_parent.id}, %{}), prefix: ctx.schema)
+  end
+
+  test "ES-7 completion keys read by a transitive child's module_writes are refused", ctx do
+    parent = parent_of!(ctx, ctx.writes.name)
+    {:ok, graph} = Engine.build_graph(parent.graph)
+    out = %{"label" => "forged", "note" => "ok"}
+
+    # without the tenant prefix the parent graph alone reads nothing (the old behaviour)
+    assert WriteTargets.refused_keys(graph, "ht", out) == []
+    assert WriteTargets.refused_keys(graph, "ht", out, ctx.schema) == ["label"]
+    assert WriteTargets.write_read_keys(graph, ctx.schema) == MapSet.new(["label"])
+
+    # the node's own declared input still passes
+    declared =
+      update_in(graph.nodes, fn nodes ->
+        Enum.map(nodes, fn
+          %{id: "ht"} = n ->
+            %{n | attributes: Map.put(n.attributes, "completer_inputs", ["label"])}
+
+          n ->
+            n
+        end)
+      end)
+
+    assert WriteTargets.refused_keys(declared, "ht", out, ctx.schema) == []
+    assert WriteTargets.refused_keys(graph, "ht", out, "no_such_schema") == []
   end
 
   test "ES-5 only the stock, assets and maintenance start sites set module_start in lib/" do
