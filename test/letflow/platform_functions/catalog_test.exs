@@ -40,7 +40,10 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.bind_realm",
     "tenant.grant_first_admins",
     "tenant.install_default_modules",
-    "tenant.notify_admin"
+    "tenant.notify_admin",
+    "tenant.suspend",
+    "tenant.reactivate",
+    "tenant.purge"
   ]
 
   @entry_map_keys [

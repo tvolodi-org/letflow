@@ -70,12 +70,27 @@ defmodule Letflow.PlatformProcesses.BootSeed do
         case Seed.seed([]) do
           {:ok, %{outcome: outcome}} ->
             Logger.info("platform definitions seed: #{@key} #{inspect(outcome)}")
+            seed_lifecycle()
             {:ok, outcome}
 
           {:error, reason} ->
             Logger.error("platform definitions seed failed: #{inspect(reason)}; nothing written")
             {:error, reason}
         end
+    end
+  end
+
+  # T-2972: the tenant lifecycle process is seeded next to the registration one. Its failure never
+  # changes the registration seed's answer (a boot must not depend on the second process).
+  defp seed_lifecycle do
+    case Seed.seed(definition: Letflow.PlatformProcesses.TenantLifecycleDefinition) do
+      {:ok, %{outcome: outcome}} ->
+        Logger.info("platform definitions seed: platform.tenant_lifecycle #{inspect(outcome)}")
+
+      {:error, reason} ->
+        Logger.error(
+          "platform definitions seed failed for platform.tenant_lifecycle: #{inspect(reason)}"
+        )
     end
   end
 
