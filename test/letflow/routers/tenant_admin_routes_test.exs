@@ -273,12 +273,13 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   describe "AC2: every platform-scope route answers 403 to a TENANT_ADMIN" do
     # T-2184 (PR 4711) added PUT/DELETE /tenants/:slug/hostname. Both manage the
     # global tenant host registry through :TenantsManage and must stay platform-only.
-    # T-2588 (pilot gap G2) added GET /platform-functions (41 -> 42): the COMPILED
+    # T-2588 (pilot gap G2) added GET /platform-functions (41 -> 42); T-3034 added
+    # GET /platform-status/admission (42 -> 43): the admission counters of the node. The COMPILED
     # platform function catalogue is platform scope (:TenantsManage), so a TENANT_ADMIN
     # of any tenant must be refused there like on every other platform route.
-    test "the inventory is the 42 platform routes and spans exactly the nine platform prefixes" do
+    test "the inventory is the 43 platform routes and spans exactly the nine platform prefixes" do
       routes = platform_routes()
-      assert length(routes) == 42
+      assert length(routes) == 43
 
       for method <- ["PUT", "DELETE"] do
         assert {Letflow.Routers.Tenants, method, "/:slug/hostname", "/tenants/:slug/hostname"} in routes
@@ -306,11 +307,11 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
                ])
     end
 
-    test "all 42 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
+    test "all 43 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
          ctx do
       before = state_snapshot()
       routes = platform_routes()
-      assert length(routes) == 42
+      assert length(routes) == 43
 
       for {fixture, label} <- [{ctx.a, "ordinary tenant"}, {ctx.p, "platform tenant"}],
           {router, method, local, full} <- routes do

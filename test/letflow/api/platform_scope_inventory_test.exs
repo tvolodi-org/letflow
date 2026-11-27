@@ -595,6 +595,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"GET", "/platform-migrations/rollouts/:id"},
     {"POST", "/platform-migrations/rollouts/:id/resume"},
     {"GET", "/platform-status/backup"},
+    # T-3034: the admission counters of the node (the budget, the refusals and
+    # the per-tenant in-flight rows). Platform scope, like its sibling above.
+    {"GET", "/platform-status/admission"},
     {"POST", "/platform-module-rollouts"},
     {"GET", "/platform-module-rollouts"},
     {"GET", "/platform-module-rollouts/:id"},
@@ -613,13 +616,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 42 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 43 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 42
+      assert length(@platform_routes) == 43
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 

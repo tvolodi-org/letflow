@@ -294,7 +294,16 @@ defmodule Letflow.Supervisor.Infrastructure do
       # Placed here as a readability choice, grouped with the other
       # leaf/independently-startable infrastructure children (Registry,
       # Letflow.Metrics.Registry) above, not a correctness requirement.
-      {Letflow.Admission, []},
+      #
+      # T-3034: `monitor_callers: true` -- the holder of an HTTP admission ref
+      # is the REQUEST process, so its death must release the ref (the :DOWN
+      # path) instead of leaking one global slot per request whose connection
+      # died mid-flight. Without it a node whose clients vanish wedges its own
+      # budget shut, which is exactly the failure the QA evidence of T-3034
+      # points at (many 503s on a stable build while one smoke ran). The
+      # tenant-script admission server below opts in the same way, for the same
+      # reason (its holder is the per-run watchdog).
+      {Letflow.Admission, monitor_callers: true},
       Letflow.InstanceSupervisor,
       # ISS-0224: every SandboxPool DB operation runs under this supervisor via
       # Task.Supervisor.async_nolink/3. It MUST precede {Letflow.SandboxPool, []} --

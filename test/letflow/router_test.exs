@@ -48,7 +48,13 @@ defmodule Letflow.RouterTest do
     conn = conn(:get, "/health") |> call()
 
     assert conn.status == 200
-    assert Jason.decode!(conn.resp_body) == %{"status" => "ok", "sha" => Letflow.BuildInfo.sha()}
+
+    # T-3034: the answer carries the global admission counters next to the
+    # liveness signal (an aggregate figure of the node, no tenant identifier).
+    body = Jason.decode!(conn.resp_body)
+    assert body["status"] == "ok"
+    assert body["sha"] == Letflow.BuildInfo.sha()
+    assert is_map(body["admission"])
   end
 
   test "POST /instances now falls through to 404" do
@@ -98,10 +104,10 @@ defmodule Letflow.RouterTest do
       conn = conn(:get, "/health") |> call()
       assert conn.status == 200
 
-      assert Jason.decode!(conn.resp_body) == %{
-               "status" => "ok",
-               "sha" => Letflow.BuildInfo.sha()
-             }
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert body["sha"] == Letflow.BuildInfo.sha()
+      assert is_map(body["admission"])
     end
   end
 
@@ -360,10 +366,10 @@ defmodule Letflow.RouterTest do
 
       assert conn.status == 200
 
-      assert Jason.decode!(conn.resp_body) == %{
-               "status" => "ok",
-               "sha" => Letflow.BuildInfo.sha()
-             }
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert body["sha"] == Letflow.BuildInfo.sha()
+      assert is_map(body["admission"])
 
       # Letflow.Supervisor.Infrastructure's :one_for_one strategy restarts the killed
       # ProviderRegistry automatically — a new DynamicSupervisor process gets
