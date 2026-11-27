@@ -5,7 +5,7 @@ file:line, reason and owner) are in `docs/bp/public-routes.json`; this page is t
 
 | class | routes | protection (code) |
 |---|---|---|
-| (b) public by design | `GET /health`, `GET /ready` | `lib/letflow/router.ex:123,129`; no plug beyond Cors/metrics/error capture. /health answers status and build sha, /ready fixed part names. |
+| (b) public by design | `GET /health`, `GET /ready` | `lib/letflow/router.ex:134,144`; no plug beyond Cors/metrics/error capture. /health answers status, build sha and the global admission counters (an aggregate figure of the node, no tenant identifier), /ready fixed part names. |
 | (b) public by design | `GET /metrics` | `routers/metrics_exposition.ex`, decision REQ-194: unauthenticated, no tenant label on any metric. |
 | (a) plug-authenticated, `shared-secret` | 6 x `/admin/v1/tenants*` | `routers/admin_v1.ex:46-47` ProvisionerAuth + class gate (`plugs/provisioner_auth.ex`): hashed bearer, write/read class, rate limit, 404 when unconfigured. |
 | (a) plug-authenticated, `shared-secret` | `GET /maintenance/v1/problem-reports`, `/error-groups` | `routers/maintenance_v1.ex:30` ReportExportAuth (`plugs/report_export_auth.ex`). |
@@ -24,8 +24,11 @@ found):
 1. `GET /metrics` is unauthenticated by decision (REQ-194). Exposure: platform-wide aggregate counters to anyone who
    can reach the host. `grep -rn metrics deploy/` finds no proxy rule restricting it. Whether to restrict it to the
    monitoring network is the platform operator's call.
-2. `GET /health` returns the git commit sha of the build (`router.ex:124`): low-grade information disclosure, accepted
-   in the ISS-1043 comment.
+2. `GET /health` returns the git commit sha of the build (`router.ex:137`): low-grade information disclosure, accepted
+   in the ISS-1043 comment. T-3034 added the global admission counters to the same answer: the budget that is
+   applied, the units in use, the fair-share divisor and the refusals since the node started -- all aggregate
+   figures of the node, with no tenant identifier and no route of any tenant's traffic (the per-tenant rows are
+   platform-scope, on `GET /api/v1/platform-status/admission`).
 
 ## The 461 "not referenced" routes
 

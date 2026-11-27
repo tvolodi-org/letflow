@@ -257,6 +257,7 @@
     },
     {
       "id": "A7",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "1. The child instance appears: the child of P, an instance of C's definition, ACTIVE.",
       "do": {
@@ -325,6 +326,7 @@
     },
     {
       "id": "A10",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "1. C's pending task is 'work'.",
       "do": {
@@ -457,6 +459,7 @@
     },
     {
       "id": "A15",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "1. P's event history holds a SUB_PROCESS_COMPLETED event.",
       "do": {
@@ -699,6 +702,7 @@
     },
     {
       "id": "F6",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "2. C2's task appears: the child of P2, an instance of C2's definition.",
       "do": {
@@ -727,6 +731,7 @@
     },
     {
       "id": "F7",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "2. C2's pending task.",
       "do": {
@@ -812,6 +817,7 @@
     },
     {
       "id": "F10",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "2. P2's history holds the EXECUTION_ERROR event.",
       "do": {
@@ -834,8 +840,9 @@
     },
     {
       "id": "F11",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
-      "says": "2. The dead-letter list is read for P2 (the answer is recorded; an entry, if there is one, is saved for the retry).",
+      "says": "2. The dead-letter list is read for P2 (the answer is recorded; an entry, if there is one, is saved for the retry). T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds an entry.",
       "do": {
         "api": "GET",
         "path": "/api/v1/dlq?instance_id=${instP2}"
@@ -844,7 +851,7 @@
         "status": 200,
         "json": {
           "$.items": {
-            "exists": true
+            "present": true
           }
         }
       },
@@ -1063,6 +1070,7 @@
     },
     {
       "id": "U4",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "4. The hold task of P4.",
       "do": {
@@ -1210,6 +1218,7 @@
     },
     {
       "id": "U8",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "4. OBSERVED: the child of P4 is an instance of version b (the version active when the node was entered), not of version a that was active when P4 started: the SUB_PROCESS node is late-bound by name.",
       "do": {
@@ -1239,6 +1248,7 @@
     },
     {
       "id": "U9",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "4. The child's task is the work_b node of version b.",
       "do": {

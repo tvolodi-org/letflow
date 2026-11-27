@@ -21,14 +21,16 @@
     {
       "id": "s1",
       "actor": "admin",
+      "says": "The tenant administrator opens My Tasks: 200 with the list. T-3107: the inbox may be empty, so the step asserts that the list is THERE (`present`), not that it holds a task.",
       "do": {"api": "GET", "path": "/api/v1/tasks/inbox?page_size=5"},
-      "expect": {"status": 200, "json": {"$.items": {"exists": true}}}
+      "expect": {"status": 200, "json": {"$.items": {"present": true}}}
     },
     {
       "id": "s2",
       "actor": "storekeeper",
+      "says": "The storekeeper opens My Tasks: 200 with the list. T-3107: the inbox may be empty, so the step asserts that the list is THERE (`present`), not that it holds a task.",
       "do": {"api": "GET", "path": "/api/v1/tasks/inbox?page_size=5"},
-      "expect": {"status": 200, "json": {"$.items": {"exists": true}}}
+      "expect": {"status": 200, "json": {"$.items": {"present": true}}}
     },
     {
       "id": "s3",

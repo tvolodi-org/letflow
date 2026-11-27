@@ -22,7 +22,7 @@
     {
       "id": "s1",
       "actor": "platform-admin",
-      "says": "The owner reads the problem-report inbox (open reports, first page): 200 with the list. The first report id is remembered when there is one.",
+      "says": "The owner reads the problem-report inbox (open reports, first page): 200 with the list. The first report id is remembered when there is one. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a report.",
       "do": {
         "api": "GET",
         "path": "/api/v1/platform-problem-reports"
@@ -31,7 +31,7 @@
         "status": 200,
         "json": {
           "$.reports": {
-            "exists": true
+            "present": true
           }
         }
       },
@@ -45,7 +45,7 @@
     {
       "id": "s2",
       "actor": "platform-admin",
-      "says": "The owner reads the list of review items (class review): 200.",
+      "says": "The owner reads the list of review items (class review): 200. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a review item.",
       "do": {
         "api": "GET",
         "path": "/api/v1/platform-problem-reports?class=review"
@@ -54,7 +54,7 @@
         "status": 200,
         "json": {
           "$.reports": {
-            "exists": true
+            "present": true
           }
         }
       }

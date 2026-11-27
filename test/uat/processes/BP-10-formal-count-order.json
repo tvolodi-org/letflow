@@ -49,6 +49,7 @@
     },
     {
       "id": "s0b",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "do": {
         "api": "POST",

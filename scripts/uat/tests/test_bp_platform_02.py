@@ -16,6 +16,7 @@ import check_processes  # noqa: E402
 import runner  # noqa: E402
 
 FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-02-self-service-signup.json"
+LIFECYCLE_FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-02-tenant-lifecycle-process.json"
 
 
 class Signup(unittest.TestCase):
@@ -287,6 +288,27 @@ class Signup(unittest.TestCase):
             except SystemExit:
                 pass
         self.assertNotIn("actors missing", err.getvalue() + out.getvalue())
+
+
+class TenantLifecycle(unittest.TestCase):
+    """T-3105: the lifecycle scenario names the three lifecycle functions of the compiled
+    catalogue; an assertion by position went red when the catalogue grew."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.process = json.loads(LIFECYCLE_FILE.read_text())
+        cls.steps = {s["id"]: s for s in cls.process["steps"]}
+
+    def ok(self, step_id, body, status=200):
+        rows = runner.run_assertions(self.steps[step_id]["expect"], status, body)
+        return all(r["ok"] for r in rows)
+
+    def test_the_lifecycle_functions_are_named_and_not_counted(self):
+        catalogue = {"items": [{"name": "tenant.purge"}, {"name": "tenant.reactivate"}, {"name": "tenant.suspend"},
+                                {"name": "tenant.set_script_policy"}]}
+        self.assertTrue(self.ok("A2", catalogue))
+        self.assertTrue(self.ok("A2", {"items": list(reversed(catalogue["items"]))}))
+        self.assertFalse(self.ok("A2", {"items": [{"name": "tenant.purge"}]}))
 
 
 if __name__ == "__main__":

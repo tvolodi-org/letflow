@@ -8,7 +8,11 @@ defmodule Letflow.Admission do
   future maintainer needs.
 
   This module is CORE ONLY: no HTTP or Poller-specific vocabulary appears
-  anywhere here, and no plug/route wiring exists yet (REQ-217/REQ-218).
+  anywhere here. The HTTP wiring lives in `Letflow.Plugs.Admission` (REQ-217)
+  and reaches this module only through the client functions below; the
+  observability surface of T-3034 (the counters, the refusal line, the stale
+  sweep) is rendered by `Letflow.Admission.Observability`, which is a leaf on
+  top of this module.
 
   ## Process shape: one GenServer, not one-per-pool
 
@@ -101,10 +105,62 @@ defmodule Letflow.Admission do
   direction: it can only under-count (transiently widen admission), never
   over-count (permanently wedge admission shut). A caller-side crash (a
   process that acquired a ref and dies without releasing it) is a
-  DIFFERENT scenario: by default this module does not monitor callers,
+  DIFFERENT scenario: this module does not monitor callers by default,
   unlike `Letflow.SandboxPool`'s owner-monitor mechanism — a leaked ref stays
   counted against its budget until this process itself restarts or the ref is
   explicitly released.
+
+  ## Caller monitoring on the HTTP instance (T-3034)
+
+  The HTTP admission instance (the one `Letflow.Plugs.Admission` talks to) is
+  started with `monitor_callers: true`, so a request whose PROCESS dies while
+  it still holds a ref releases that ref through the `:DOWN` path instead of
+  leaking it until the next restart. This is the only change to the crash
+  semantics above: the "does not monitor callers" sentence describes the
+  DEFAULT of `start_link/1`, not the HTTP instance, which opts in exactly as
+  `Letflow.Engine.Lua.ScriptAdmission` already does (see the next section).
+  The leak it closes is real on a keep-alive connection whose peer goes away
+  mid-request: without the monitor the global budget loses one unit per such
+  request, and the pool wedges shut (`global_in_use` never falls back).
+
+  ## Observability counters (T-3034)
+
+  Besides the admission decision itself this module keeps the numbers an
+  operator needs to explain a refusal (the QA evidence of T-3034: 25 of 26
+  recorded 503 bodies were the GLOBAL gate, on a stable build, while one smoke
+  ran):
+
+    * `pool_size`, `reserved_headroom` and `global_cap` — the budget that is
+      ACTUALLY applied, so the infra values (`POOL_SIZE`, `RESERVED_HEADROOM`)
+      are visible from the running node instead of only from the config.
+    * `rejections` — the number of refusals since this process started, split
+      by kind (`:global` / `:tenant`).
+    * `tracked_tenants` — `map_size(state.tenants)`, the fair-share divisor,
+      so a per-tenant cap that shrank to 1 can be explained.
+    * the per-tenant in-flight rows with the CLASS of each in-flight
+      admission and its age — the "who is holding the slots" answer.
+
+  `counters/1` is the read-only snapshot; it is the only new read surface and
+  it never mutates state. The module stays free of HTTP vocabulary: the class
+  is an OPAQUE label the caller passes in (`opts[:class]` — in the HTTP wiring
+  the route pattern of the request) and this module stores it verbatim. It
+  never parses it, never renders it into a route and never reads a request
+  path.
+
+  ## Stale in-flight requests (T-3034)
+
+  An admission that is held longer than the age bound (config
+  `:letflow, :admission, :max_in_flight_age_ms`, default 120 000 ms) is
+  LOGGED ONCE with its class and its age. It is NOT released: this
+  module's own contract above (the "recomputed caps gate only FUTURE
+  decisions" rule) forbids revoking a held admission, and a forced release
+  would hand the unit to a request that is still running. A bound of 0 (or
+  less) switches the sweep off entirely.
+
+  There is no long-poll and no SSE route in the product, so every admission
+  is an ordinary request/response: the bound catches a slow ordinary request
+  (a heavy import or export, a long script run), never a streaming consumer
+  that would hold its slot for the life of the connection.
 
   ## Opt-in caller monitoring (GH 2534, decision 0053 D8)
 
@@ -114,7 +170,9 @@ defmodule Letflow.Admission do
   `Letflow.Engine.Wasm.InvocationLease`. Used by the tenant-script admission
   server `Letflow.Engine.Lua.ScriptAdmission`, whose slot holder is the per-run
   watchdog: a killed watchdog (and so a dead dispatcher) can never leak a slot.
-  The HTTP admission keeps the default (`false`), unchanged.
+  T-3034 opts the HTTP instance in as well (see "Caller monitoring on the HTTP
+  instance" above): the holder of an HTTP admission ref is the request
+  process, so its death is the leak guard.
 
   ## Supervision-tree placement — no ordering dependency (AC6)
 
@@ -138,6 +196,9 @@ defmodule Letflow.Admission do
   @type pool_selector :: :global | {:tenant, tenant_schema :: String.t()}
 
   @default_reserved_headroom 2
+  @default_max_in_flight_age_ms 120_000
+  @default_stale_sweep_interval_ms 1_000
+  @top_tenants 5
 
   defmodule Ref do
     @moduledoc """
@@ -156,17 +217,43 @@ defmodule Letflow.Admission do
   @typedoc "See `Letflow.Admission.Ref` — opaque, must not be pattern-matched on by callers."
   @type admission_ref :: Ref.t()
 
+  @typedoc """
+  The read-only snapshot of this instance's admission counters (T-3034).
+
+  `tenants` rows carry the RAW tenant schema name — the caller that renders
+  them is responsible for hashing it (see `Letflow.Admission.Observability`);
+  this module never renders a tenant identifier.
+  """
+  @type counters :: %{
+          tracked_tenants: non_neg_integer(),
+          in_use: non_neg_integer(),
+          cap: pos_integer(),
+          reserved_headroom: pos_integer(),
+          pool_size: pos_integer(),
+          rejections: %{global: non_neg_integer(), tenant: non_neg_integer()},
+          tenants: [
+            %{tenant: String.t(), in_use: non_neg_integer(), oldest_ms: non_neg_integer()}
+          ],
+          oldest: %{tenant: String.t(), route: String.t(), age_ms: non_neg_integer()} | nil
+        }
+
   # Client API
 
   @doc """
   Starts the admission-control server. `opts` accepts `:name` (default
   `__MODULE__`), `:monitor_callers` (default `false`; see "Opt-in caller
-  monitoring"), and `:pool_size`/`:reserved_headroom` overrides for test
+  monitoring"), `:pool_size`/`:reserved_headroom` overrides for test
   isolation (mirrors `Letflow.SandboxPool.start_link/1`'s
-  `Keyword.get_lazy/3` idiom). Absent overrides fall back to
-  `Application.fetch_env!(:letflow, Letflow.Repo)[:pool_size]` and
+  `Keyword.get_lazy/3` idiom), and `:max_in_flight_age_ms` /
+  `:stale_sweep_interval_ms` (the stale in-flight sweep of T-3034; see
+  "Stale in-flight requests"). Absent overrides fall back to
+  `Application.fetch_env!(:letflow, Letflow.Repo)[:pool_size]`,
   `Application.get_env(:letflow, :admission, [])[:reserved_headroom]`
-  (default #{@default_reserved_headroom}).
+  (default #{@default_reserved_headroom}),
+  `Application.get_env(:letflow, :admission, [])[:max_in_flight_age_ms]`
+  (default #{@default_max_in_flight_age_ms}) and
+  `Application.get_env(:letflow, :admission, [])[:stale_sweep_interval_ms]`
+  (default #{@default_stale_sweep_interval_ms}).
   """
   @spec start_link(opts :: keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -183,12 +270,26 @@ defmodule Letflow.Admission do
           @default_reserved_headroom
       end)
 
+    max_in_flight_age_ms =
+      Keyword.get_lazy(opts, :max_in_flight_age_ms, fn ->
+        Application.get_env(:letflow, :admission, [])[:max_in_flight_age_ms] ||
+          @default_max_in_flight_age_ms
+      end)
+
+    stale_sweep_interval_ms =
+      Keyword.get_lazy(opts, :stale_sweep_interval_ms, fn ->
+        Application.get_env(:letflow, :admission, [])[:stale_sweep_interval_ms] ||
+          @default_stale_sweep_interval_ms
+      end)
+
     GenServer.start_link(
       __MODULE__,
       %{
         pool_size: pool_size,
         reserved_headroom: reserved_headroom,
-        monitor_callers: Keyword.get(opts, :monitor_callers, false)
+        monitor_callers: Keyword.get(opts, :monitor_callers, false),
+        max_in_flight_age_ms: max_in_flight_age_ms,
+        stale_sweep_interval_ms: stale_sweep_interval_ms
       },
       name: name
     )
@@ -204,17 +305,30 @@ defmodule Letflow.Admission do
   `server` defaults to `__MODULE__`, matching
   `Letflow.SandboxPool.claim/2`'s own convention, so tests can start an
   isolated instance under a distinct name.
-  """
-  @spec try_acquire(pool_selector(), server :: GenServer.server()) ::
-          {:ok, admission_ref()} | {:error, :capacity}
-  def try_acquire(pool, server \\ __MODULE__)
 
-  def try_acquire(:global, server) do
-    GenServer.call(server, {:try_acquire, :global})
+  `opts[:class]` (T-3034) is an OPAQUE label the caller attaches to the
+  admission — in the HTTP wiring the ROUTE CLASS of the request (the route
+  pattern, never the raw path). This module stores it verbatim, uses it only
+  to tell an operator which request class holds the budget, and never parses
+  or renders it. A missing or empty class is stored as `"unknown"`.
+  """
+  @spec try_acquire(pool_selector(), server :: GenServer.server(), opts :: keyword()) ::
+          {:ok, admission_ref()} | {:error, :capacity}
+  def try_acquire(pool, server \\ __MODULE__, opts \\ [])
+
+  def try_acquire(:global, server, opts) do
+    GenServer.call(server, {:try_acquire, :global, class_of(opts)})
   end
 
-  def try_acquire({:tenant, schema} = pool, server) when is_binary(schema) do
-    GenServer.call(server, {:try_acquire, pool})
+  def try_acquire({:tenant, schema} = pool, server, opts) when is_binary(schema) do
+    GenServer.call(server, {:try_acquire, pool, class_of(opts)})
+  end
+
+  defp class_of(opts) do
+    case Keyword.get(opts, :class) do
+      class when is_binary(class) and class != "" -> class
+      _other -> "unknown"
+    end
   end
 
   @doc """
@@ -297,45 +411,95 @@ defmodule Letflow.Admission do
     GenServer.call(server, :usage)
   end
 
+  @doc """
+  The read-only observability snapshot of this instance (T-3034): the budget
+  that is actually applied, the refusals since this process started (split by
+  kind), the fair-share divisor, and the per-tenant in-flight rows with the
+  route class and the age of each in-flight admission.
+
+  The `tenants` rows carry the RAW tenant schema name and the `oldest` row
+  carries the raw schema name too: the caller that renders them hashes the
+  name (`Letflow.Admission.Observability` does). This module never renders a
+  tenant identifier itself.
+
+  Read-only: the snapshot never mutates the counters. `server` defaults to
+  `__MODULE__`, mirroring every other client function in this module.
+  """
+  @spec counters(server :: GenServer.server()) :: counters()
+  def counters(server \\ __MODULE__) do
+    # A short timeout on purpose: the public liveness route reads these
+    # counters, and a liveness probe must never wait long for an observability
+    # figure. A timeout is an exit, which the caller renders as "the counters
+    # are not available" -- never as a failure of the route it reads.
+    GenServer.call(server, :counters, 1_000)
+  end
+
   # GenServer callbacks
 
   # State shape (design doc §2.2; reserved_headroom added per
   # lib/letflow/design/iss0421-poller-bounded-concurrency.md §3b/§7;
   # generation/eviction fields added per
-  # lib/letflow/design/iss0437-admission-tenant-eviction.md §2.1/§5(a)):
+  # lib/letflow/design/iss0437-admission-tenant-eviction.md §2.1/§5(a);
+  # pool_size/rejections/ref-metadata added per T-3034):
   #
   #   %{
   #     global_cap:         pos_integer(),               # fixed at init/1, from config
   #     global_in_use:      non_neg_integer(),
   #     tenants:            %{optional(String.t()) => %{in_use: non_neg_integer(), generation: non_neg_integer()}},
-  #     refs:               %{optional(reference()) => {pool_selector(), non_neg_integer() | nil}},
+  #     refs:               %{optional(reference()) => {pool_selector(), non_neg_integer() | nil, meta}},
   #     reserved_headroom:  pos_integer(),                 # fixed at init/1, same source as global_cap
+  #     pool_size:          pos_integer(),                 # fixed at init/1, the value global_cap was derived from
   #     tenant_generations: %{optional(String.t()) => non_neg_integer()}  # never deleted, only incremented (forget_tenant/2)
+  #     rejections:         %{global: non_neg_integer(), tenant: non_neg_integer()}  # since init/1
+  #     max_in_flight_age_ms: pos_integer(),               # the stale in-flight bound (T-3034)
+  #     stale_sweep_interval_ms: pos_integer()             # the sweep period (T-3034)
   #   }
+  #
+  # `meta` is `%{class: String.t(), at: integer, stale_logged?: boolean}` — the
+  # opaque route class the caller attached to the admission, the monotonic
+  # millisecond stamp of the acquisition, and whether the stale sweep has
+  # already logged this admission (so it is logged EXACTLY once).
   @impl true
   def init(%{pool_size: pool_size, reserved_headroom: reserved_headroom} = args) do
     global_cap = max(pool_size - reserved_headroom, 1)
+    max_in_flight_age_ms = Map.get(args, :max_in_flight_age_ms, @default_max_in_flight_age_ms)
 
-    {:ok,
-     %{
-       global_cap: global_cap,
-       global_in_use: 0,
-       tenants: %{},
-       refs: %{},
-       reserved_headroom: reserved_headroom,
-       tenant_generations: %{},
-       # GH 2534 / decision 0053 D8: opt-in caller monitoring. When true, every
-       # acquire monitors the acquiring pid and its :DOWN releases the slot, so a
-       # killed holder cannot leak budget. `monitors` maps monitor ref -> admission
-       # id, `ref_monitors` the reverse. Default false: the HTTP admission is unchanged.
-       monitor_callers: Map.get(args, :monitor_callers, false),
-       monitors: %{},
-       ref_monitors: %{}
-     }}
+    stale_sweep_interval_ms =
+      Map.get(args, :stale_sweep_interval_ms, @default_stale_sweep_interval_ms)
+
+    state = %{
+      global_cap: global_cap,
+      global_in_use: 0,
+      tenants: %{},
+      refs: %{},
+      reserved_headroom: reserved_headroom,
+      pool_size: pool_size,
+      tenant_generations: %{},
+      rejections: %{global: 0, tenant: 0},
+      max_in_flight_age_ms: max_in_flight_age_ms,
+      stale_sweep_interval_ms: stale_sweep_interval_ms,
+      # GH 2534 / decision 0053 D8: opt-in caller monitoring. When true, every
+      # acquire monitors the acquiring pid and its :DOWN releases the slot, so a
+      # killed holder cannot leak budget. `monitors` maps monitor ref -> admission
+      # id, `ref_monitors` the reverse. Default false; the HTTP instance opts in
+      # (T-3034) so a dead request process cannot leak a global slot.
+      monitor_callers: Map.get(args, :monitor_callers, false),
+      monitors: %{},
+      ref_monitors: %{}
+    }
+
+    # The stale in-flight sweep (T-3034): a self-message, so the process keeps
+    # no dependency on any other supervised process (same rule as init/1
+    # itself). A bound of 0 (or less) switches the sweep off entirely.
+    if max_in_flight_age_ms > 0 and stale_sweep_interval_ms > 0 do
+      Process.send_after(self(), :sweep_stale, stale_sweep_interval_ms)
+    end
+
+    {:ok, state}
   end
 
   @impl true
-  def handle_call({:try_acquire, :global}, from, state) do
+  def handle_call({:try_acquire, :global, class}, from, state) do
     if state.global_in_use < state.global_cap do
       id = make_ref()
       ref = %Ref{id: id, pool: :global}
@@ -343,16 +507,16 @@ defmodule Letflow.Admission do
       new_state = %{
         state
         | global_in_use: state.global_in_use + 1,
-          refs: Map.put(state.refs, id, {:global, nil})
+          refs: Map.put(state.refs, id, {:global, nil, new_meta(class)})
       }
 
       {:reply, {:ok, ref}, maybe_monitor(new_state, from, id)}
     else
-      {:reply, {:error, :capacity}, state}
+      {:reply, {:error, :capacity}, count_rejection(state, :global)}
     end
   end
 
-  def handle_call({:try_acquire, {:tenant, schema} = pool}, from, state) do
+  def handle_call({:try_acquire, {:tenant, schema} = pool, class}, from, state) do
     # Lazy tenant-entry creation happens BEFORE the admission decision, and
     # regardless of whether that decision ultimately succeeds -- an attempt
     # itself, not only a successful one, is what counts a tenant into the
@@ -371,12 +535,12 @@ defmodule Letflow.Admission do
         state
         | global_in_use: state.global_in_use + 1,
           tenants: Map.update!(state.tenants, schema, &%{&1 | in_use: &1.in_use + 1}),
-          refs: Map.put(state.refs, id, {pool, tenant_entry.generation})
+          refs: Map.put(state.refs, id, {pool, tenant_entry.generation, new_meta(class)})
       }
 
       {:reply, {:ok, ref}, maybe_monitor(new_state, from, id)}
     else
-      {:reply, {:error, :capacity}, state}
+      {:reply, {:error, :capacity}, count_rejection(state, :tenant)}
     end
   end
 
@@ -390,6 +554,10 @@ defmodule Letflow.Admission do
 
   def handle_call(:usage, _from, state) do
     {:reply, %{in_use: state.global_in_use, cap: state.global_cap}, state}
+  end
+
+  def handle_call(:counters, _from, state) do
+    {:reply, build_counters(state), state}
   end
 
   def handle_call({:release, %Ref{id: id}}, _from, state) do
@@ -415,6 +583,15 @@ defmodule Letflow.Admission do
     end
   end
 
+  # T-3034: the stale in-flight sweep. Every admission that has been held
+  # longer than the age bound is logged ONCE with its route class and its age.
+  # It is NOT released: this module's own contract forbids revoking a held
+  # admission (see the moduledoc's "Stale in-flight requests").
+  def handle_info(:sweep_stale, state) do
+    Process.send_after(self(), :sweep_stale, state.stale_sweep_interval_ms)
+    {:noreply, sweep_stale(state)}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   # The server's own `refs` entry (keyed by the unforgeable `id`) is the sole
@@ -430,7 +607,7 @@ defmodule Letflow.Admission do
       {nil, _refs} ->
         state
 
-      {{stored_pool, captured_generation}, refs} ->
+      {{stored_pool, captured_generation, _meta}, refs} ->
         %{
           state
           | global_in_use: state.global_in_use - 1,
@@ -474,6 +651,126 @@ defmodule Letflow.Admission do
         | tenants: Map.put(state.tenants, schema, %{in_use: 0, generation: generation})
       }
     end
+  end
+
+  # --- observability (T-3034) -------------------------------------------------------------
+
+  # The metadata of one admission: the opaque route class the caller attached,
+  # the monotonic millisecond stamp of the acquisition, and whether the stale
+  # sweep already logged this admission.
+  defp new_meta(class) do
+    %{class: class, at: System.monotonic_time(:millisecond), stale_logged?: false}
+  end
+
+  defp count_rejection(state, kind) do
+    %{state | rejections: Map.update!(state.rejections, kind, &(&1 + 1))}
+  end
+
+  defp build_counters(state) do
+    now = System.monotonic_time(:millisecond)
+
+    {rows, oldest} =
+      Enum.reduce(state.refs, {[], nil}, fn {id, {pool, _generation, meta}}, {rows, oldest} ->
+        case pool do
+          {:tenant, schema} ->
+            age = max(now - meta.at, 0)
+            row = %{tenant: schema, in_use: 1, oldest_ms: age, route: meta.class, id: id}
+            {rows ++ [row], older(oldest, row)}
+
+          :global ->
+            {rows, oldest}
+        end
+      end)
+
+    per_tenant =
+      rows
+      |> Enum.group_by(& &1.tenant)
+      |> Enum.map(fn {schema, held} ->
+        ages = Enum.map(held, & &1.oldest_ms)
+
+        %{
+          tenant: schema,
+          in_use: length(held),
+          oldest_ms: Enum.max(ages),
+          routes:
+            held
+            |> Enum.group_by(& &1.route)
+            |> Enum.map(fn {class, same} -> {class, length(same)} end)
+        }
+      end)
+      |> Enum.sort_by(&{-&1.in_use, -&1.oldest_ms, &1.tenant})
+      |> Enum.take(@top_tenants)
+
+    oldest_row =
+      case oldest do
+        nil -> nil
+        row -> %{tenant: row.tenant, route: row.route, age_ms: row.oldest_ms}
+      end
+
+    %{
+      tracked_tenants: map_size(state.tenants),
+      in_use: state.global_in_use,
+      cap: state.global_cap,
+      reserved_headroom: state.reserved_headroom,
+      pool_size: state.pool_size,
+      rejections: state.rejections,
+      tenants: per_tenant,
+      oldest: oldest_row
+    }
+  end
+
+  defp older(nil, row), do: row
+  defp older(current, row) when row.oldest_ms > current.oldest_ms, do: row
+  defp older(current, _row), do: current
+
+  # The stale sweep: every admission held longer than the bound is logged ONCE
+  # (the `stale_logged?` flag makes the second sweep skip it) and stays held.
+  defp sweep_stale(state) do
+    now = System.monotonic_time(:millisecond)
+
+    Enum.reduce(state.refs, {state, []}, fn {id, {pool, _generation, meta}}, {state, logged} ->
+      age = now - meta.at
+
+      if meta.stale_logged? or age <= state.max_in_flight_age_ms do
+        {state, logged}
+      else
+        tenant =
+          case pool do
+            {:tenant, schema} -> schema
+            :global -> nil
+          end
+
+        new_meta = %{meta | stale_logged?: true}
+        refs = Map.put(state.refs, id, put_meta(state.refs[id], new_meta))
+
+        entry = %{
+          tenant: tenant,
+          route: meta.class,
+          age_ms: age,
+          in_use: state.global_in_use,
+          cap: state.global_cap
+        }
+
+        {%{state | refs: refs}, [entry | logged]}
+      end
+    end)
+    |> then(fn {state, logged} ->
+      Enum.each(logged, &log_stale/1)
+      state
+    end)
+  end
+
+  defp put_meta({pool, generation, _meta}, meta), do: {pool, generation, meta}
+
+  # The stale line is emitted through Letflow.Admission.Observability (which
+  # hashes the tenant schema name). A failure there must never take the
+  # admission process down, so it is swallowed here.
+  defp log_stale(entry) do
+    Letflow.Admission.Observability.log_stale(entry)
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp per_tenant_cap(%{global_cap: global_cap, tenants: tenants}) do

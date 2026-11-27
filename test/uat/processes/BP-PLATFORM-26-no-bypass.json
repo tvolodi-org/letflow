@@ -91,6 +91,7 @@
     },
     {
       "id": "R1c",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "Route 1: the history opens with INSTANCE_STARTED.",
       "do": {
@@ -199,6 +200,7 @@
     },
     {
       "id": "R2c",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "Route 2: the history opens with INSTANCE_STARTED.",
       "do": {

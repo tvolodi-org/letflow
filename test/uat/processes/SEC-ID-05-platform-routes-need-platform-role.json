@@ -61,6 +61,7 @@
     },
     {
       "id": "s9",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "platform-admin",
       "do": {"api": "GET", "path": "/api/v1/tenants"},
       "expect": {"status": 200, "json": {"$.items[0].slug": {"exists": true}}}

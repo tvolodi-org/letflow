@@ -17,6 +17,12 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
   alone, and the AC5 guard of `test/letflow/idempotency_test.exs` scans every
   source file for it.
 
+  D-204 (the module-process conversion, section 1.2) adds the MODULE FAMILY:
+  the entries a module's own write handlers derive. The one converted handler
+  of the test-only fixture module is the worked example here; the derivation
+  itself is proved in `module_family_test.exs` and the tenant rule in
+  `module_tenant_rule_test.exs`.
+
   No database: the catalogue is compiled into the build, so nothing here needs a
   tenant. `async: true` is safe.
   """
@@ -47,6 +53,14 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.set_script_policy"
   ]
 
+  # D-204 (the module-process conversion, section 1.2): the MODULE FAMILY of
+  # the catalogue. Its entries are DERIVED from a module's own write handlers,
+  # never written by hand, and they carry the module's own id as their family.
+  # The one converted handler of the test-only fixture module is the worked
+  # example; a production build has none yet, so the catalogue of a build
+  # without a converted module is the catalogue it was before.
+  @module_entries ["fixture_ledger_post.post_alpha"]
+
   @entry_map_keys [
     "family",
     "idempotency_inputs",
@@ -60,12 +74,12 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
   ]
 
   describe "the compiled catalogue" do
-    test "it holds exactly the tenant family's chain and the registration family's entry" do
-      assert Catalog.names() == Enum.sort(@entries)
+    test "it holds exactly the tenant family's chain, the registration family's entry and the module family" do
+      assert Catalog.names() == Enum.sort(@entries ++ @module_entries)
     end
 
-    test "every entry needs the platform atom and runs only in the platform tenant" do
-      assert Catalog.permission_atoms() == [:TenantsManage]
+    test "every PLATFORM entry needs the platform atom and runs only in the platform tenant" do
+      assert Catalog.permission_atoms() == [:FxlpPost, :TenantsManage]
 
       for name <- @entries do
         {:ok, entry} = Catalog.fetch(name)
@@ -76,13 +90,23 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
       end
     end
 
+    test "D-204-P1 a MODULE entry carries the module's own id and its own permission" do
+      {:ok, entry} = Catalog.fetch("fixture_ledger_post.post_alpha")
+
+      assert entry.family == "fixture_ledger_post"
+      assert entry.permission == :FxlpPost
+      assert entry.platform_tenant_only == false
+    end
+
     test "a name outside the catalogue is not found" do
       assert {:error, :not_found} = Catalog.fetch("tenant.not_in_the_catalogue")
     end
 
-    test "a caller outside the platform tenant sees no platform entry at all" do
-      assert Catalog.list(platform_tenant?: false) == []
-      assert length(Catalog.list(platform_tenant?: true)) == length(@entries)
+    test "a caller outside the platform tenant sees no PLATFORM entry at all" do
+      assert Enum.map(Catalog.list(platform_tenant?: false), & &1.name) == @module_entries
+
+      assert length(Catalog.list(platform_tenant?: true)) ==
+               length(@entries) + length(@module_entries)
     end
   end
 

@@ -68,6 +68,12 @@ class FakeStock:
         self.location_nodes = {}  # record id -> field values, for the real second_place fixture
         self.location_links = {}
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
+        # T-3034: the admission counters the node publishes on its public /health route
+        self.admission = {"available": True, "tracked_tenants": 2, "in_use": 1, "cap": 28,
+                          "reserved_headroom": 2, "pool_size": 30,
+                          "rejections": {"global": 0, "tenant": 0}}
+        self.admission_missing = False  # the node publishes no admission section
+        self.capacity_503 = False  # the stock document post answers 503 "server at capacity"
         self.token_ttl = None  # authenticated requests a freshly minted token answers before expiring
         self.token_uses = {}
         self.token_serials = {}
@@ -80,6 +86,9 @@ class FakeStock:
         # the platform tenant: the definitions of the tenant and the instances a run starts (G18)
         self.definitions = []  # [{"id", "name", "version", "status"}]
         self.definitions_forbidden = False  # the definitions list answers 403
+        self.ensure_seeds_calls = []  # T-3125: (who, body) of POST .../stock/ensure-seeds
+        self.ensure_seeds_status = 200  # the answer of ensure-seeds
+        self.ensure_seeds_noop = False  # 200, but nothing is repaired and nothing listed
         self.instances = {}  # instance id -> {"status", "variables"}
         self.instance_starts = False  # POST /api/v1/instances may start an instance
         self.instance_status = "ACTIVE"  # the status a started instance gets
@@ -116,7 +125,10 @@ def make_handler(state):
             with state.lock:
                 if path == "/health":
                     sha = state.sha()
-                    return self.reply(200, {"status": "ok", **({"sha": sha} if sha else {})})
+                    body = {"status": "ok", **({"sha": sha} if sha else {})}
+                    if not state.admission_missing:
+                        body["admission"] = state.admission
+                    return self.reply(200, body)
                 auth = self.headers.get("Authorization", "")
                 if path.startswith("/qoimeks/"):
                     good = state.shared_value is not None and auth == f"Bearer {state.shared_value}"
@@ -162,6 +174,9 @@ def make_handler(state):
             base = "/api/v1/modules/stock"
             if getattr(state, "post_409", None) and method == "POST" and path.startswith(base + "/documents"):
                 return self.reply(409, {"error": "conflict", "reason": state.post_409})
+            if getattr(state, "capacity_503", False) and method == "POST" and path.startswith(base + "/documents"):
+                return self.reply(503, {"status": 503, "title": "Service Unavailable",
+                                        "detail": "server at capacity, retry shortly"})
             if path == "/api/v1/tenants":
                 if who not in state.platform_roles:
                     return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
@@ -303,6 +318,17 @@ def make_handler(state):
                     return self.reply(404, {"title": "not found"})
                 state.instances[inst]["status"] = "CANCELLED"
                 return self.reply(200, {"instance_id": inst, "status": "CANCELLED"})
+            if method == "POST" and path == "/api/v1/tenant/modules/stock/ensure-seeds":
+                state.ensure_seeds_calls.append((who, body))
+                if state.ensure_seeds_status != 200 or who != "admin":
+                    return self.reply(state.ensure_seeds_status if who == "admin" else 403, {"title": "refused"})
+                fixed = []
+                if not state.ensure_seeds_noop:
+                    for d in state.definitions:
+                        if d.get("status") == "ARCHIVED":
+                            d["status"] = "ACTIVE"
+                            fixed.append(d["name"] + "@" + str(d.get("version")))
+                return self.reply(200, {"module_id": "stock", "process_drafts": [], "process_activated": fixed})
             if method == "GET" and path == "/api/v1/definitions":
                 if state.definitions_forbidden:
                     return self.reply(403, {"title": "Forbidden"})
