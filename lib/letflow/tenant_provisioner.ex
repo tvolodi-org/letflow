@@ -36,6 +36,13 @@ defmodule Letflow.TenantProvisioner do
   becomes `failed` with `"<module_id>:<code>"`, and a replay of the create call retries it. Rows made
   before the column existed are `not_applicable` and install nothing.
 
+  ## A failed create does not leave a half-made tenant (T-3233)
+
+  A create that THIS call made (`:created`) and that ends in a hostname conflict is undone by
+  `Letflow.TenantPurge.compensate_creation/1` (the tenant is purged, its slug stays reserved), so no
+  tenant keeps a schema without an onboarding row. A replay of an existing tenant is never
+  compensated, and a transient `:internal` is left to the repeat described above.
+
   ## What is never done
 
   No `auth_context` is built, no tenant data is read, no role or credential is created (P4, P5, P7).
@@ -474,7 +481,8 @@ defmodule Letflow.TenantProvisioner do
 
   defp complete(request, tenant, lifecycle, platform_prefix, server_url, outcome) do
     with {:ok, tenant} <- ensure_provisioned(tenant),
-         {:ok, record} <- ensure_onboarding(tenant, request),
+         {:ok, record} <-
+           ensure_onboarding(tenant, request) |> compensate_conflict(tenant, outcome),
          :ok <- ensure_grant(tenant, lifecycle, request, platform_prefix),
          :ok <- ensure_realm(tenant, request, platform_prefix) do
       ensure_default_modules(tenant, lifecycle)
@@ -488,6 +496,26 @@ defmodule Letflow.TenantProvisioner do
        }}
     end
   end
+
+  # T-3233: a hostname conflict is terminal (a repeat of the call meets the same owner of the host), so
+  # a tenant THIS call created (`:created`, never a replay) is undone through `TenantPurge` instead of
+  # staying with a schema and no onboarding row. A transient `:internal` is NOT compensated: a repeat of
+  # the create with the same tenant id completes it (decision 0072 D3).
+  defp compensate_conflict({:error, :conflict} = error, tenant, :created) do
+    case TenantPurge.compensate_creation(tenant.id) do
+      {:ok, _outcome} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "provisioner: compensation not done (tenant_id=#{inspect(tenant.id)}, reason=#{inspect(reason)})"
+        )
+    end
+
+    error
+  end
+
+  defp compensate_conflict(result, _tenant, _outcome), do: result
 
   # T-1580: the last step. A failure here never fails the create: the state `failed` (plus
   # "<module_id>:<code>") is recorded and the next replay of the create call retries. Rows made before

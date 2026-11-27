@@ -29,6 +29,17 @@ defmodule Letflow.TenantPurge do
   * The realm is deleted by infra's reaper only when `GET /admin/v1/tenants/:id` shows `purged_at`.
     The row in `tenant_lifecycles` is never deleted, so the slug and hostname stay reserved.
 
+  ## Compensation of a failed creation (T-3233)
+
+  `compensate_creation/1` is the one purge that skips the eligibility and the retention: it undoes a
+  tenant whose creation chain ended in a terminal failure (a schema and a `tenant_schemas` row, no
+  onboarding or lifecycle rows). It is NOT a route and not a trigger a caller names: its only callers
+  are `Letflow.PlatformFunctions.CreationCompensation` (the process chain, which proves the instance
+  itself created the tenant) and `Letflow.TenantProvisioner` (the old create path, same proof by the
+  `:created` outcome). It never touches the platform tenant, drops the schema through the same
+  `purge_rows/6` as every purge, and leaves the same markers (lifecycle `deleted` with `purged_at`,
+  slug and hostname reserved).
+
   ## Not designed here
 
   Backups and replicas (a purge does not erase from them), multi-node, early erasure, production
@@ -49,7 +60,7 @@ defmodule Letflow.TenantPurge do
   alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioning
 
-  @type trigger :: :provisioner | :platform_admin | :sweep
+  @type trigger :: :provisioner | :platform_admin | :sweep | :compensation
   @type result ::
           {:ok, :purged | :already_purged}
           | {:error, :not_found | :not_eligible | :purge_failed}
@@ -105,6 +116,75 @@ defmodule Letflow.TenantPurge do
       :error -> {:error, :not_found}
       {:error, :internal} -> {:error, :purge_failed}
     end
+  end
+
+  @doc """
+  Compensation of a failed creation (see the moduledoc). The caller has already proved that the tenant
+  was created by the failed chain itself, never adopted. The tenant is deactivated, then purged by the
+  same code as every purge (one transaction, the per-tenant lock). A platform tenant and an unknown id
+  are `{:error, :not_found}`; a purged tenant answers `{:ok, :already_purged}`.
+  """
+  @spec compensate_creation(term()) :: result()
+  def compensate_creation(raw_id) do
+    with {:ok, id} <- cast_id(raw_id),
+         {:ok, platform_prefix} <- platform_prefix() do
+      case TenantProvisioner.with_lock(id, fn -> run_compensation(id, platform_prefix) end) do
+        {:error, :internal} -> {:error, :purge_failed}
+        other -> other
+      end
+    else
+      :error -> {:error, :not_found}
+      {:error, :internal} -> {:error, :purge_failed}
+    end
+  end
+
+  defp run_compensation(id, platform_prefix) do
+    now = DateTime.utc_now()
+
+    result =
+      Repo.transaction(fn ->
+        Repo.query!("SET LOCAL lock_timeout = '5s'")
+
+        tenant = Repo.one(from(t in Tenant, where: t.id == ^id, lock: "FOR UPDATE"))
+        row = Repo.one(from(l in Lifecycle, where: l.tenant_id == ^id, lock: "FOR UPDATE"))
+
+        cond do
+          PlatformTenant.platform_tenant?(id) -> Repo.rollback(:not_found)
+          tenant == nil -> Repo.rollback(:not_found)
+          row != nil and row.purged_at != nil -> :already_purged
+          true -> compensate(tenant, row, now, platform_prefix)
+        end
+      end)
+
+    case result do
+      {:ok, outcome} -> {:ok, outcome}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, _other} -> {:error, :purge_failed}
+    end
+  rescue
+    exception ->
+      Logger.error(
+        "tenant compensation failed (tenant_id=#{inspect(id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      {:error, :purge_failed}
+  end
+
+  defp compensate(tenant, row, now, platform_prefix) do
+    from(t in Tenant, where: t.id == ^tenant.id) |> Repo.update_all(set: [status: :inactive])
+
+    row =
+      row ||
+        Repo.insert!(%Lifecycle{
+          tenant_id: tenant.id,
+          lifecycle: "deleted",
+          tier: "demo",
+          language: "en",
+          deletion_requested_at: now,
+          purged_at: now
+        })
+
+    purge_rows(row, tenant, :compensation, now, nil, platform_prefix)
   end
 
   @doc "The purge marker of a tenant: `purged_at` as ISO-8601 or nil. For route answers."

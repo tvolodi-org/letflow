@@ -170,6 +170,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.PlatformFunctions.Catalog
+  alias Letflow.PlatformFunctions.CreationCompensation
   alias Letflow.PlatformFunctions.Entry
   alias Letflow.PlatformFunctions.Guard
   alias Letflow.PlatformFunctions.Registry
@@ -1255,8 +1256,13 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     })
     |> Repo.update(prefix: prefix)
     |> case do
-      {:ok, updated} -> updated
-      {:error, _changeset} -> row
+      {:ok, updated} ->
+        # T-3233: the attempt cap is a terminal failure too (a crash between two steps).
+        CreationCompensation.on_given_up(updated, prefix)
+        updated
+
+      {:error, _changeset} ->
+        row
     end
   end
 
@@ -1463,13 +1469,17 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
           end
 
         {:error, reason} ->
-          write_outcome(dispatch, prefix,
-            set: [
-              status: :given_up,
-              last_failure_kind: failure_kind(reason),
-              dispatched_at: now
-            ]
-          )
+          with :ok <-
+                 write_outcome(dispatch, prefix,
+                   set: [
+                     status: :given_up,
+                     last_failure_kind: failure_kind(reason),
+                     dispatched_at: now
+                   ]
+                 ) do
+            # T-3233: a terminal failure of a chain step undoes the tenant the instance created.
+            CreationCompensation.on_given_up(dispatch, prefix)
+          end
 
         _other ->
           # An outcome that is neither an output map nor a refusal is not a

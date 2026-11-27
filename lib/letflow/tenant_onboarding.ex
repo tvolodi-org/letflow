@@ -158,9 +158,15 @@ defmodule Letflow.TenantOnboarding do
        up-to-date row, with `migrations_applied_at` reflecting step 2's own
        write.
 
-  No compensating rollback anywhere in this function — matches
+  No compensating rollback inside this function — matches
   `Letflow.Routers.Onboarding`'s own existing precedent and REVIEWER's
-  ISS-0230 finding that a rollback here would orphan a real Postgres schema.
+  ISS-0230 finding that deleting rows here would orphan a real Postgres schema.
+  Since T-3233 the CHAIN that calls it compensates a terminal failure of its own
+  creation (`Letflow.PlatformFunctions.CreationCompensation`, and the hostname
+  conflict of `Letflow.TenantProvisioner`), and only through
+  `Letflow.TenantPurge.compensate_creation/1`, which drops the schema and keeps
+  the registry rows consistent. This function stays idempotent, so a retry still
+  converges.
   """
   @spec provision_and_migrate(tenant_id :: Ecto.UUID.t()) ::
           {:ok, Registration.t()}
