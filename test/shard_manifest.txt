@@ -580,6 +580,7 @@
 12 test/letflow/security_probe/g08_uat_safety_equivalence_test.exs 4000.00
 12 test/letflow/security_probe/g09_migration_impact_test.exs 12000.00
 12 test/letflow/security_probe/g12_advisory_gate_test.exs 1400.00
+12 test/letflow/security_probe/g10_config_registry_test.exs 4000.00
 12 test/letflow/service_catalog_delete_pinned_instances_test.exs 16886.16
 12 test/letflow/support/tenant_template_ledger_test.exs 4860.05
 12 test/support/bpm_default_realm_displacement_gate_test.exs 2384.69
@@ -1553,3 +1554,7 @@
 32 test/letflow/webhooks_mapping_test.exs 25708.48
 32 test/scripts/companion_dry_run_test.exs 109867.58
 19 test/letflow/entities/handler_writes_read_test.exs 7433.53
+12 test/letflow/security_probe/g04_canary_detector_test.exs 1000.00
+12 test/letflow/security_probe/g04_http_surfaces_test.exs 11000.00
+12 test/letflow/security_probe/g04_outbound_surfaces_test.exs 6000.00
+12 test/letflow/security_probe/g04_dlq_surface_test.exs 30000.00

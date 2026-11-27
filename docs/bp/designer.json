@@ -1727,10 +1727,12 @@
     ],
     "refusals": [
       "unknown kind or handle, revoked, expired, wrong kind: uniform 404",
-      "rate limit 429"
+      "rate limit 429",
+      "a role without PublicReadHandlesIssue (storekeeper, process designer) gets 403: played by the scenario"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-DESIGNER-22.json",
+    "status": "partial",
+    "gaps": "Stays partial: the scenario plays only the refusal. Issuing a handle writes a row with no revoke route (no undo for cleanup), and the runner has no step kind for the unauthenticated public address (GET /api/public/:kind/:handle). Missing: a handle revoke route or a runner public-read step. The only registered production kind is 'certificate' (config/config.exs:15)."
   },
   {
     "id": "BP-DESIGNER-23",
@@ -1751,7 +1753,8 @@
         "functions": [],
         "route": "GET /api/v1/services",
         "code_refs": [
-          "lib/letflow/routers/services.ex:96"
+          "lib/letflow/routers/services.ex:96",
+          "lib/letflow/service_catalog.ex:692"
         ],
         "result": "the services usable by the tenant"
       }
@@ -1763,8 +1766,8 @@
     "refusals": [
       "a caller without DefinitionsRead gets 403"
     ],
-    "scenario": null,
-    "status": "partial"
+    "scenario": "test/uat/processes/BP-DESIGNER-23.json",
+    "status": "implemented"
   },
   {
     "id": "BP-DESIGNER-24",
@@ -2239,5 +2242,75 @@
     "scenario": null,
     "status": "implemented",
     "security_status": "planned: the managed name of the QA tenant must be read at run time"
+  },
+  {
+    "id": "BP-DESIGNER-34",
+    "area": "designer",
+    "title": "Prove that a process definition can be a sub-process of another (input filtered, output merged, child failure, missing and upgraded child)",
+    "description": "A process designer can compose a parent definition from a child definition with a SUB_PROCESS node. The proof is a runner scenario on the platform tenant with throwaway definitions: the child instance appears, only the interface's inputs reach it, its outputs are merged back into the parent and the parent completes with a SUB_PROCESS_COMPLETED event; a child that ends without a required output leaves the parent in ERROR; a removed child refuses the start; a child upgraded while the parent waits is late-bound by name; a parent naming an unknown child is refused at start.",
+    "actors": [
+      {
+        "role": "platform administrator",
+        "permission": "DefinitionsCreate, DefinitionsActivate, InstancesStart, InstancesRead, TasksComplete (platform tenant)"
+      }
+    ],
+    "preconditions": [
+      "the platform tenant (throwaway definitions only; no platform function, no mail)"
+    ],
+    "tasks": [
+      {
+        "actor": "platform administrator",
+        "forms": [
+          "process designer"
+        ],
+        "functions": [
+          "Letflow.Definitions.create",
+          "Letflow.Definitions.activate"
+        ],
+        "route": [
+          "POST /api/v1/definitions",
+          "POST /api/v1/definitions/:id/activate"
+        ],
+        "code_refs": [
+          "lib/letflow/definitions.ex:505"
+        ],
+        "result": "a parent and a child definition are saved and activated"
+      },
+      {
+        "actor": "platform administrator",
+        "forms": [],
+        "functions": [
+          "Letflow.Engine.create",
+          "Letflow.Engine.SubProcess.prepare_child_activation"
+        ],
+        "route": [
+          "POST /api/v1/instances",
+          "GET /api/v1/instances/:id/timeline"
+        ],
+        "code_refs": [
+          "lib/letflow/routers/instances.ex:428",
+          "lib/letflow/routers/instances.ex:440"
+        ],
+        "result": "the parent starts the child with the filtered input, merges its output and completes; a child failure or a missing child shows on the parent"
+      }
+    ],
+    "inputs": [
+      "order_no (a start variable of the parent)"
+    ],
+    "outputs": [
+      "child_result (merged from the child into the parent)"
+    ],
+    "refusals": [
+      "a child that is not an active definition: 404 at start, nothing started",
+      "a child that ends without a required output: the parent ends in ERROR"
+    ],
+    "tests": [
+      "scripts/uat/tests/test_bp_designer_34.py"
+    ],
+    "scenario": "test/uat/processes/BP-DESIGNER-34-sub-process-proof.json",
+    "uat": "runner scenario BP-DESIGNER-34 (engine smoke, pilot list); a proof experiment, not a business process of a tenant",
+    "status": "partial",
+    "gap": "the expectations of the failure, missing-child and upgrade steps come from reading the code and are confirmed by the first smoke run; the overhead measurement of the owner's technical question is not part of this scenario",
+    "executed_by": "n/a"
   }
 ]

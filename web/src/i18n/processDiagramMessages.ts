@@ -4,6 +4,8 @@
 export const PROCESS_DIAGRAM_LOCALES = ['en', 'ru', 'kk'] as const
 export type ProcessDiagramLocale = (typeof PROCESS_DIAGRAM_LOCALES)[number]
 
+import { DESIGNER_ERROR_MESSAGES, DESIGNER_ERROR_PREFIX } from './designerErrorMessages'
+
 type Triple = readonly [en: string, ru: string, kk: string]
 
 const UI: Record<string, Triple> = {
@@ -116,8 +118,9 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.stale.reload': ['Reload', 'Перезагрузить', 'Қайта жүктеу'],
   'processDiagram.edit.save.failed': ['Could not save: {message}', 'Не удалось сохранить: {message}', 'Сақтау мүмкін болмады: {message}'],
   'processDiagram.edit.save.moduleOwned': ['A module-owned version cannot be changed here.', 'Версию, поставляемую модулем, здесь изменить нельзя.', 'Модуль жеткізген нұсқаны мұнда өзгертуге болмайды.'],
-  'processDiagram.edit.save.blocked': ['Fix {count, plural, one {# error} other {# errors}} before saving.', 'Исправьте ошибки ({count}) перед сохранением.', 'Сақтау алдында қателерді ({count}) түзетіңіз.'],
+  'processDiagram.edit.save.blocked': ['Not saved: fix {count, plural, one {# problem} other {# problems}}.', 'Не сохранено: исправьте проблемы ({count}).', 'Сақталмады: мәселелерді ({count}) түзетіңіз.'],
   'processDiagram.edit.saved': ['Saved.', 'Сохранено.', 'Сақталды.'],
+  'processDiagram.edit.savedWithProblems': ['Saved as a draft with {count, plural, one {# open problem} other {# open problems}}. It cannot be published until they are fixed.', 'Сохранено как черновик, открытых проблем: {count}. Опубликовать нельзя, пока они не исправлены.', 'Жоба ретінде сақталды, ашық мәселелер: {count}. Олар түзетілмейінше жариялауға болмайды.'],
   'processDiagram.edit.discardConfirm': ['Discard all unsaved changes to the diagram?', 'Отменить все несохранённые изменения схемы?', 'Сызбаның барлық сақталмаған өзгерістерін болдырмау керек пе?'],
   'processDiagram.edit.saveDraft': ['Save draft', 'Сохранить черновик', 'Жобаны сақтау'],
   'processDiagram.edit.saveNewVersion': ['Save as draft {version}', 'Сохранить как черновик {version}', '{version} жобасы ретінде сақтау'],
@@ -181,6 +184,24 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.field.scriptKey': ['Script key', 'Ключ скрипта', 'Скрипт кілті'],
   'processDiagram.edit.field.scriptVersion': ['Script version', 'Версия скрипта', 'Скрипт нұсқасы'],
   'processDiagram.edit.field.duration': ['Duration (ISO 8601)', 'Длительность (ISO 8601)', 'Ұзақтығы (ISO 8601)'],
+  'processDiagram.edit.sub.pick': ['Process to run as a sub-process', 'Процесс для запуска как подпроцесс', 'Ішкі процесс ретінде іске қосылатын процесс'],
+  'processDiagram.edit.sub.placeholder': ['Choose a process…', 'Выберите процесс…', 'Процесті таңдаңыз…'],
+  'processDiagram.edit.sub.option': ['{name} (version {version})', '{name} (версия {version})', '{name} ({version}-нұсқа)'],
+  'processDiagram.edit.sub.loading': ['Loading the active processes…', 'Загружаем действующие процессы…', 'Әрекеттегі процестер жүктелуде…'],
+  'processDiagram.edit.sub.error': ['The list of active processes could not be loaded. Type the process name instead.', 'Не удалось загрузить список действующих процессов. Введите название процесса вручную.', 'Әрекеттегі процестер тізімін жүктеу мүмкін болмады. Процесс атауын қолмен енгізіңіз.'],
+  'processDiagram.edit.sub.none': ['There is no active process this process may call.', 'Нет действующего процесса, который этот процесс может вызвать.', 'Бұл процесс шақыра алатын әрекеттегі процесс жоқ.'],
+  'processDiagram.edit.sub.moduleOnly': ['{count, plural, one {# process is} other {# processes are}} not listed: it belongs to a module, and only a process of the same module may call it.', 'Не показано процессов: {count}. Они принадлежат модулю, и вызвать их может только процесс того же модуля.', 'Көрсетілмеген процестер: {count}. Олар модульге тиесілі, оларды тек сол модульдің процесі шақыра алады.'],
+  'processDiagram.edit.sub.chosenModuleOnly': ['The process "{name}" belongs to a module. Only a process of the same module may call it, so this step would not start. Choose another process.', 'Процесс «{name}» принадлежит модулю. Вызвать его может только процесс того же модуля, поэтому этот шаг не запустится. Выберите другой процесс.', '«{name}» процесі модульге тиесілі. Оны тек сол модульдің процесі шақыра алады, сондықтан бұл қадам іске қосылмайды. Басқа процесті таңдаңыз.'],
+  'processDiagram.edit.sub.chosenMissing': ['The process "{name}" has no active version. Choose an active process.', 'У процесса «{name}» нет действующей версии. Выберите действующий процесс.', '«{name}» процесінің әрекеттегі нұсқасы жоқ. Әрекеттегі процесті таңдаңыз.'],
+  'processDiagram.edit.sub.variables': ['Variables of the chosen process', 'Переменные выбранного процесса', 'Таңдалған процестің айнымалылары'],
+  'processDiagram.edit.sub.variablesHint': ['A variable is passed by its name: the same name in this process and in the sub-process.', 'Переменная передаётся по имени: одно и то же имя в этом процессе и в подпроцессе.', 'Айнымалы атауы бойынша беріледі: осы процесте және ішкі процесте бірдей атау.'],
+  'processDiagram.edit.sub.noVariables': ['The chosen process declares no variables. Without a mapping the whole set of variables is passed in and merged back.', 'Выбранный процесс не объявляет переменных. Без сопоставления передаются и возвращаются все переменные.', 'Таңдалған процесс айнымалыларды жарияламайды. Сәйкестіксіз барлық айнымалылар беріледі және қайтарылады.'],
+  'processDiagram.edit.sub.variablesLoading': ['Loading the variables of the chosen process…', 'Загружаем переменные выбранного процесса…', 'Таңдалған процестің айнымалылары жүктелуде…'],
+  'processDiagram.edit.sub.variablesError': ['The variables of the chosen process could not be loaded.', 'Не удалось загрузить переменные выбранного процесса.', 'Таңдалған процестің айнымалыларын жүктеу мүмкін болмады.'],
+  'processDiagram.edit.sub.passIn': ['Pass in: {name}', 'Передать в подпроцесс: {name}', 'Ішкі процеске беру: {name}'],
+  'processDiagram.edit.sub.takeBack': ['Take back: {name}', 'Вернуть из подпроцесса: {name}', 'Ішкі процестен қайтару: {name}'],
+  'processDiagram.edit.sub.colIn': ['Pass in', 'Передать', 'Беру'],
+  'processDiagram.edit.sub.colOut': ['Take back', 'Вернуть', 'Қайтару'],
   'processDiagram.edit.field.subDefinition': ['Sub-process definition', 'Определение подпроцесса', 'Ішкі процесс анықтамасы'],
   'processDiagram.edit.field.condition': ['Condition', 'Условие', 'Шарт'],
   'processDiagram.edit.field.isDefault': ['Default route', 'Маршрут по умолчанию', 'Әдепкі бағыт'],
@@ -222,6 +243,44 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.platform.useFunction': ['Use a platform function', 'Использовать платформенную функцию', 'Платформалық функцияны қолдану'],
   'processDiagram.edit.platform.useScript': ['Use a script instead', 'Использовать скрипт', 'Орнына скрипт қолдану'],
   'processDiagram.edit.announce.platformSelected': ['The step now calls the platform function {name}', 'Шаг теперь вызывает платформенную функцию {name}', 'Қадам енді платформалық функцияны шақырады: {name}'],
+  // T-2811 (designer D1): the variables of the process, declared on the Edit-diagram screen.
+  'processDiagram.edit.vars.title': ['Process variables', 'Переменные процесса', 'Процесс айнымалылары'],
+  'processDiagram.edit.vars.lede': [
+    'A variable holds a value the steps use, such as the address of a recipient. Declare it here, then pick it in a step.',
+    'Переменная хранит значение, которое используют шаги, например адрес получателя. Объявите её здесь и выберите в шаге.',
+    'Айнымалы қадамдар қолданатын мәнді, мысалы алушының мекенжайын сақтайды. Оны осында жариялап, қадамда таңдаңыз.',
+  ],
+  'processDiagram.edit.vars.empty': [
+    'No variables yet. Add one to use it in a step.',
+    'Переменных пока нет. Добавьте переменную, чтобы использовать её в шаге.',
+    'Айнымалылар әлі жоқ. Қадамда қолдану үшін қосыңыз.',
+  ],
+  'processDiagram.edit.vars.name': ['Name', 'Имя', 'Атауы'],
+  'processDiagram.edit.vars.type': ['Type', 'Тип', 'Түрі'],
+  'processDiagram.edit.vars.source': ['Comes from', 'Откуда', 'Қайдан келеді'],
+  'processDiagram.edit.vars.source.start': ['Start form', 'Форма запуска', 'Бастау формасы'],
+  'processDiagram.edit.vars.source.step': ['Earlier step', 'Предыдущий шаг', 'Алдыңғы қадам'],
+  'processDiagram.edit.vars.source.added': ['Added here, not saved yet', 'Добавлена здесь, ещё не сохранена', 'Осында қосылған, әлі сақталмаған'],
+  'processDiagram.edit.vars.add': ['Add variable', 'Добавить переменную', 'Айнымалы қосу'],
+  'processDiagram.edit.vars.cancel': ['Cancel', 'Отмена', 'Бас тарту'],
+  'processDiagram.edit.vars.choose': ['Choose a variable', 'Выберите переменную', 'Айнымалыны таңдаңыз'],
+  'processDiagram.edit.vars.addEntry': ['+ Add a variable…', '+ Добавить переменную…', '+ Айнымалы қосу…'],
+  'processDiagram.edit.vars.notDeclared': ['not declared', 'не объявлена', 'жарияланбаған'],
+  'processDiagram.edit.vars.refusal.name_invalid': [
+    'Use a plain name: no dot, no spaces at the ends, and not starting with _sys.',
+    'Простое имя: без точки, без пробелов по краям и не начинается с _sys.',
+    'Қарапайым атау: нүктесіз, шеттерінде бос орынсыз және _sys-пен басталмайды.',
+  ],
+  'processDiagram.edit.vars.refusal.name_taken': [
+    'This variable is already declared. Pick it from the list.',
+    'Такая переменная уже объявлена. Выберите её из списка.',
+    'Бұл айнымалы жарияланған. Тізімнен таңдаңыз.',
+  ],
+  'processDiagram.edit.vars.undeclaredFix': [
+    'Declare this variable under "Process variables" above, or pick another one in the step.',
+    'Объявите эту переменную в разделе «Переменные процесса» выше или выберите другую в шаге.',
+    'Бұл айнымалыны жоғарыдағы «Процесс айнымалылары» бөлімінде жариялаңыз немесе қадамда басқасын таңдаңыз.',
+  ],
   // T-2600 (pilot gap G5b): the notification step of a service step — the channel, the template picker, the
   // recipient and the values.
   'processDiagram.edit.notify.channel': ['Channel', 'Канал', 'Арна'],
@@ -328,6 +387,7 @@ const UI: Record<string, Triple> = {
     'Значение не является допустимым именем переменной.',
     'Мән қолжетімді айнымалы атауы емес.',
   ],
+  'processDiagram.edit.structuredInEditorSub': ['Forms, module writes and endpoint are edited in the Editor; they are kept as they are.', 'Формы, записи модуля и адрес правятся в редакторе; здесь они сохраняются без изменений.', 'Пішіндер, модуль жазбалары және мекенжай өңдегіште өңделеді; мұнда олар өзгеріссіз сақталады.'],
   'processDiagram.edit.structuredInEditor': ['Forms, module writes, interface and endpoint are edited in the Editor; they are kept as they are.', 'Формы, записи модуля, интерфейс и адрес правятся в редакторе; здесь они сохраняются без изменений.', 'Пішіндер, модуль жазбалары, интерфейс және мекенжай өңдегіште өңделеді; мұнда олар өзгеріссіз сақталады.'],
   'processDiagram.edit.connections': ['Connections', 'Связи', 'Байланыстар'],
   'processDiagram.edit.noConnections': ['No connections yet.', 'Связей пока нет.', 'Байланыстар әзірге жоқ.'],
@@ -405,8 +465,13 @@ const UI: Record<string, Triple> = {
   'processDiagram.waiting.waitingFor': ["waiting {elapsed}", "ожидает {elapsed}", "күтуде: {elapsed}"],
 }
 
+const ALL: Record<string, Triple> = {
+  ...UI,
+  ...Object.fromEntries(Object.entries(DESIGNER_ERROR_MESSAGES).map(([k, v]) => [DESIGNER_ERROR_PREFIX + k, v])),
+}
+
 function pick(i: 0 | 1 | 2): Record<string, string> {
-  return Object.fromEntries(Object.entries(UI).map(([k, v]) => [k, v[i]]))
+  return Object.fromEntries(Object.entries(ALL).map(([k, v]) => [k, v[i]]))
 }
 
 export const processDiagramMessages: Record<ProcessDiagramLocale, Record<string, string>> = {

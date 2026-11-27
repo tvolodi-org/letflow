@@ -14,9 +14,16 @@ defmodule Letflow.Obs.QueryLogFilterTest do
     refute out =~ "owner@example.com"
   end
 
-  test "a select and a non-query message are left alone" do
-    sel = event("QUERY OK db=1ms\nSELECT 1 WHERE a = $1 [\"x\"]")
-    assert QueryLogFilter.filter(sel, []) == sel
+  test "a select loses its parameters, canary included" do
+    sel = event("QUERY OK source=\"t\" db=1ms\nSELECT 1 WHERE a = $1 [\"canary@example.com\"]")
+    {:string, out} = QueryLogFilter.filter(sel, []).msg
+    out = IO.iodata_to_binary(out)
+    assert out =~ "SELECT 1 WHERE a = $1 [redacted]"
+    assert out =~ "source="
+    refute out =~ "canary"
+  end
+
+  test "a non-query message is left alone" do
     plain = event("hello INSERT [\"x\"]")
     assert QueryLogFilter.filter(plain, []) == plain
     assert QueryLogFilter.filter(%{msg: {:report, %{}}}, []) == %{msg: {:report, %{}}}

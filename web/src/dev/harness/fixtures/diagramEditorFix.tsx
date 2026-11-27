@@ -103,6 +103,45 @@ export const diagramEditorFixScreens: HarnessScreen[] = [
     ),
   },
   {
+    // T-2812 (D2): saved draft with one open problem: amber banner, never green.
+    name: 'pd-edit-saved-1-problem',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (saved, 1 problem)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ saved: true, violations: [{ code: 'step_mapping_variable_undeclared', message: "Node 'check' reads mapping admin_email: the variable is not declared" }] }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    name: 'pd-edit-saved-2-problems',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (saved, 2 problems)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{
+            saved: true,
+            violations: [
+              { code: 'step_mapping_variable_undeclared', message: "Node 'check' reads mapping admin_email: the variable is not declared" },
+              { code: 'node_unreachable', message: "Node 'order' is not reachable from the start" },
+            ],
+          }}
+        />
+      </Frame>
+    ),
+  },
+  {
     // The editor after clicking "Add step": an extra Human Task node is to the far right; fitView
     // brings it into the viewport. The node is unconnected to show it was just added.
     name: 'pd-edit-add-step-result',
@@ -116,6 +155,74 @@ export const diagramEditorFixScreens: HarnessScreen[] = [
           onSaved={() => {}}
           onReload={() => {}}
           demo={{ selected: { kind: 'node', id: 'n_human_task_new' } }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    // T-2813 (D3): the save-error banner in plain words, the raw code only under details.
+    name: 'pd-err-notify',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (save error)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ error: { kind: 'other', code: 'notify_malformed', status: 422, message: 'Unprocessable Entity' } }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    // T-2813 (D3): the save-error banner in plain words, the raw code only under details.
+    name: 'pd-err-platform',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (save error)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ error: { kind: 'other', code: 'platform_call_function_unknown', status: 422, message: 'Unprocessable Content' } }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    // T-2813 (D3): the save-error banner in plain words, the raw code only under details.
+    name: 'pd-err-409',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (save error)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ error: { kind: 'not_draft', code: 'http_409', status: 409, message: 'Definition is not DRAFT' } }}
+        />
+      </Frame>
+    ),
+  },
+  {
+    // T-2813 (D3): the save-error banner in plain words, the raw code only under details.
+    name: 'pd-err-fallback',
+    routes: ROUTES,
+    render: () => (
+      <Frame title="Purchase request (save error)">
+        <DiagramEditPane
+          def={DEF}
+          editorDirty={false}
+          onDirtyChange={() => {}}
+          onSaved={() => {}}
+          onReload={() => {}}
+          demo={{ error: { kind: 'other', status: 500, message: 'Internal Server Error' } }}
         />
       </Frame>
     ),

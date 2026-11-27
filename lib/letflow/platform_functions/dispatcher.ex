@@ -219,18 +219,31 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_function_mismatch
     platform_call_function_unknown
     platform_call_grant_failed
+    platform_call_hostname_mismatch
+    platform_call_hostname_taken
     platform_call_invalid_display_name
     platform_call_invalid_email
     platform_call_invalid_slug
     platform_call_mapping_not_declared
+    platform_call_lifecycle_failed
     platform_call_needs_reactivation
+    platform_call_notify_failed
+    platform_call_notify_refused
     platform_call_node_missing
     platform_call_node_not_declared
+    platform_call_onboarding_failed
     platform_call_permission_required
     platform_call_provision_failed
+    platform_call_purge_failed
+    platform_call_purge_not_eligible
+    platform_call_purge_not_suspended
+    platform_call_purge_production_refused
+    platform_call_purge_unconfirmed
+    platform_call_reactivate_failed
     platform_call_realm_already_bound
     platform_call_realm_bind_failed
     platform_call_signature_invalid
+    platform_call_suspend_failed
     platform_call_tenant_create_failed
     platform_call_tenant_not_active
     platform_call_tenant_not_allowed
@@ -843,7 +856,8 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
       StepDispatch
       |> where(
         [d],
-        d.status in [:pending, :running] and d.next_attempt_at <= ^now
+        d.status in [:pending, :running] and d.next_attempt_at <= ^now and
+          d.function_name != ^Letflow.Engine.NotifyStepRunner.function_name()
       )
       |> order_by([d], asc: d.next_attempt_at)
       |> limit(^limit)
@@ -1328,10 +1342,23 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     declared = MapSet.new(Map.keys(args))
     given = MapSet.new(Map.keys(row.inputs))
 
+    # An argument the node reads from a variable the instance never set is simply absent from
+    # the row (the engine drops it): only a VARIABLE argument may be missing, never a name the
+    # node did not declare and never a constant.
+    absent_ok? =
+      declared
+      |> MapSet.difference(given)
+      |> Enum.all?(fn name -> match?(%{"var" => _}, Map.fetch!(args, name)) end)
+
     cond do
-      declared != given -> {:error, :platform_call_arg_mismatch}
-      not consts_match?(args, row.inputs) -> {:error, :platform_call_arg_mismatch}
-      true -> :ok
+      not MapSet.subset?(given, declared) or not absent_ok? ->
+        {:error, :platform_call_arg_mismatch}
+
+      not consts_match?(args, row.inputs) ->
+        {:error, :platform_call_arg_mismatch}
+
+      true ->
+        :ok
     end
   end
 

@@ -269,3 +269,8 @@
 .lf-waiting__label { font-weight: 600; }
 .lf-waiting__time { font: var(--type-mono-s); color: var(--ink-muted); white-space: nowrap; }
 .lf-waiting__elapsed { color: var(--ink-muted); }
+
+/* T-2811: the variables of the process (panel and the in-place "add a variable" form). */
+.lf-pd-edit__vars { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0; }
+.lf-pd-edit__addvar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); min-width: 0; }
+.lf-pd-edit__addvar-actions { display: flex; gap: var(--space-2); }

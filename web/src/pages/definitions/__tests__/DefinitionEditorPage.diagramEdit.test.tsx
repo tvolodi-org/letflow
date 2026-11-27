@@ -36,7 +36,7 @@ const EDITED = {
 }
 
 vi.mock('@/components/diagram/DiagramEditPane', () => ({
-  DiagramEditPane: ({ onDirtyChange, onSaved, def }: { onDirtyChange: (d: boolean) => void; onSaved: (d: unknown, copied: boolean) => void; def: { id: string } }) => {
+  DiagramEditPane: ({ onDirtyChange, onSaved, onProblemsChange, def }: { onDirtyChange: (d: boolean) => void; onProblemsChange?: (n: number) => void; onSaved: (d: unknown, copied: boolean) => void; def: { id: string } }) => {
     // Local state stands for the unsaved graph and undo history: a remount would lose it.
     const [edits, setEdits] = React.useState(0)
     return (
@@ -46,6 +46,8 @@ vi.mock('@/components/diagram/DiagramEditPane', () => ({
       <button onClick={() => onDirtyChange(true)}>make-dirty</button>
       <button onClick={() => { onDirtyChange(false); onSaved({ id: def.id }, false) }}>save-ok</button>
       <button onClick={() => { onSaved({ id: 'saved-copy' }, true) }}>copy-ok</button>
+      <button onClick={() => onProblemsChange?.(1)}>problems-1</button>
+      <button onClick={() => onProblemsChange?.(0)}>problems-0</button>
     </div>
     )
   },
@@ -239,6 +241,25 @@ describe('T-1563 definition page: Edit diagram', () => {
     await user.click(screen.getByText('save-ok'))
     await user.click(screen.getByTestId('btn-publish-diagram'))
     await waitFor(() => expect(publish).toHaveBeenCalledWith(DEF.id))
+  })
+  it('T-2812 D2d a saved draft with an open problem: Publish disabled with the reason, no activation; count 0 enables it', async () => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    const publish = vi.fn().mockResolvedValue({})
+    vi.mocked(useActivateDefinition).mockReturnValue({ mutateAsync: publish } as unknown as ReturnType<typeof useActivateDefinition>)
+    arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('definition-view-edit'))
+    await user.click(screen.getByText('problems-1'))
+    const btn = screen.getByTestId('btn-publish-diagram')
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveAttribute('title', expect.stringContaining('Open problems in the saved draft: 1'))
+    expect(screen.getByTestId('publish-blocked-reason')).toHaveTextContent('Open problems in the saved draft: 1')
+    await user.click(btn)
+    expect(publish).not.toHaveBeenCalled()
+    await user.click(screen.getByText('problems-0'))
+    expect(screen.getByTestId('btn-publish-diagram')).toBeEnabled()
+    expect(screen.queryByTestId('publish-blocked-reason')).toBeNull()
   })
   it('S5 a dirty diagram draft disables the Editor button; saving releases it', async () => {
     const user = userEvent.setup()

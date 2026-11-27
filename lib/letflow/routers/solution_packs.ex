@@ -1154,11 +1154,32 @@ defmodule Letflow.Routers.SolutionPacks do
   defp render_override_activate_error(conn, {:entity_writes_invalid, violations}),
     do: Response.entity_writes_invalid(conn, violations)
 
+  # G-14 (the refusal-mapping matrix): the override activation runs the same
+  # fences as an activation (it calls Definitions.activate/2), and every one of
+  # them may refuse. The refusals are the tenant's own graph, so they are 422 --
+  # never the catch-all's 500.
+  defp render_override_activate_error(conn, {:platform_calls_invalid, violations}),
+    do: Response.platform_calls_invalid(conn, violations)
+
   defp render_override_activate_error(conn, {:outbound_destinations_invalid, violations}),
     do: Response.outbound_destinations_invalid(conn, violations)
 
   defp render_override_activate_error(conn, {:notify_calls_invalid, violations}),
     do: Response.notify_calls_invalid(conn, violations)
+
+  defp render_override_activate_error(conn, {:step_mappings_invalid, violations}),
+    do: Response.step_mappings_invalid(conn, violations)
+
+  defp render_override_activate_error(conn, {:start_permission_invalid, violation}),
+    do: Response.start_permission_invalid(conn, violation)
+
+  # The SVC-03 service-scope refusal: the same ONE generic 422 as the plain
+  # activation (no service id, no internal reason in the body).
+  defp render_override_activate_error(
+         conn,
+         {:service_scope_violation, %Letflow.Definitions.ServiceScopeValidator.Violation{}}
+       ),
+       do: Response.unprocessable(conn, "a referenced service is not usable by this tenant")
 
   defp render_override_activate_error(conn, {:definition_test_cases_failed, failures}),
     do: Response.test_cases_failed(conn, failures)

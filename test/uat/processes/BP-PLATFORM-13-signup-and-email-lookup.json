@@ -1,0 +1,327 @@
+{
+  "id": "BP-PLATFORM-13-signup-and-email-lookup",
+  "bp_entry": "BP-PLATFORM-13",
+  "title": "A new company signs up and a user finds the company by e-mail: the public answers and refusals (no company is created)",
+  "description": "No sign-in is used (actor anonymous). The file works whatever the two switches say, and says which half it ran. QA on 2026-11-26 answers the standard 404 for /api/signup/* and for /api/login-discovery (read from the live answers of GET /api/signup/config and POST /api/login-discovery): the OFF steps then run (the slug check, the verification and the status answer 404 'Not Found') and the ON steps are SKIPPED with the note 'requires signup_on'. When the sign-up is on, the ON steps run instead: the slug check says invalid, reserved or available, and a verification or a status read with an unknown, a too-short or a missing token gets the ONE generic 400 'invalid_or_expired_link' (identical answers, nothing consumed). The e-mail lookup (POST /api/login-discovery) has its own switch: with a well-formed unknown address it answers the neutral 202 'accepted' (on) or 404 (off, the state of QA); a malformed address gets the same neutral 202 (on) or 404 (off). Steps s13 and s14 are skipped on QA with 'requires discovery_on'. A PASS therefore says which half ran: read the skipped notes. NOT automated here: the submit of a real request (POST /api/signup, it records a request and mails a link; the whole path with the mail trap is the file BP-PLATFORM-02-self-service-signup, T-2749) and the 200 'single match' answer of the lookup (it needs a company whose login directory holds a known address; covered by test/letflow/routers/login_discovery_test.exs). The 429 limits (per address, per domain) are not driven: the runner may not saturate a public limiter. Nothing is created, so there is no cleanup and no residue.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "anonymous",
+      "says": "Anyone reads the public sign-up configuration. 200 when the sign-up is switched on; 404 (the standard answer of a disabled mount) when it is off, which is the state of QA on 2026-11-26. The terms version is remembered only when it is on.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/config"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "signup_on": {
+          "pick": "$.terms_version",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "anonymous",
+      "says": "SIGN-UP OFF: the live slug check answers the same standard 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/slug?slug=uat-nobody-slug"
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      },
+      "skip_if": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s3",
+      "actor": "anonymous",
+      "says": "SIGN-UP OFF: a verification with any token answers the standard 404 (nothing is looked up).",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/verify",
+        "body": {
+          "token": "uat-not-a-real-token-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      },
+      "skip_if": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s4",
+      "actor": "anonymous",
+      "says": "SIGN-UP OFF: the status of a request answers the standard 404.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/status",
+        "body": {
+          "token": "uat-not-a-real-token-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      },
+      "skip_if": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s5",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: a slug in capital letters and a symbol is reported 'invalid'.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/slug?slug=Bad_Slug"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "invalid"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: a slug the platform keeps for itself is reported 'reserved'.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/slug?slug=admin"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "reserved"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s7",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: a slug nobody holds is reported 'available'.",
+      "do": {
+        "api": "GET",
+        "path": "/api/signup/slug?slug=uat-nobody-slug"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "available"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s8",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: a verification with a token that never existed gets the one generic 400.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/verify",
+        "body": {
+          "token": "uat-not-a-real-token-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid_or_expired_link"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s9",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: a token that is too short gets the very same answer.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/verify",
+        "body": {
+          "token": "x"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid_or_expired_link"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s10",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: no token at all gets the very same answer.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/verify",
+        "body": {}
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid_or_expired_link"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s11",
+      "actor": "anonymous",
+      "says": "SIGN-UP ON: the status of a request with an unknown token gets the same generic 400.",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup/status",
+        "body": {
+          "token": "uat-not-a-real-token-${run_id}"
+        }
+      },
+      "expect": {
+        "status": 400,
+        "json": {
+          "$.error": "invalid_or_expired_link"
+        }
+      },
+      "requires": [
+        "signup_on"
+      ]
+    },
+    {
+      "id": "s12",
+      "actor": "anonymous",
+      "says": "E-MAIL LOOKUP: a well-formed address that no company knows. 202 'accepted' (neutral) when the lookup is switched on; 404 when it is off. Remembered only when on.",
+      "do": {
+        "api": "POST",
+        "path": "/api/login-discovery",
+        "body": {
+          "email": "uat-nobody-${run_id}@uat.letflow.internal"
+        }
+      },
+      "expect": {
+        "status": [
+          202,
+          404
+        ]
+      },
+      "save": {
+        "discovery_on": {
+          "pick": "$.result",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s13",
+      "actor": "anonymous",
+      "says": "E-MAIL LOOKUP ON: a malformed address (a number instead of text) gets the same neutral 202, never 400, 415, 422 or 500.",
+      "do": {
+        "api": "POST",
+        "path": "/api/login-discovery",
+        "body": {
+          "email": 5
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.result": "accepted"
+        }
+      },
+      "requires": [
+        "discovery_on"
+      ]
+    },
+    {
+      "id": "s14",
+      "actor": "anonymous",
+      "says": "E-MAIL LOOKUP ON: an empty body object gets the same neutral 202.",
+      "do": {
+        "api": "POST",
+        "path": "/api/login-discovery",
+        "body": {}
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.result": "accepted"
+        }
+      },
+      "requires": [
+        "discovery_on"
+      ]
+    },
+    {
+      "id": "s15",
+      "actor": "anonymous",
+      "says": "E-MAIL LOOKUP OFF: the same malformed request gets the standard 404, before anything is read.",
+      "do": {
+        "api": "POST",
+        "path": "/api/login-discovery",
+        "body": {
+          "email": 5
+        }
+      },
+      "expect": {
+        "status": 404,
+        "json": {
+          "$.title": "Not Found"
+        }
+      },
+      "skip_if": [
+        "discovery_on"
+      ]
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

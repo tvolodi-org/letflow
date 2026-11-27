@@ -981,8 +981,8 @@
       }
     ],
     "preconditions": [
-      "two tenants with the modules installed and one record of each type in tenant B",
-      "an administrator token of tenant A"
+      "modules locations and codes installed on this tenant",
+      "an administrator of this tenant and an administrator of another company (their own realm) who sends requests to this tenant's address"
     ],
     "tasks": [
       {
@@ -1002,9 +1002,12 @@
         ],
         "code_refs": [
           "lib/letflow/modules/router_kit.ex:162",
-          "lib/letflow/modules/codes/router.ex:49"
+          "lib/letflow/modules/codes/router.ex:49",
+          "lib/letflow/modules/locations/router.ex:52",
+          "lib/letflow/modules/codes/router.ex:65"
         ],
-        "result": "404 with the body of an unknown path, the record of tenant B unchanged"
+        "result": "404 with the plain not-found body (the same as an unknown id) on change, move and retire of a place and on release, value change, retire and assign of a code; the records still work for this tenant's administrator",
+        "note": "The walkthrough covers locations and codes; org records are covered by the unknown-id step and the Elixir org router_test (the file creates no org data)."
       }
     ],
     "inputs": [],
@@ -1013,14 +1016,14 @@
       "an id of another tenant, a deleted record or an unknown id: the same 404 (INV-5)",
       "a code assigned to a scoped or undeclared target type: the scan lookup answers the 404 of an unknown code (fail closed)"
     ],
-    "scenario": null,
-    "status": "partial",
+    "scenario": "test/uat/processes/BP-MASTER-12-other-tenant-uniform-404.json",
+    "status": "implemented",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "token of tenant A on tenant B's ids, per route",
-        "status": "planned",
-        "note": "the runner holds the actors of one tenant; needs a second tenant in the dry-run block. Covered at API level by the Elixir tests (codes router_test T1, locations router_test, org router_test)"
+        "name": "token of another company on this company's ids, per route",
+        "status": "automated",
+        "scenario": "BP-MASTER-12"
       }
     ]
   },
@@ -1124,16 +1127,22 @@
       "no credential or a wrong token: 401",
       "a path that no route of the module has: the ordinary unmatched answer (authz_unmatched)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/BP-MASTER-14-no-credential-refused.json",
     "status": "partial",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "no/wrong/expired/other-tenant token, unknown host",
+        "name": "no credential: 401 on one write route of each master router",
+        "status": "automated",
+        "scenario": "BP-MASTER-14"
+      },
+      {
+        "name": "wrong/expired token, other-tenant token, unknown host",
         "status": "planned",
-        "note": "the runner always sends the actor's own token; a credential-less call needs a runner step kind. Covered by the Elixir tests of the auth pipeline."
+        "note": "the runner signs with the actor's own valid token; needs a bad-bearer step option. Covered by the Elixir tests of the auth pipeline."
       }
-    ]
+    ],
+    "gap": "WHY PARTIAL: the no-credential half is walked (anonymous caller, 401 on org sites, location nodes, code resolve, generic import). A wrong or expired token and an unknown host cannot be forged by the runner (it always sends the actor's own valid token). Owner: the runner maintainer (a step option for a bad bearer). The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline."
   },
   {
     "id": "BP-MASTER-15",
@@ -1177,16 +1186,22 @@
       "more than 200 records: 413 before any row validation (for a file import, a type the caller cannot see answers 404 first, record_import.ex:325)",
       "xlsx_unreadable, xlsx_too_large, csv_malformed, csv_unknown_header: 422 with the reason"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/BP-MASTER-15-import-limits.json",
     "status": "partial",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "storekeeper refused on a master type; limits",
+        "name": "storekeeper refused on a master type; 200-record cap; schema version",
+        "status": "automated",
+        "scenario": "BP-MASTER-15"
+      },
+      {
+        "name": "xlsx and CSV limits",
         "status": "planned",
-        "note": "needs a file upload step in the runner; Elixir tests: import_test.exs of each module and the entities import tests"
+        "note": "needs a file upload step in the runner"
       }
-    ]
+    ],
+    "gap": "WHY PARTIAL: the JSON part is walked (storekeeper 403 on catalog_item, location_node, org_unit and code_tag; admin 413 over 200 records; 422 unknown schema version; 422 records not a list). The xlsx and CSV limits (xlsx_unreadable, xlsx_too_large, csv_malformed, csv_unknown_header) need a request body that is a file; the runner has no file-upload step kind. Needs a runner task. Elixir tests: import_test.exs of each module."
   },
   {
     "id": "BP-MASTER-16",
@@ -1227,20 +1242,21 @@
       "unknown code: 404",
       "assigned to a scoped or undeclared target type: the same 404 (decision 0076 R7 ruling 2)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/BP-MASTER-16-scan-lookup-fails-closed.json",
     "status": "partial",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "unknown value gives 404 (also step s18 of BP-MASTER-11)",
+        "name": "unknown value gives 404; retired code gives value only",
         "status": "automated",
-        "scenario": "BP-MASTER-11"
+        "scenario": "BP-MASTER-16"
       },
       {
         "name": "scoped target hidden",
         "status": "planned",
         "note": "needs a scoped target type on the tenant; Elixir resolve_router_test covers it"
       }
-    ]
+    ],
+    "gap": "WHY PARTIAL: unknown code (404) and a retired code (200, value only) are walked. The 404 for a code assigned to a scoped or undeclared target type needs a tenant with a record type whose scope is not tenant-wide; the QA tenants have none and a walkthrough must not declare one. Covered by the Elixir resolve_router_test."
   }
 ]

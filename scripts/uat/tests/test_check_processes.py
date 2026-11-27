@@ -497,5 +497,65 @@ class PlatformRunFiles(CheckCase):
         self.assertTrue(any("platform_residue.instances" in p and "${never_saved}" in p for p in problems), problems)
 
 
+class CleanupCoverage(CheckCase):
+    """T-2885: a created document type has a cleanup that undoes it, or a residue_allow with reason and owner."""
+
+    def setUp(self):
+        super().setUp()
+        (self.root / "lib/letflow/modules/stock/router.ex").write_text(
+            STOCK_ROUTER + '''  authz_post "/documents/:id/reverse", :StockReverse,
+  authz_post "/documents/:id/cancel", :StockReverse,
+  authz_post "/quick-counts", :StockQuickCount do
+''')
+
+    def doc(self, steps, cleanup=(), **extra):
+        d = {"id": "BP-T", "steps": steps, "cleanup": list(cleanup), **extra}
+        return d
+
+    CREATE = step("s1", "POST", "/api/v1/modules/stock/documents", save={"doc_id": "$.id"}, **{})
+    REVERSE = step("c1", "POST", "/api/v1/modules/stock/documents/${doc_id}/reverse", requires=["doc_id"])
+
+    def problems(self, doc):
+        return [p for p in self.check(doc, strict=True) if "creates a" in p or "residue_allow" in p]
+
+    def test_created_and_cleaned_passes(self):
+        self.assertEqual(self.problems(self.doc([self.CREATE], [self.REVERSE])), [])
+
+    def test_a_cancel_or_delete_is_a_cleanup_too(self):
+        cancel = step("c1", "POST", "/api/v1/modules/stock/documents/${doc_id}/cancel", requires=["doc_id"])
+        self.assertEqual(self.problems(self.doc([self.CREATE], [cancel])), [])
+
+    def test_created_without_cleanup_fails_naming_file_step_and_type(self):
+        create = copy.deepcopy(self.CREATE)
+        create["do"]["body"] = {"kind": "receipt"}
+        probs = self.problems(self.doc([create]))
+        self.assertEqual(len(probs), 1, probs)
+        self.assertIn("BP-T.json", probs[0])
+        self.assertIn("step s1", probs[0])
+        self.assertIn("stock/documents:receipt", probs[0])
+
+    def test_a_quick_count_needs_a_documents_cleanup(self):
+        qc = step("s1", "POST", "/api/v1/modules/stock/quick-counts")
+        self.assertEqual(len(self.problems(self.doc([qc]))), 1)
+        self.assertEqual(self.problems(self.doc([qc], [self.REVERSE])), [])
+
+    def test_residue_allow_with_reason_and_owner_passes(self):
+        allow = [{"type": "stock/documents", "reason": "kept for the audit demo", "owner": "BA"}]
+        self.assertEqual(self.problems(self.doc([self.CREATE], residue_allow=allow)), [])
+
+    def test_residue_allow_without_reason_fails(self):
+        allow = [{"type": "stock/documents", "owner": "BA"}]
+        probs = self.problems(self.doc([self.CREATE], residue_allow=allow))
+        self.assertTrue(any("residue_allow[0]" in p for p in probs), probs)
+        self.assertTrue(any("creates a" in p for p in probs), probs)
+
+    def test_a_read_only_process_passes(self):
+        read = step("s1", "GET", "/api/v1/modules/stock/documents/x")
+        self.assertEqual(self.problems(self.doc([read])), [])
+
+    def test_the_check_is_strict_only(self):
+        self.assertEqual([p for p in self.check(self.doc([self.CREATE])) if "creates a" in p], [])
+
+
 if __name__ == "__main__":
     unittest.main()

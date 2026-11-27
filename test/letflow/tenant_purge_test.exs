@@ -292,6 +292,66 @@ defmodule Letflow.TenantPurgeTest do
     end
   end
 
+  # --- U: tenant without a lifecycle row (T-2747) -----------------------------
+
+  describe "U tenant without a lifecycle row" do
+    defp bare!(opts) do
+      f = TenantFixture.provisioned_tenant!(slug_prefix: "t2747-bare")
+      id = f.tenant_id
+      days = Keyword.get(opts, :deactivated_days_ago, 31)
+      old = NaiveDateTime.add(NaiveDateTime.utc_now(), -days * @day, :second)
+
+      Repo.update_all(from(t in Tenant, where: t.id == ^id),
+        set: [
+          status: Keyword.get(opts, :status, :inactive),
+          tenant_type: Keyword.get(opts, :type, "test"),
+          updated_at: old
+        ]
+      )
+
+      on_exit(fn ->
+        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+        Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^id))
+      end)
+
+      f
+    end
+
+    test "U1 platform admin purges it, audit row, marker row, reactivation refused" do
+      f = bare!([])
+      id = f.tenant_id
+      actor = Ecto.UUID.generate()
+      assert schema_exists?(f.schema_name)
+
+      assert {:ok, :purged} = TenantPurge.purge(id, :platform_admin, actor_id: actor)
+
+      refute schema_exists?(f.schema_name)
+      assert %Lifecycle{lifecycle: "deleted", purged_at: %DateTime{}} = lifecycle!(id)
+      assert Repo.get!(Tenant, id).display_name == "purged"
+      assert {:error, :tenant_purged} = Letflow.Identity.reactivate_tenant(f.tenant.slug)
+      assert {:ok, :already_purged} = TenantPurge.purge(id, :platform_admin, actor_id: actor)
+    end
+
+    test "U2 provisioner and sweep triggers still answer :not_found" do
+      f = bare!([])
+      assert {:error, :not_found} = TenantPurge.purge(f.tenant_id, :provisioner)
+      assert {:error, :not_found} = TenantPurge.purge(f.tenant_id, :sweep)
+      assert schema_exists?(f.schema_name)
+    end
+
+    test "U3 production type, active status and a young deactivation are refused" do
+      prod = bare!(type: "production")
+      active = bare!(status: :active)
+      young = bare!(deactivated_days_ago: 1)
+
+      for f <- [prod, active, young] do
+        assert {:error, :not_eligible} = TenantPurge.purge(f.tenant_id, :platform_admin)
+        assert schema_exists?(f.schema_name)
+        assert Repo.get(Lifecycle, f.tenant_id) == nil
+      end
+    end
+  end
+
   # --- R / K: removed and kept ------------------------------------------------
 
   describe "R/K purge" do
@@ -387,8 +447,9 @@ defmodule Letflow.TenantPurgeTest do
       # iss060_tenant_schemas_guard_backup is a scratch table another test file (identity_migration_test) leaves in public.
       # signup_requests (T-1579): a pre-tenant saga row; its tenant_id is only a reservation made before any tenant
       # exists, so a purge of an existing tenant never owns it (SL2b decides when the e-mail is cleared).
+      # tenant_admissions (T-2727): a pre-tenant admission reservation, digests only, no personal data (like tenant_lifecycles).
       kept =
-        ~w(tenant_lifecycles onboarding_registry event_history_retirement_outcomes iss060_tenant_schemas_guard_backup signup_requests)
+        ~w(tenant_lifecycles onboarding_registry event_history_retirement_outcomes iss060_tenant_schemas_guard_backup signup_requests tenant_admissions)
 
       removed = Enum.map(TenantPurge.removed_tables(), &elem(&1, 0))
 
@@ -600,11 +661,16 @@ defmodule Letflow.TenantPurgeTest do
       assert lifecycle!(v.tenant_id).purged_at == nil
     end
 
-    test "P3 unknown slug, no lifecycle row and the platform tenant are one 404", ctx do
+    test "P3 unknown slug and the platform tenant are one 404; a bare active tenant is 409",
+         ctx do
       bare = TenantFixture.provisioned_tenant!(slug_prefix: "req580-bare")
 
+      # T-2747: a tenant without a lifecycle row is no longer a 404 for the platform route.
+      assert post_purge(bare.tenant.slug, ["PLATFORM_ADMIN"], ctx.platform.tenant_id).status ==
+               409
+
       statuses =
-        for slug <- ["no-such-slug", bare.tenant.slug, ctx.platform.tenant.slug] do
+        for slug <- ["no-such-slug", ctx.platform.tenant.slug] do
           post_purge(slug, ["PLATFORM_ADMIN"], ctx.platform.tenant_id)
         end
 

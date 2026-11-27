@@ -1,0 +1,411 @@
+{
+  "id": "BP-PLATFORM-05-onboarding-records",
+  "bp_entry": "BP-PLATFORM-05",
+  "title": "Onboard a company: the operator reads the onboarding record and the pending administrators; every bad or foreign request is refused before anything starts",
+  "description": "The registration itself (POST /api/v1/onboarding starts the platform.register_tenant process and creates a tenant) is run by BP-PLATFORM-01 (T-2744, T-2608); this file does not start one (owner order: only the BP-PLATFORM-01 scenario creates a tenant). It covers everything around it without a new tenant: the platform administrator is refused an empty form, a reserved slug and a reserved host (422 field errors, nothing starts), a lookup without a host (400), by an unknown host (404), an unknown onboarding id on read, on the pending administrators and on the realm binding (404, the realm is not probed); with the fixture, the host set in the same run creates the fixture's onboarding record and the operator reads it by id and by host, lists its pending administrators (an empty list) and a company administrator is refused all of it. The cleanup removes the host. The platform fixture tenant uat-tmp-fixture (looked up, or created with --allow-create, by the first four steps f1..f4 of this file) is the only tenant these steps touch; it is created once, never purged (QA cannot purge it) and never counts as residue; the process leaves it in the known state: active, no host name, platform kill switch off, solo audit not allowed. While the fixture does not exist on QA (the case on 2026-11-25) every step that needs it is SKIPPED with the log note 'requires fixture_id' and the run passes on the fixture-free steps only: a PASS then says nothing about the fixture steps. The first run with --allow-create creates the fixture; from then on the steps run.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com"
+  },
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "f1",
+      "actor": "platform-admin",
+      "says": "Look for the fixture tenant by its fixed slug (404 is an answer, not a failure).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": [
+          200,
+          404
+        ]
+      },
+      "save": {
+        "fixture_slug": "uat-tmp-fixture",
+        "fixture_id": {
+          "pick": "$.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "f2",
+      "actor": "platform-admin",
+      "says": "Create it only when absent (the run must be started with --allow-create; without the flag the step is skipped with that reason).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants",
+        "body": {
+          "slug": "uat-tmp-fixture",
+          "display_name": "UAT platform fixture (never purged)"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_created": "yes"
+      },
+      "skip_if": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "f3",
+      "actor": "platform-admin",
+      "says": "Wait until the tenant exists (the registration process creates it in the background).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/uat-tmp-fixture"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "save": {
+        "fixture_id": "$.id"
+      },
+      "poll": {
+        "within_s": 90,
+        "interval_s": 3
+      },
+      "requires": [
+        "fixture_created"
+      ]
+    },
+    {
+      "id": "f4",
+      "actor": "platform-admin",
+      "says": "Known state: active. Reactivating an active tenant is a no-op that answers 200.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-fixture/reactivate"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "A form with no fields is refused: 422 with field errors, no registration starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {}
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": {
+            "exists": true
+          }
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A reserved slug is refused: 422, field slug, constraint reserved, no registration starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "admin",
+          "display_name": "UAT refused ${run_id}",
+          "hostname": "uat-tmp-refused.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "slug",
+          "$.errors[0].constraint": "reserved"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "A reserved host label is refused: 422, field hostname, constraint reserved.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-refused",
+          "display_name": "UAT refused ${run_id}",
+          "hostname": "api.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "hostname",
+          "$.errors[0].constraint": "reserved"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A lookup without a host is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "A lookup by a host nobody holds: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding?hostname=uat-tmp-nohost.${hostname_suffix}"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "An unknown onboarding id: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/00000000-0000-4000-8000-0000000000a1"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "The pending administrators of an unknown id: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/00000000-0000-4000-8000-0000000000a1/pending-admins"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "Binding a realm to an unknown id: 404 (the realm is not probed).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding/00000000-0000-4000-8000-0000000000a1/bind-realm",
+        "body": {
+          "idp_realm_id": "uat-tmp-no-realm"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "admin",
+      "says": "A company administrator may not start a registration (403 or the uniform 404).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "says": "A company administrator may not look an onboarding record up (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding?hostname=uat-tmp-nohost.${hostname_suffix}"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "platform-admin",
+      "says": "The fixture gets a host name; this makes its onboarding record (the same route as BP-PLATFORM-03).",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname",
+        "body": {
+          "hostname": "uat-tmp-fixture.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.onboarding_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "onboarding_id": "$.onboarding_id"
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    },
+    {
+      "id": "s12",
+      "actor": "platform-admin",
+      "says": "The operator reads the record by id: the slug and the host are the fixture's, a login state is shown.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/${onboarding_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "uat-tmp-fixture",
+          "$.hostname": "uat-tmp-fixture.${hostname_suffix}",
+          "$.login.status": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "onboarding_id"
+      ]
+    },
+    {
+      "id": "s13",
+      "actor": "platform-admin",
+      "says": "The operator reads it by host: the same record.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding?hostname=uat-tmp-fixture.${hostname_suffix}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.id": "${onboarding_id}",
+          "$.slug": "uat-tmp-fixture"
+        }
+      },
+      "requires": [
+        "onboarding_id"
+      ]
+    },
+    {
+      "id": "s14",
+      "actor": "platform-admin",
+      "says": "The pending administrators of the record: a list (the fixture has no pending first administrator).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/${onboarding_id}/pending-admins"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.pending_admins": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "onboarding_id"
+      ]
+    },
+    {
+      "id": "s15",
+      "actor": "admin",
+      "says": "A company administrator may not read the record (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/${onboarding_id}"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "onboarding_id"
+      ]
+    },
+    {
+      "id": "s16",
+      "actor": "admin",
+      "says": "A company administrator may not list its pending administrators (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/onboarding/${onboarding_id}/pending-admins"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      },
+      "requires": [
+        "onboarding_id"
+      ]
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "platform-admin",
+      "says": "Cleanup: remove the fixture's host (the fixture ends with no host name).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/tenants/uat-tmp-fixture/hostname"
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "fixture_id"
+      ]
+    }
+  ]
+}

@@ -193,7 +193,7 @@ defmodule Letflow.Modules.Assets.OpeningPostingTest do
       assert card_fields(ctx, m.fixed) == card_before
     end
 
-    test "OP-TIME-2 a forged posting variable cannot backdate the entry", ctx do
+    test "OP-TIME-2 a forged posting variable (backdated) is refused, nothing posts", ctx do
       doc = issue!(ctx)
       task = task(ctx, doc["id"], "approve", :pending)
 
@@ -209,10 +209,8 @@ defmodule Letflow.Modules.Assets.OpeningPostingTest do
         })
 
       :ok = D.tamper!(ctx, task, %{"posting" => forged})
-      assert complete(task, ctx.tok_u2).status == 200
-      [entry] = D.movements(ctx, doc["id"])
-      assert entry["event_time"] == entry["posting_time"]
-      assert D.get!(ctx, doc["id"])["posting_check"] == "ok"
+      assert complete(task, ctx.tok_u2).status == 422
+      assert D.counts(ctx, doc["id"]) == %{entries: %{}, marks: 0}
     end
   end
 

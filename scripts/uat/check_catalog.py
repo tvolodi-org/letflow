@@ -65,6 +65,8 @@ REF_RE = re.compile(r"^(.+):(\d+)$")
 # A missing field means `direct`: the existing maps are not rewritten by this tool.
 EXECUTED_BY_DIRECT = "direct"
 EXECUTED_BY_DEFINITION = "definition:"
+# A proof experiment (not a process the engine runs, e.g. the definition-drives-execution proof): counted apart.
+EXECUTED_BY_NA = "n/a"
 # A process key: the name of a definition (`stock_receipt`, `platform.register_tenant`). The
 # engine accepts any name of 1..255 characters; the tool refuses the shapes that could not
 # name a definition at all (spaces, a leading dot, an empty key).
@@ -133,6 +135,8 @@ def parse_executed_by(entry: dict) -> tuple[str | None, str | None, str | None]:
     value = raw.strip()
     if value == EXECUTED_BY_DIRECT:
         return value, "direct", None
+    if value == EXECUTED_BY_NA:
+        return value, "n/a", None
     if value.startswith(EXECUTED_BY_DEFINITION):
         key = value[len(EXECUTED_BY_DEFINITION):]
         if not key:
@@ -144,13 +148,13 @@ def parse_executed_by(entry: dict) -> tuple[str | None, str | None, str | None]:
             )
         return value, "definition", None
     return value, None, (
-        f"executed_by {value!r} must be {EXECUTED_BY_DIRECT!r} or 'definition:<process_key>'"
+        f"executed_by {value!r} must be {EXECUTED_BY_DIRECT!r}, {EXECUTED_BY_NA!r} or 'definition:<process_key>'"
     )
 
 
 def executed_by_counts(entries: list[dict]) -> dict[str, int]:
     """How many entries are `direct` and how many are `definition:` (a wrong form counts as neither)."""
-    counts = {"direct": 0, "definition": 0}
+    counts = {"direct": 0, "definition": 0, "n/a": 0}
     for entry in entries:
         _value, kind, _problem = parse_executed_by(entry)
         if kind in counts:
@@ -335,6 +339,50 @@ def check_area(root: Path, area: str, entries: list[dict], orphans: list[dict], 
             "missing": [{"id": m["id"], "path": m["path"], "line": m["line"], "name": m["name"]} for m in missing]}
 
 
+CHAINS = ("rc-sss", "rc-sec")
+
+
+def check_chain_coverage(root: Path, errors: list[str]) -> None:
+    """Every test/uat/processes/SEC-*.json is listed in exactly one of the two release-candidate chains.
+
+    An entry is a string or an object with a `process` key; it names a file by its id or by the id plus `-<slug>`
+    (the same resolution the chain runner uses). A chain entry that names no process file fails too.
+    """
+    proc_dir = root / "test/uat/processes"
+    chain_dir = root / "test/uat/chains"
+    sec = sorted(f.stem for f in proc_dir.glob("SEC-*.json")) if proc_dir.is_dir() else []
+    if not sec and not any((chain_dir / f"{c}.json").is_file() for c in CHAINS):
+        return
+    all_stems = sorted(f.stem for f in proc_dir.glob("*.json")) if proc_dir.is_dir() else []
+    listed: dict[str, list[str]] = {s: [] for s in sec}
+    for chain in CHAINS:
+        path = chain_dir / f"{chain}.json"
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            errors.append(f"ERROR test/uat/chains/{chain}.json: unreadable ({exc})")
+            continue
+        entries = doc.get("processes") if isinstance(doc, dict) else None
+        for e in entries if isinstance(entries, list) else []:
+            name = e if isinstance(e, str) else (e.get("process") if isinstance(e, dict) else None)
+            if not isinstance(name, str):
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {e!r} names no process")
+                continue
+            hits = [s for s in all_stems if s == name or s.startswith(name + "-")]
+            if not hits:
+                errors.append(f"ERROR test/uat/chains/{chain}.json: entry {name} names no file in test/uat/processes")
+            for s in hits:
+                if s in listed:
+                    listed[s].append(chain)
+    for s, chains in listed.items():
+        if not chains:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in none of {', '.join(CHAINS)} (exactly one required)")
+        elif len(chains) > 1:
+            errors.append(f"ERROR test/uat/processes/{s}.json: listed in more than one chain ({', '.join(chains)}); exactly one required")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("areas", nargs="*", help="area names, or `all` (default: areas that have a file)")
@@ -375,13 +423,14 @@ def main(argv: list[str] | None = None) -> int:
                 if eid in ids:
                     errors.append(f"ERROR docs/bp/{a}.json: id {eid} is already used in {ids[eid]}")
                 ids[eid] = f"docs/bp/{a}.json"
+    check_chain_coverage(root, errors)
     every_entry = [e for es in all_entries.values() for e in es]
     for a in areas:
         orphans = parse_orphans(root, a, errors)
         result = check_area(root, a, every_entry, orphans, errors)
         result["executed_by"] = executed_by_counts(all_entries[a])
         results.append(result)
-    totals = {"direct": 0, "definition": 0}
+    totals = {"direct": 0, "definition": 0, "n/a": 0}
     for r in results:
         for kind in totals:
             totals[kind] += r["executed_by"][kind]
@@ -401,8 +450,10 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"EXECUTED BY {r['area']}: {r['executed_by']['direct']} direct, "
                 f"{r['executed_by']['definition']} definition"
+                + (f", {r['executed_by']['n/a']} n/a" if r["executed_by"]["n/a"] else "")
             )
-        print(f"EXECUTED BY total: {totals['direct']} direct, {totals['definition']} definition")
+        print(f"EXECUTED BY total: {totals['direct']} direct, {totals['definition']} definition"
+              + (f", {totals['n/a']} n/a" if totals["n/a"] else ""))
         for line in errors:
             print(line)
         print("check_catalog: " + ("FAIL" if failed else "PASS"))

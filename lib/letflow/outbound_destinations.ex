@@ -409,9 +409,18 @@ defmodule Letflow.OutboundDestinations do
         end
 
       _other ->
-        case Map.get(attributes, "endpoint") do
-          url when is_binary(url) -> {"http", http_destination(url)}
-          _other -> nil
+        case attributes do
+          # T-2727 (V8): the registration notice of `platform.register_tenant` v2 is a platform
+          # step that sends on the mail channel (`Letflow.PlatformFunctions.Impl.TenantNotifyAdmin`);
+          # the list sees its channel exactly as it sees a `notify` node's.
+          %{"platform_call" => %{"function" => "tenant.notify_admin"}} ->
+            {"email", nil}
+
+          %{"endpoint" => url} when is_binary(url) ->
+            {"http", http_destination(url)}
+
+          _other ->
+            nil
         end
     end
   end

@@ -68,7 +68,8 @@ defmodule Letflow.ReadinessTest do
              "database" => "ok",
              "migrations" => "ok",
              "secrets_key" => "ok",
-             "identity" => "ok"
+             "identity" => "ok",
+             "boot" => "ok"
            }
   end
 
@@ -154,6 +155,28 @@ defmodule Letflow.ReadinessTest do
     refute raw =~ "keycloak"
     refute raw =~ "placeholder"
     if is_binary(key), do: refute(raw =~ Base.encode16(key, case: :lower))
+  end
+
+  test "T-2950 boot: 503 naming boot until the boot work is done, 200 after" do
+    on_exit(fn -> Letflow.BootReady.mark_done() end)
+    Letflow.BootReady.begin()
+    Readiness.reset_cache()
+    assert {503, body, _raw} = get_ready()
+    assert "boot" in body["failing"]
+    assert body["checks"]["boot"] == "fail"
+
+    Letflow.BootReady.mark_done()
+    Readiness.reset_cache()
+    assert {200, body, _raw} = get_ready()
+    assert body["checks"]["boot"] == "ok"
+  end
+
+  test "T-2950 run_boot_work marks done even when the seed raises" do
+    on_exit(fn -> Letflow.BootReady.mark_done() end)
+    Letflow.BootReady.begin()
+    refute Letflow.BootReady.done?()
+    assert :ok = Letflow.BootReady.run_boot_work()
+    assert Letflow.BootReady.done?()
   end
 
   test "/health is unchanged" do

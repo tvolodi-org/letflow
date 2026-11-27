@@ -76,7 +76,8 @@
               "**/codes/**",
               "**/catalog_items/**",
               "**/stock/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -104,7 +105,8 @@
               "**/codes/**",
               "**/catalog_items/**",
               "**/stock/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -132,7 +134,8 @@
               "**/codes/**",
               "**/catalog_items/**",
               "**/stock/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -160,7 +163,8 @@
               "**/locations/**",
               "**/catalog_items/**",
               "**/stock/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -188,7 +192,8 @@
               "**/locations/**",
               "**/codes/**",
               "**/stock/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -216,7 +221,8 @@
               "**/locations/**",
               "**/codes/**",
               "**/catalog_items/**",
-              "**/assets/**"
+              "**/assets/**",
+              "**/maintenance/**"
             ]
           }
         ]
@@ -236,6 +242,37 @@
               "!@/modules/registry",
               "!@/modules/types",
               "**/modules/*/**",
+              "!**/modules/assets/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**",
+              "**/codes/**",
+              "**/catalog_items/**",
+              "**/stock/**",
+              "**/maintenance/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/modules/maintenance/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/maintenance/**",
+              "!@/modules/assets/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/maintenance/**",
               "!**/modules/assets/**",
               "!**/modules/registry",
               "!**/modules/types",

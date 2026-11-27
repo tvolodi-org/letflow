@@ -1,0 +1,182 @@
+{
+  "id": "BP-QOIMEKS-P7-dry-run",
+  "bp_entry": "BP-STOCK-13",
+  "title": "Client 1 move P7, dry run on QA: the order of the runbook, only the parts a JSON runner can play (check-only refusals, load refusals, approver, reads, nothing written)",
+  "description": "Walks docs/runbooks/qoimeks-move-p7.md in its order against an existing QA company: check-only run, load, post (approver), the read checks and the rollback check (nothing written, so nothing to undo). NOT PLAYED, on purpose: the Qoimeks write freeze (the client's, no Letflow call), the extract and convert, the file upload (the runner sends only JSON bodies), the posting task and the production tenant through route 3 (the provisioner's credential; covered by BP-PLATFORM-01). QA only, nothing on production. Every expected value is taken from the passing steps of BP-06 and SEC-ASSETS-01.",
+  "tenant": "${tenant}",
+  "inputs": [
+    "org_unit"
+  ],
+  "dry_run": {
+    "tenant": "sss-rehearsal2",
+    "actors": {
+      "admin": "sss-rehearsal2-admin",
+      "storekeeper": "sss-rehearsal2-storekeeper"
+    },
+    "inputs": {
+      "org_unit": "c79c1b3d-0be8-4f0e-bf81-58744c9fa660"
+    }
+  },
+  "steps": [
+    {
+      "id": "q1",
+      "says": "P7 step 5, check-only run: the check without an organisation unit is refused 422 org_unit_required; nothing is written.",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/check",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "org_unit_required"
+      }
+    },
+    {
+      "id": "q2",
+      "says": "P7 step 5: the check with an unknown unit is refused 422 org_unit_not_found.",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/check?org_unit_id=00000000-0000-4000-8000-000000000000",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "org_unit_not_found"
+      }
+    },
+    {
+      "id": "q3",
+      "says": "P7 step 5: the check with a real unit and no workbook is refused 422 xlsx_unreadable (a file upload is not played here).",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/check?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "xlsx_unreadable"
+      }
+    },
+    {
+      "id": "q4",
+      "says": "P7 step 6, load: the storekeeper has no Excel-load permission: 403, nothing is written.",
+      "actor": "storekeeper",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "q5",
+      "says": "P7 step 6: the administrator's load without a workbook is refused 422 xlsx_unreadable; nothing is written.",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/stock/stock-workbook/apply?org_unit_id=${org_unit}",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "xlsx_unreadable"
+      }
+    },
+    {
+      "id": "q6",
+      "actor": "admin",
+      "says": "P7 step 7 and check 6: the approver holds StockApprove: 200 can_approve true.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/approval-access"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "can_approve": true
+        }
+      }
+    },
+    {
+      "id": "q6b",
+      "actor": "storekeeper",
+      "says": "P7 check 6: the storekeeper cannot approve: 403.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/approval-access"
+      },
+      "expect_refused": {
+        "status": 403
+      }
+    },
+    {
+      "id": "q7",
+      "actor": "admin",
+      "says": "P7 check 2 and 4: the balances list answers 200 (read only; the full compare is the rehearsal runbook's step 8).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/balances"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "q8",
+      "says": "P7 check 1: the current stock downloads as a workbook.",
+      "actor": "admin",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/stock-workbook"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "q9",
+      "says": "P7 check 5: the list of earlier loads answers 200; the newest entry is remembered.",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/stock-workbook/imports"
+      },
+      "expect": {
+        "status": 200
+      },
+      "save": {
+        "first_load_before": {
+          "pick": "$.rows[0].document_id",
+          "default": "none"
+        }
+      }
+    },
+    {
+      "id": "q10",
+      "says": "ROLLBACK: the newest load is the same as at the start: nothing was written, so there is nothing to undo.",
+      "actor": "storekeeper",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/stock-workbook/imports"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rows[0].document_id": {
+            "equals": "${first_load_before}",
+            "default": "none"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "first_load_id": "${first_load_before}"
+  },
+  "cleanup": []
+}

@@ -65,6 +65,7 @@ describe('role-based sidebar (golden-backed)', () => {
       'Legal companies', 'Sites', 'Org units', 'Positions', 'Employees', 'Locations', 'Location links',
       'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Quick count',
       'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements', 'Asset counts',
+      'Maintenance requests', 'Maintenance orders', 'My maintenance orders',
       'Promotion Reviews', 'DLQ', 'Webhooks', 'Users', 'Groups', 'Tokens', 'Audit', 'Print Templates',
       'Official forms', 'Currencies', 'Approval rules', 'Negative balances', 'Import data', 'Metrics', 'Solution Packs',
     ])
@@ -79,24 +80,25 @@ describe('role-based sidebar (golden-backed)', () => {
     const v = view(setFor('storekeeper'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
     // T-2239: Quick count is a storekeeper entry (StockQuickCount), the Excel load is not (StockWorkbookApply)
-    expect(v.labels).toEqual(['My Tasks', 'Reports', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Quick count', 'Import data'])
+    expect(v.labels).toEqual(['My Tasks', 'Reports', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Quick count', 'My maintenance orders', 'Import data'])
     expect(v.importTypes).toEqual(['stock_opening_line'])
   })
 
   it('N2b a role holding the import permission but no type permission loses Import data', () => {
     const v = view(new Set(['EntitiesRecordsImport', 'TasksRead']))
-    expect(v.labels).toEqual(['My Tasks'])
+    // REQ-899: My maintenance orders needs TasksRead only (module nav item)
+    expect(v.labels).toEqual(['My Tasks', 'My maintenance orders'])
     expect(v.importTypes).toEqual([])
   })
 
   it('N3 task worker: only the Work group with Instances, My Tasks, Definitions, Reports', () => {
     const v = view(setFor('taskWorker'))
     expect(v.groups).toEqual(['work'])
-    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Business processes', 'Reports'])
+    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Business processes', 'Reports', 'My maintenance orders'])
   })
 
   it('N4 scoped users (custom permission sets): exactly the entries their atoms allow', () => {
-    expect(view(new Set(['TasksRead', 'TasksComplete', 'EntitiesQuery'])).labels).toEqual(['My Tasks', 'Reports'])
+    expect(view(new Set(['TasksRead', 'TasksComplete', 'EntitiesQuery'])).labels).toEqual(['My Tasks', 'Reports', 'My maintenance orders'])
     // T-1874: the Reports entry is permission-based: without EntitiesQuery it is absent
     expect(view(new Set(['TasksRead'])).labels).not.toContain('Reports')
     expect(view(new Set(['StockRead'])).labels).toEqual(['Items', 'Stock documents', 'Balances', 'Movements', 'Counts'])

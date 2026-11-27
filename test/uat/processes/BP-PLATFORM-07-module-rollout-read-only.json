@@ -1,0 +1,202 @@
+{
+  "id": "BP-PLATFORM-07-module-rollout-read-only",
+  "bp_entry": "BP-PLATFORM-07",
+  "title": "Roll a module version out to the fleet: READ-ONLY on QA, the list, one rollout, and the refusals",
+  "description": "The platform administrator lists the fleet rollouts page by page, reads one with its per-tenant outcomes (ids, statuses and codes only: no tenant name and no schema name), and is refused a page size above the range, an unreadable cursor, an unknown rollout id (404), a resume of an unknown rollout (404), a start without a module (422) and a start of an unknown module (404): none of these starts or changes anything. A company administrator is refused the list and the start. NOT automated, on purpose: the real start (POST with a registered module) acts on EVERY tenant of the fleet and the upgrade cannot be undone by a script; it is covered by test/letflow/routers/platform_module_rollouts_test.exs. Nothing is created, so there is no cleanup and no residue; the fixture tenant is not needed.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "platform-admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      },
+      "admin": "qoimeks-qa2-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "platform-admin",
+      "says": "The operator lists the rollouts (a small page): 200 with the rollouts list; the id of the first one is remembered when there is one.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts?page_size=5"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rollouts": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "rollout_id": {
+          "pick": "$.rollouts[0].rollout.id",
+          "optional": true
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "platform-admin",
+      "says": "A page size above the range (201) is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts?page_size=201"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "platform-admin",
+      "says": "A page size that is not a number is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts?page_size=abc"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "platform-admin",
+      "says": "A cursor that is not one of ours is refused: 400.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts?cursor=not-a-cursor"
+      },
+      "expect_refused": {
+        "status": 400
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "platform-admin",
+      "says": "One rollout with its outcomes: ids, statuses and codes, no tenant name or schema name.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts/${rollout_id}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.rollout.id": "${rollout_id}",
+          "$.rollout.module_id": {
+            "exists": true
+          },
+          "$.outcomes[0].slug": {
+            "absent": true
+          },
+          "$.outcomes[0].display_name": {
+            "absent": true
+          },
+          "$.outcomes[0].schema_name": {
+            "absent": true
+          }
+        }
+      },
+      "requires": [
+        "rollout_id"
+      ]
+    },
+    {
+      "id": "s6",
+      "actor": "platform-admin",
+      "says": "An unknown rollout id: 404.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts/00000000-0000-4000-8000-0000000000a1"
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s7",
+      "actor": "platform-admin",
+      "says": "A resume of an unknown rollout: 404, nothing is run.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-module-rollouts/00000000-0000-4000-8000-0000000000a1/resume",
+        "body": {}
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s8",
+      "actor": "platform-admin",
+      "says": "A start without a module: 422, field module_id, nothing starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-module-rollouts",
+        "body": {}
+      },
+      "expect": {
+        "status": 422,
+        "json": {
+          "$.errors[0].field": "module_id"
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "actor": "platform-admin",
+      "says": "A start of a module that is not registered: 404, nothing starts.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-module-rollouts",
+        "body": {
+          "module_id": "uat-no-such-module"
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "says": "A company administrator may not list the fleet rollouts (403 or the uniform 404).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-module-rollouts"
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    },
+    {
+      "id": "s11",
+      "actor": "admin",
+      "says": "A company administrator may not start a rollout (403 or the uniform 404; an unknown module, so nothing could start).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/platform-module-rollouts",
+        "body": {
+          "module_id": "uat-no-such-module"
+        }
+      },
+      "expect_refused": {
+        "status": [
+          403,
+          404
+        ]
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}

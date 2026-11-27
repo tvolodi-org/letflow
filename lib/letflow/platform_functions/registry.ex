@@ -50,11 +50,18 @@ defmodule Letflow.PlatformFunctions.Registry do
     {"tenant.validate", {Letflow.PlatformFunctions.Impl.TenantValidate, :run, 1}},
     {"tenant.create", {Letflow.PlatformFunctions.Impl.TenantCreate, :run, 1}},
     {"tenant.provision", {Letflow.PlatformFunctions.Impl.TenantProvision, :run, 1}},
+    {"tenant.record_lifecycle", {Letflow.PlatformFunctions.Impl.TenantRecordLifecycle, :run, 1}},
+    {"tenant.record_onboarding",
+     {Letflow.PlatformFunctions.Impl.TenantRecordOnboarding, :run, 1}},
     {"tenant.bind_realm", {Letflow.PlatformFunctions.Impl.TenantBindRealm, :run, 1}},
     {"tenant.grant_first_admins",
      {Letflow.PlatformFunctions.Impl.TenantGrantFirstAdmins, :run, 1}},
     {"tenant.install_default_modules",
-     {Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules, :run, 1}}
+     {Letflow.PlatformFunctions.Impl.TenantInstallDefaultModules, :run, 1}},
+    {"tenant.notify_admin", {Letflow.PlatformFunctions.Impl.TenantNotifyAdmin, :run, 1}},
+    {"tenant.suspend", {Letflow.PlatformFunctions.Impl.TenantSuspend, :run, 1}},
+    {"tenant.reactivate", {Letflow.PlatformFunctions.Impl.TenantReactivate, :run, 1}},
+    {"tenant.purge", {Letflow.PlatformFunctions.Impl.TenantPurge, :run, 1}}
   ]
 
   # The compile-time check: every body is declared in the compiled catalogue.

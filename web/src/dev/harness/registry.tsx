@@ -44,6 +44,7 @@ import { platformCallPickerScreens } from './fixtures/platformCallPicker'
 import { notifyStepPickerScreens } from './fixtures/notifyStepPicker'
 import { registerTenantDesignerScreens } from './fixtures/registerTenantDesigner'
 import { registerTenantPageScreens } from './fixtures/registerTenantPage'
+import { editTenantPageScreens } from './fixtures/editTenantPage'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
@@ -59,6 +60,8 @@ import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftov
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
 import { assetsIssueRefusedScreens } from './fixtures/assetsDocumentsIssueRefused'
 import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
+import { maintenanceScreens } from './fixtures/maintenance'
+import { maintenanceOrdersScreens } from './fixtures/maintenanceOrders'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { assetsOpeningScreens } from './fixtures/assetsDocumentsOpening'
 import { assetsPrintButtonsScreens } from './fixtures/assetsPrintButtons'
@@ -127,6 +130,7 @@ import { ledgerSettingsScreens } from './fixtures/ledgerSettings'
 import { quickCountFormatScreens } from './fixtures/quickCountFormats'
 import { canvasPropertyPanelScreens } from './fixtures/canvasPropertyPanel'
 import { signupScreens } from './fixtures/signupScreens'
+import { subProcessPickerScreens } from './fixtures/subProcessPicker'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -372,6 +376,8 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...assetsDocumentsScreens,
     ...assetsIssueRefusedScreens,
     ...assetsCardActionsScreens,
+    ...maintenanceScreens,
+    ...maintenanceOrdersScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
     ...assetsOpeningScreens,
@@ -451,5 +457,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...canvasPropertyPanelScreens,
     ...registerTenantPageScreens,
     ...signupScreens,
+    ...editTenantPageScreens,
+    ...subProcessPickerScreens,
   ].map(s => [s.name, s]),
 )

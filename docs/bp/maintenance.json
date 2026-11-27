@@ -18,7 +18,9 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/new -> MaintenanceRequestFormPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.create"
         ],
@@ -26,7 +28,8 @@
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:50",
           "lib/letflow/modules/maintenance/requests.ex:75",
-          "lib/letflow/modules/maintenance/access.ex:25"
+          "lib/letflow/modules/maintenance/access.ex:25",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:22"
         ],
         "result": "201 with the request view: WR number, status new, the asset card's number and name, the card's org unit copied"
       }
@@ -163,27 +166,33 @@
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.list"
         ],
         "route": "GET /api/v1/modules/maintenance/requests",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:69",
-          "lib/letflow/modules/maintenance/requests.ex:195"
+          "lib/letflow/modules/maintenance/requests.ex:195",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:21"
         ],
         "result": "200 with rows and next_cursor"
       },
       {
         "actor": "TENANT_ADMIN",
-        "forms": [],
+        "forms": [
+          "requests/:id -> MaintenanceRequestsPage"
+        ],
         "functions": [
           "Letflow.Modules.Maintenance.Requests.get"
         ],
         "route": "GET /api/v1/modules/maintenance/requests/:id",
         "code_refs": [
           "lib/letflow/modules/maintenance/router.ex:84",
-          "lib/letflow/modules/maintenance/requests.ex:219"
+          "lib/letflow/modules/maintenance/requests.ex:219",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:23"
         ],
         "result": "200 with the request view (status, order reference, photo_count)"
       },
@@ -524,7 +533,7 @@
     "id": "BP-MAINTENANCE-09",
     "area": "maintenance",
     "title": "Web screens for work requests",
-    "description": "Report a problem from the asset card, the new-request form with photos, the request list and the request page with Reject. No screen exists today (web/src has no maintenance route); the module is API only.",
+    "description": "Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/requests, requests/new, requests/:id) and are guarded by MaintenanceRead and MaintenanceRequestCreate. Why it stays planned (re-checked 2026-11-26 on origin/main): photos on the form, the asset-card entry and the Reject action are not mapped here, the release flag :maintenance_enabled is off on QA so the screens are not reachable there, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-01..03.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -534,7 +543,45 @@
     "preconditions": [
       "BP-MAINTENANCE-01..03 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestFormPage"
+        ],
+        "route": "web: admin/maintenance/requests/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:19",
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:22"
+        ],
+        "result": "the new-request screen opens for a holder of MaintenanceRequestCreate (RequirePermission); a tenant without the module gets the not-found page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:21"
+        ],
+        "result": "the request list screen opens for a holder of MaintenanceRead"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [],
+        "functions": [
+          "MaintenanceRequestsPage"
+        ],
+        "route": "web: admin/maintenance/requests/:id",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:23"
+        ],
+        "result": "the same page opens with one request selected, for a holder of MaintenanceRead"
+      }
+    ],
     "inputs": [
       "request fields"
     ],
@@ -543,14 +590,16 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-898"
+    "status": "partial",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens.",
+    "gap": "No runner scenario can play this row on QA today (re-checked 2026-11-27): (1) the release flag :maintenance_enabled is false in config/config.exs:191 (true only in config/test.exs:314), so the module answers 404 on QA; (2) the runner has no browser step for a module screen. Steps blocked_by: flag on for a QA tenant, owner PM (release decision); a browser step in the runner, owner runner/UAT tooling task. The API half is played by BP-MAINTENANCE-01..03 once the flag is on. Nothing is blocked in the product code here."
   },
   {
     "id": "BP-MAINTENANCE-10",
     "area": "maintenance",
     "title": "Web screens for work orders and My work orders",
-    "description": "The order form from a request or direct, the order list and page with Assign, and My work orders for the assigned person built on the task inbox. Not built: no screen in web/src.",
+    "description": "The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person, built on the task inbox (REQ-899, merged in #5111). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/orders, orders/new, orders/:id, maintenance/my-orders). Stays planned: the release flag :maintenance_enabled is off on QA, REQ-899 is still pending in the register, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-04..08. The phone screens of the technician (REQ-900) are not built.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -564,7 +613,64 @@
     "preconditions": [
       "BP-MAINTENANCE-04..08 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders -> MaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MaintenanceOrdersPage"
+        ],
+        "route": "web: admin/maintenance/orders",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:25"
+        ],
+        "result": "the order list opens for a holder of MaintenanceRead, filtered by status and asset card; a tenant without the module gets the not-found page"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders/new -> MaintenanceOrderFormPage"
+        ],
+        "functions": [
+          "MaintenanceOrderFormPage"
+        ],
+        "route": "web: admin/maintenance/orders/new",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:26"
+        ],
+        "result": "the new-order form opens for a holder of MaintenanceOrderManage; one save creates the order, an optional assignee is sent with it"
+      },
+      {
+        "actor": "TENANT_ADMIN",
+        "forms": [
+          "orders/:id -> MaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MaintenanceOrdersPage"
+        ],
+        "route": "web: admin/maintenance/orders/:id",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:27"
+        ],
+        "result": "the same page opens with one order selected in the detail pane; Assign opens the user picker (MaintenanceOrderManage)"
+      },
+      {
+        "actor": "TASK_WORKER (the technician, addressed by the work order)",
+        "forms": [
+          "maintenance/my-orders -> MyMaintenanceOrdersPage"
+        ],
+        "functions": [
+          "MyMaintenanceOrdersPage"
+        ],
+        "route": "web: maintenance/my-orders",
+        "code_refs": [
+          "web/src/modules/maintenance/maintenanceRoutes.tsx:31"
+        ],
+        "result": "the signed-in user sees the orders addressed to them from the task inbox; needs TasksRead only, no maintenance permission"
+      }
+    ],
     "inputs": [
       "order fields"
     ],
@@ -573,14 +679,17 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-899"
+    "status": "partial",
+    "requirement": "REQ-899",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and production and the runner has no browser step for these screens.",
+    "gap": "No runner scenario can play this row on QA today (re-checked 2026-11-27): the release flag :maintenance_enabled is false (config/config.exs:191), and the runner has no browser step for the order list, the order page, the new-order form or My work orders. Steps blocked_by: flag on for a QA tenant plus a technician login in the actor roster, owner PM; a browser step in the runner, owner runner/UAT tooling task. The API half is BP-MAINTENANCE-04..08."
   },
   {
     "id": "BP-MAINTENANCE-11",
     "area": "maintenance",
     "title": "My work orders on the phone app and PWA",
-    "description": "The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen.",
+    "description": "The assigned person sees their open work orders in the phone app (and its PWA), built on the task inbox, and opens the generic task screen to report the work done. The Flutter screen is merged (REQ-900, commit b7df4358d): apps/mobile/lib/features/maintenance/work_orders_screen.dart, with a widget test in apps/mobile/test/features/maintenance/work_orders_test.dart. The technician's completion is BP-MAINTENANCE-06.",
     "actors": [
       {
         "role": "TASK_WORKER (the technician, addressed by the work order)",
@@ -590,7 +699,23 @@
     "preconditions": [
       "BP-MAINTENANCE-06 implemented"
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "actor": "TASK_WORKER (the technician)",
+        "forms": [],
+        "functions": [
+          "WorkOrdersScreen",
+          "WorkOrdersController (reads /api/v1/tasks/inbox)",
+          "TaskDetailScreen"
+        ],
+        "route": "mobile: /maintenance/my-orders",
+        "code_refs": [
+          "apps/mobile/lib/features/maintenance/maintenance_routes.dart:9",
+          "apps/mobile/lib/features/maintenance/work_orders_controller.dart:93"
+        ],
+        "result": "the technician's open work orders are listed and one opens the generic task screen"
+      }
+    ],
     "inputs": [
       "task"
     ],
@@ -599,8 +724,11 @@
     ],
     "refusals": [],
     "scenario": null,
-    "status": "planned",
-    "requirement": "REQ-900"
+    "status": "partial",
+    "requirement": "REQ-900",
+    "gap": "Screen merged (REQ-900, b7df4358d); status is partial because no runner scenario plays it. Remaining blockers: (1) the release flag :maintenance_enabled is false (config/config.exs:191, true only in config/test.exs:314), so QA answers 404 for the module - owner PM; (2) the JSON runner has no phone/PWA step - owner runner/UAT tooling task. The technician completion itself is BP-MAINTENANCE-06.",
+    "automation": "planned",
+    "automation_note": "No runner scenario: the release flag is false on QA and the runner has no phone/PWA step."
   },
   {
     "id": "BP-MAINTENANCE-12",
@@ -1241,7 +1369,7 @@
     "id": "BP-MAINTENANCE-21",
     "area": "maintenance",
     "title": "Security: inputs that do not exist in this area (recorded, not applicable)",
-    "description": "The operator asked for voice, webhook and old-address inputs. The maintenance module has none: no voice route, no inbound webhook, no shared-access (old address) route, and the module is only on the new API path. The only outward notice is the task_assigned mail and bell, produced by the core task reassign. Recorded here so a later slice that adds one (the phone app, REQ-900) must add its own security process.",
+    "description": "The operator asked for voice, webhook and old-address inputs. The maintenance module has none: no voice route, no inbound webhook, no shared-access (old address) route, and the module is only on the new API path. The only outward notice is the task_assigned mail and bell, produced by the core task reassign. Recorded here so a later slice that adds one (the phone app, REQ-900) must add its own security process. Why it stays partial (re-checked 2026-11-21): the entry records absent inputs, so it has nothing to walk; its one positive claim (a path outside the twelve routes is refused as unmatched) has no test (grep -n unmatched in test/letflow/modules/maintenance is empty) and the release flag :maintenance_enabled is false in config/config.exs:179 (true only in config/test.exs:310), so a QA dry run could only see 404. Needed first: a QA tenant with the module on, a technician login, and an ExUnit test of the unmatched path.",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1279,6 +1407,7 @@
     "tests": [],
     "security": true,
     "automation": "planned",
-    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on."
+    "automation_note": "No runner scenario yet, by environment, not by choice: the release flag is false on QA and production (the module answers 404 everywhere), the actor roster has no tenant with maintenance installed and no technician login, and the runner has no multipart step. Covered today by the ExUnit tests named in `tests`. The scenario is written when a QA tenant has the module on.",
+    "gap": "Nothing to walk: the row records inputs that do not exist. Its one positive claim (a path outside the twelve routes is refused as unmatched) needs an ExUnit test first (owner: a maintenance test task; grep -rn unmatched test/letflow/modules/maintenance is empty) and a QA tenant with the flag on (owner PM); a runner step would only see 404 today. Not written as a scenario on purpose (no write endpoint is probed to see if it works)."
   }
 ]

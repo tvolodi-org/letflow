@@ -42,6 +42,7 @@ import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessag
 import { catalogItemsItemsMessages } from '@/modules/catalog_items/catalogItemsItemsMessages'
 import { recordCodesMessages } from '@/components/record-codes/recordCodesMessages'
 import { codesMessages } from '@/modules/codes/codesMessages'
+import { maintenanceMessages } from '@/modules/maintenance/maintenanceMessages'
 import { examMessages } from '@/modules/exam/examMessages'
 import {
   questionMessagesEn,
@@ -198,6 +199,10 @@ function fromSplit(
 /** Files named `*Messages.ts` that are not catalogs (REQ-781). */
 const NOT_A_CATALOG = [
   { file: 'i18n/useMergedEntitiesMessages.ts', reason: 'a hook, not a catalog' },
+  {
+    file: 'i18n/designerErrorMessages.ts',
+    reason: 'a table of triples merged into processDiagramMessages, which is checked here; own test covers languages',
+  },
 ]
 
 /** Repo-relative (to src/) posix paths of every `*Messages.ts` file outside `__tests__`. */
@@ -341,6 +346,7 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'tasks:colLot': 'lot: Kazakh screens already write Партия/Партиялар',
   'tasks:definition': 'loanword, same spelling in Kazakh',
   'currencies:currencies.col.code': 'loanword, same spelling in Kazakh',
+  'maintenance:maintenance.common.dash': 'dash: the same typographic dash in Russian and Kazakh',
 };
 
 /** Lists `<catalog>:<key> = value` for every kk value that is the ru value (not en) and not allowlisted. */
@@ -450,6 +456,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
   it('codesMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('codes', codesMessages)
     checkFlatCatalog('recordCodes', recordCodesMessages)
+  })
+
+  it('maintenanceMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('maintenance', maintenanceMessages)
   })
 
   it('examMessages (includes questionMessages): all en keys in ru/kk, no empty values', () => {
@@ -603,6 +613,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['catalog_items', catalogItemsMessages],
       ['recordCodes', recordCodesMessages],
       ['codes', codesMessages],
+      ['maintenance', maintenanceMessages],
       ['exam', examMessages],
       ['locations', locationsMessages],
       ['org', orgMessages],

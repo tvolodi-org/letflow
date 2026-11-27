@@ -1,0 +1,347 @@
+{
+ "id": "BP-MASTER-15",
+ "bp_entry": "BP-MASTER-15",
+ "title": "Master data import: the storekeeper is refused and the JSON limits hold",
+ "description": "The storekeeper (STOREKEEPER holds the import permission for opening lines only, not the wide one) sends the generic import of a catalog item, a place, an org unit and a code tag: each is refused 403 with nothing read (s1 to s4). The tenant administrator then sends an import of 201 empty records: the whole request is refused 413 before any record is looked at (the cap is 200, never a silent cut to 200); an import with an unknown schema version is refused 422 naming the version; a records field that is not a list is refused 422. Each refusal happens before any row is written, so the file has no cleanup. NOT covered here (runner gap, see the entry BP-MASTER-15): the spreadsheet and CSV limits (unreadable or oversized xlsx, header that is not a field, malformed CSV) need a request whose body is a binary or CSV file, a step kind the runner does not have. Needs modules catalog_items, locations, org and codes installed.",
+ "tenant": "${tenant}",
+ "inputs": [],
+ "dry_run": {
+  "tenant": "qoimeks-qa2",
+  "actors": {
+   "admin": "qoimeks-qa2-admin",
+   "storekeeper": "qoimeks-qa2-storekeeper"
+  },
+  "inputs": {}
+ },
+ "steps": [
+  {
+   "id": "s1",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/catalog_item/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "catalog_item",
+     "records": []
+    }
+   },
+   "expect_refused": {
+    "status": 403
+   }
+  },
+  {
+   "id": "s2",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/location_node/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "location_node",
+     "records": []
+    }
+   },
+   "expect_refused": {
+    "status": 403
+   }
+  },
+  {
+   "id": "s3",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/org_unit/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "org_unit",
+     "records": []
+    }
+   },
+   "expect_refused": {
+    "status": 403
+   }
+  },
+  {
+   "id": "s4",
+   "actor": "storekeeper",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/code_tag/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "code_tag",
+     "records": []
+    }
+   },
+   "expect_refused": {
+    "status": 403
+   }
+  },
+  {
+   "id": "s5",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/catalog_item/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "catalog_item",
+     "records": [
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {}
+     ]
+    }
+   },
+   "expect": {
+    "status": 413,
+    "json": {
+     "$.detail": {
+      "contains": "200-record cap"
+     }
+    }
+   }
+  },
+  {
+   "id": "s6",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/catalog_item/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v0",
+     "entity_type": "catalog_item",
+     "records": []
+    }
+   },
+   "expect": {
+    "status": 422,
+    "json": {
+     "$.detail": {
+      "contains": "unknown record_export_schema_version"
+     }
+    }
+   }
+  },
+  {
+   "id": "s7",
+   "actor": "admin",
+   "do": {
+    "api": "POST",
+    "path": "/api/v1/entities/records/catalog_item/import",
+    "body": {
+     "record_export_schema_version": "entities/record-export/v1",
+     "entity_type": "catalog_item",
+     "records": "not-a-list"
+    }
+   },
+   "expect": {
+    "status": 422,
+    "json": {
+     "$.detail": "records must be an array"
+    }
+   }
+  }
+ ],
+ "outputs": {},
+ "cleanup": []
+}

@@ -5,7 +5,10 @@
     "title": "Install the manufacturing module shell (mes_core) in a company",
     "description": "A tenant administrator installs the mes_core module in their own company, with a written reason. The module is an empty shell today: it brings the module record and its four dependencies check, and no screens, routes, permissions, roles or handlers. Installing it is the tenant administrator's own act; no company gets it automatically.",
     "actors": [
-      {"role": "TENANT_ADMIN", "permission": "ModulesManage"}
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ModulesManage"
+      }
     ],
     "preconditions": [
       "the modules org, catalog_items, locations, codes and stock are installed in the company (mes_core declares catalog_items, locations, org and stock as dependencies)",
@@ -17,19 +20,30 @@
         "forms": [],
         "functions": [],
         "route": "POST /api/v1/tenant/modules",
-        "code_refs": ["lib/letflow/routers/tenant_modules.ex:63", "lib/letflow/routers/tenant_modules.ex:333", "lib/letflow/modules/mes_core/mes_core.ex:21"],
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:63",
+          "lib/letflow/routers/tenant_modules.ex:333",
+          "lib/letflow/modules/mes_core/mes_core.ex:21"
+        ],
         "result": "the module record mes_core 0.1.0 is created in the company (201); the company gets no new screen, route or permission"
       }
     ],
-    "inputs": ["module_id = mes_core", "rationale (required text)"],
-    "outputs": ["the mes_core module record of the company (version 0.1.0)"],
+    "inputs": [
+      "module_id = mes_core",
+      "rationale (required text)"
+    ],
+    "outputs": [
+      "the mes_core module record of the company (version 0.1.0)"
+    ],
     "refusals": [
       "no rationale or a blank one: 422 'rationale is required'",
       "a dependency not installed: 422 'missing dependency: <id>' and nothing is installed",
       "already installed: 409 'module already installed'"
     ],
     "scenario": null,
-    "status": "partial"
+    "status": "partial",
+    "partial_reason": "Not scripted because it cannot be undone on a shared QA company: installing mes_core succeeds (201) and creates a module record, and the uninstall route is switched off in this product (config/config.exs:188 modules_uninstall_enabled=false, no environment overrides it; installs.ex:159), so the runner's cleanup cannot restore the start state. Also the install route POST /api/v1/tenant/modules is at the root of a two-part route prefix that check_processes.py cannot match. It becomes scriptable when the uninstall flag is on in the QA release, or when a disposable tenant is available. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs.",
+    "gap": "WHY PARTIAL (no runner scenario, T-2969): a walkthrough must restore the start state, and it cannot. Installing mes_core succeeds (201) and creates a module record; the uninstall route is switched off (config/config/config.exs:188 modules_uninstall_enabled=false, installs.ex), so cleanup is impossible on a shared QA company. The install route POST /api/v1/tenant/modules is also at the root of a two-part prefix that check_processes.py cannot match. Owner: operator (turn the uninstall flag on in the QA release) or PM (provide a disposable tenant); then a scenario can be written. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs. The refusal side (storekeeper, seven sibling routes) is walked in SEC-MES-03."
   },
   {
     "id": "BP-MES-02",
@@ -37,16 +51,25 @@
     "title": "Security: the install of mes_core is refused without its dependencies and does not leak to another company",
     "description": "Negative process (D-170). Installing mes_core in a company that lacks a dependency is refused and installs nothing; installing it in one company leaves every other company without it.",
     "actors": [
-      {"role": "TENANT_ADMIN", "permission": "ModulesManage"}
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ModulesManage"
+      }
     ],
-    "preconditions": ["two companies A and B; in A the dependencies are installed, in B they are not"],
+    "preconditions": [
+      "two companies A and B; in A the dependencies are installed, in B they are not"
+    ],
     "tasks": [
       {
         "actor": "TENANT_ADMIN",
         "forms": [],
         "functions": [],
         "route": "POST /api/v1/tenant/modules",
-        "code_refs": ["lib/letflow/routers/tenant_modules.ex:355", "lib/letflow/modules/installs.ex:395", "test/letflow/modules/mes_core/install_test.exs:40"],
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:355",
+          "lib/letflow/modules/installs.ex:395",
+          "test/letflow/modules/mes_core/install_test.exs:40"
+        ],
         "result": "B's administrator gets 422 missing dependency and mes_core is not installed in B"
       },
       {
@@ -54,13 +77,19 @@
         "forms": [],
         "functions": [],
         "route": "POST /api/v1/tenant/modules",
-        "code_refs": ["lib/letflow/routers/tenant_modules.ex:344", "test/letflow/modules/mes_core/install_test.exs:47"],
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:344",
+          "test/letflow/modules/mes_core/install_test.exs:47"
+        ],
         "result": "after A installs mes_core, B still has no mes_core record"
       }
     ],
     "inputs": [],
     "outputs": [],
-    "refusals": ["missing dependency: 422, nothing installed", "install in A does not create a record in B (schema-per-tenant)"],
+    "refusals": [
+      "missing dependency: 422, nothing installed",
+      "install in A does not create a record in B (schema-per-tenant)"
+    ],
     "scenario": null,
     "status": "implemented"
   },
@@ -68,27 +97,50 @@
     "id": "BP-MES-03",
     "area": "mes",
     "title": "Security: who may install or remove the module (permission matrix of the module-management routes)",
-    "description": "Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need ModulesManage. mes_core adds no permission and no role grant, so the matrix for it is the core matrix: only TENANT_ADMIN (in its company) and PLATFORM_ADMIN hold ModulesManage; every other role, a missing credential and a wrong credential are refused.",
+    "description": "Negative process (D-170). The module-management routes (install, settings, uninstall, reactivate, upgrade, rollback, ensure-seeds) need ModulesManage. mes_core adds no permission and no role grant, so the matrix for it is the core matrix: only TENANT_ADMIN (in its company) and PLATFORM_ADMIN hold ModulesManage; every other role, a missing credential and a wrong credential are refused. Scope of the script: the seven routes under a module id are refused for the storekeeper at API level. The install request on the module list itself (POST /api/v1/tenant/modules, tenant_modules.ex:63) carries the same permission and is covered by BP-MES-01's refusals and the permission matrix, but the static check cannot match a route at the root of the two-part prefix, so it is not a script step. A missing or wrong credential (401) is not scripted: the runner has no per-step credential.",
     "actors": [
-      {"role": "STOREKEEPER", "permission": "none (refused)"},
-      {"role": "TENANT_ADMIN", "permission": "ModulesManage"}
+      {
+        "role": "STOREKEEPER",
+        "permission": "none (refused)"
+      },
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "ModulesManage"
+      }
     ],
-    "preconditions": ["the golden permission matrix of the product (priv/permission_matrix/effective.golden)"],
+    "preconditions": [
+      "the golden permission matrix of the product (priv/permission_matrix/effective.golden)"
+    ],
     "tasks": [
       {
         "actor": "STOREKEEPER",
         "forms": [],
         "functions": [],
-        "route": "POST /api/v1/tenant/modules/:module_id/uninstall",
-        "code_refs": ["lib/letflow/routers/tenant_modules.ex:71", "priv/permission_matrix/effective.golden:827"],
-        "result": "403 for a role without ModulesManage; nothing changes (planned as a runner step: the matrix is read from the golden file, the HTTP refusal is not yet scripted)"
+        "route": "PUT /api/v1/tenant/modules/:module_id/settings; POST /api/v1/tenant/modules/:module_id/{uninstall,reactivate,upgrade/plan,upgrade,rollback,ensure-seeds}",
+        "code_refs": [
+          "lib/letflow/routers/tenant_modules.ex:63",
+          "lib/letflow/routers/tenant_modules.ex:67",
+          "lib/letflow/routers/tenant_modules.ex:71",
+          "lib/letflow/routers/tenant_modules.ex:75",
+          "lib/letflow/routers/tenant_modules.ex:79",
+          "lib/letflow/routers/tenant_modules.ex:83",
+          "lib/letflow/routers/tenant_modules.ex:87",
+          "lib/letflow/routers/tenant_modules.ex:91",
+          "priv/permission_matrix/effective.golden:622",
+          "priv/permission_matrix/effective.golden:842",
+          "test/uat/processes/SEC-MES-03-module-management-per-role.json:1"
+        ],
+        "result": "the storekeeper (no ModulesManage, golden line 622) gets 403 Forbidden 'insufficient permissions' on each of the seven requests, with one identical body; nothing changes. The administrator's passing side (golden line 842) is not scripted: see the note on status"
       }
     ],
     "inputs": [],
     "outputs": [],
-    "refusals": ["a role without ModulesManage: 403", "no or wrong credential: 401"],
-    "scenario": null,
-    "status": "partial"
+    "refusals": [
+      "a role without ModulesManage: 403",
+      "no or wrong credential: 401"
+    ],
+    "scenario": "test/uat/processes/SEC-MES-03-module-management-per-role.json",
+    "status": "implemented"
   },
   {
     "id": "BP-MES-04",
@@ -96,9 +148,14 @@
     "title": "Security: MES data paths (crafted writes, cross-company reads, token and host, uploads, webhooks, approval) -- not buildable yet",
     "description": "Negative processes required by D-170 for the MES data paths: crafted completion or start refused (write targets), a token of company A against company B's ids answered with a uniform 404, the permission matrix per role of the area, wrong/expired/other-company token and unknown host, upload types and limits, old-address access, voice and webhook inputs, approval and separation of duties. Today mes_core has no routes, screens, handlers, permissions, roles, uploads, webhooks or approval steps, so each of these is PLANNED: it becomes a real process when plan tasks M2..M11 (docs/design/mes/13-phase1-plan.md) add the thing it tests. Until then there is nothing to refuse, and none of them is automated.",
     "actors": [
-      {"role": "TENANT_ADMIN", "permission": "none yet (mes_core declares no permission)"}
+      {
+        "role": "TENANT_ADMIN",
+        "permission": "none yet (mes_core declares no permission)"
+      }
     ],
-    "preconditions": ["MES plan tasks M2..M11 merged"],
+    "preconditions": [
+      "MES plan tasks M2..M11 merged"
+    ],
     "tasks": [],
     "inputs": [],
     "outputs": [],
@@ -110,6 +167,7 @@
     ],
     "scenario": null,
     "status": "planned",
-    "requirement": "none yet: MES plan tasks M2..M11 in docs/design/mes/13-phase1-plan.md have no REQ entry in docs/requirements.yaml"
+    "requirement": "none yet: MES plan tasks M2..M11 in docs/design/mes/13-phase1-plan.md have no REQ entry in docs/requirements.yaml",
+    "gap": "WHY PLANNED (no runner scenario, T-2969): mes_core has no routes, screens, handlers, permissions, roles, uploads, webhooks or approval steps on main, so there is nothing to refuse and a scenario would only assert a 404. Owner: whoever delivers MES plan tasks M2..M11 (docs/design/mes/13-phase1-plan.md); each of them adds its negative walkthrough with the thing it tests. The one MES path that exists today, module management per role, is walked in SEC-MES-03. No REQ entry exists for M2..M11 yet (PM to queue the requirement)."
   }
 ]

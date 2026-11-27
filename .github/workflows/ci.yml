@@ -1322,6 +1322,17 @@ jobs:
           flutter-version-file: apps/mobile/pubspec.yaml
           cache: true
 
+      # T-2910: Gradle dependency cache, restored before the build so Maven is the fallback.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/mobile/android/**/*.gradle*', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.properties', 'apps/mobile/pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Install dependencies
         if: needs.changes.outputs.mobile != 'false'
         run: python3 -I -B "$GITHUB_WORKSPACE/scripts/ci_job_deadline.py" --retry-downloads -- flutter pub get

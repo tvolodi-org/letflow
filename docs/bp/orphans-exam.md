@@ -10,8 +10,15 @@ documented "a system path with no HTTP user, for the mix seed task"), whose only
 `lib/mix/tasks/letflow.seed.exam_fixtures.ex:597` and `:655`. No router, no screen, no pack handler reaches it
 (`web/src/modules/exam/BilimBagaAdminPage.tsx` states the assignment gap in its header comment).
 
+Gaps that keep BP-EXAM-02..06 partial (T-2551): there is no way to give a candidate an exam through a route or a screen, so the runner cannot play the candidate's start, sit, grade and certificate processes (no assignment, no session). Needed: a route and screen that write `exam_assignment` (or a runner fixture that does), then scenarios for BP-EXAM-03..06. Their refusal paths are already played by BP-EXAM-07.
+
 | function | file:line | what it does | history | why it exists | proposed action |
 |---|---|---|---|---|---|
+
+## Gaps found by the dry run (T-2551)
+
+- Answer option writes: on the dry-run tenant the administrator is refused (403, restricted fields) when writing is_correct, so BP-EXAM-01 plays no answer option step. Needs the field restriction to be lifted for the exam author or a tenant without it.
+- parent_id: the active category/question definitions of the dry-run tenant do not declare parent_id (REQ-586 rollout), so the tree and lineage refusals are not played.
 
 ## Real orphan outside the inventory (decision (c), keep)
 

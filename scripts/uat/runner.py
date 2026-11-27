@@ -29,6 +29,11 @@ reaches the log, the recipient and the address of the trap are masked) and a pro
 on the platform tenant (`platform_residue`: the definitions that must be back on their version and the instances
 that must not be left open).
 
+A step may sign in the first administrator of a tenant made during the run (`first_signin`: realm, recipient, mail
+subject; the temporary password is read from the trap, the forced password change is done at the identity
+provider with a password made in memory, the token is kept as a secret under `as`, default `new_admin`, and used
+by later steps with `"bearer": "new_admin"`). None of the passwords, the code or the token is ever written.
+
 Exit codes: 0 every step, every cleanup step and the build check passed; 1 a verdict failed;
 2 bad usage or a bad process file (nothing was run). `dry-run` never uses 2 for a failure: the
 bp_dryrun capability reads exit 2 as "this runner has no such command yet".
@@ -37,7 +42,11 @@ bp_dryrun capability reads exit 2 as "this runner has no such command yet".
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
+import hashlib
+import html
+import http.cookiejar
 import json
 import math
 import os
@@ -65,7 +74,12 @@ RESPONSE_EXCERPT_MAX = 2000
 STABLE_EXTRA_S = 120
 # A step with this actor sends no Authorization header (the public sign-up routes); it is no roster entry.
 ANONYMOUS_ACTOR = "anonymous"
-DO_KINDS = ("api", "wait_task", "wait_mail", "login", "assert_only", "repeat", "parallel")
+PAGE_THROUGH_MAX_PAGES = 15
+DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep",
+            "module_installed", "tenant_onboarded", "page_through", "client1_tool")
+# The module names of the product (the syntax the infra script checked before any request).
+MODULE_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+BUILTIN_FIXTURES = ("module_installed", "tenant_onboarded")
 # The sign-in of a user of a realm made DURING the run (the new tenant admin of the self-service sign-up): the
 # password grant of the identity provider, the token kept as a secret and used by later steps with "bearer".
 IDP_BASE_URL_DEFAULT = "https://auth.qa.bizdala.com"
@@ -99,6 +113,20 @@ URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+
+
+# The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
+TEMP_PASSWORD_RE = r"(?i)temporary password\s*(?:is)?\s*[:=]?\s*(\S+)"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """The first sign-in reads the Location of a redirect itself (it may point to the app, not to a server)."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_NoRedirect = _NoRedirectHandler()
 
 
 class RunnerError(Exception):
@@ -423,6 +451,46 @@ def refused_results(spec: dict, status: int, body, text) -> list:
     return results
 
 
+SET_ASSERTS = {"age_at_least", "unique_ids"}
+
+
+def _parse_time(value):
+    try:
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def set_assertions(expect: dict, body) -> list:
+    """T-2941: the asserts on the set a page_through collected. age_at_least: {seconds, field?} or a number of
+    seconds: some item's field (default created_at) is at least that old; none is old enough -> the row is
+    `inconclusive` (a not-run with an owner, never a pass). unique_ids: true (or an id field name): no id twice."""
+    items = body.get("items") if isinstance(body, dict) else None
+    items = items if isinstance(items, list) else []
+    rows = []
+    if "age_at_least" in expect:
+        want = expect["age_at_least"]
+        seconds = want.get("seconds") if isinstance(want, dict) else want
+        field = want.get("field", "created_at") if isinstance(want, dict) else "created_at"
+        now = datetime.now(timezone.utc)
+        ages = [(now - t).total_seconds() for t in (_parse_time(i.get(field)) for i in items if isinstance(i, dict))
+                if t is not None]
+        ok = any(a >= float(seconds) for a in ages)
+        row = {"what": f"items[*].{field} age_at_least", "expected": seconds,
+               "actual": f"oldest {int(max(ages))}s" if ages else "no dated item", "ok": ok}
+        if not ok:
+            row["inconclusive"] = True
+        rows.append(row)
+    if "unique_ids" in expect:
+        key = expect["unique_ids"] if isinstance(expect["unique_ids"], str) else "id"
+        ids = [i.get(key) for i in items if isinstance(i, dict)]
+        dups = sorted({str(x) for x in ids if ids.count(x) > 1})
+        rows.append({"what": f"items[*].{key} unique", "expected": "no id twice",
+                     "actual": "duplicates: " + ", ".join(dups[:5]) if dups else f"{len(ids)} ids", "ok": not dups})
+    return rows
+
+
 def run_assertions(expect: dict, status: int, body, text=None, mask=False) -> list:
     """expect = {status: 200 | [200, 201], json: {"$.a.b": matcher, "key": matcher}} or
     {refused: {status, code}} (the expect_refused sugar). mask: a step that handles a secret
@@ -564,6 +632,43 @@ def trap_problem(url: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------------------
 
 
+CLIENT1_TOOLS = ("headers", "balances_compare", "masters_compare")  # T-2857: the fixed allowlist of client1_tool
+CLIENT1_TOOLS_DIR = Path(__file__).resolve().parents[1] / "pilot"
+CLIENT1_TOOL_TIMEOUT_S = 120
+UUID_ARG_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
+UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
+CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
+
+
+class Multipart:
+    """A multipart/form-data body, built from bytes. Only `data` goes on the wire; the log gets `summary`."""
+
+    def __init__(self, fields: dict, field: str, filename: str, content: bytes, content_type: str):
+        self.boundary = "----uat" + secrets.token_hex(12)
+        parts = []
+        for name, value in fields.items():
+            parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+        parts.append(f'--{self.boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+                     f"Content-Type: {content_type}\r\n\r\n".encode())
+        self.data = b"".join(parts) + content + f"\r\n--{self.boundary}--\r\n".encode()
+        self.content_type = f"multipart/form-data; boundary={self.boundary}"
+        self.summary = {"upload": {"field": field, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
+class RawFile(Multipart):
+    """The file as the WHOLE request body of its media type (the stock-workbook and records import routes read an
+    xlsx body, not a multipart form; T-2857). The log gets the same summary with `raw: true`."""
+
+    def __init__(self, filename: str, content: bytes, content_type: str):
+        self.data = content
+        self.content_type = content_type
+        self.summary = {"upload": {"raw": True, "file": filename, "content_type": content_type,
+                                   "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}}
+
+
 def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S):
     """-> (status, parsed json or None, raw text). Transport errors raise RunnerError.
 
@@ -572,7 +677,10 @@ def http_call(method: str, url: str, headers: dict, body, timeout=HTTP_TIMEOUT_S
     data = None
     hdrs = {"Accept": "application/json", "User-Agent": "uat-runner/0"}
     hdrs.update(headers)
-    if body is not None:
+    if isinstance(body, Multipart):
+        data = body.data
+        hdrs["Content-Type"] = body.content_type
+    elif body is not None:
         data = json.dumps(body).encode()
         hdrs.setdefault("Content-Type", "application/json")
     try:
@@ -639,9 +747,11 @@ class Runner:
     def __init__(self, process, *, base_url, tenant, actors, run_dir, inputs=None, health_url=None,
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
-                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None):
+                 overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
+                 password_factory=None, upload_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
+        self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -676,6 +786,8 @@ class Runner:
         self.out = out or sys.stdout
         self.secrets = {}  # in memory only: a value a step saved with {"secret": path}
         self.secret_values = set()
+        # The new password of a first sign-in is made here, in memory (a test may give its own maker).
+        self.password_factory = password_factory or (lambda: "Aa1!" + secrets.token_urlsafe(18))
         self.instance_docs = {}
         # The mail trap a wait_mail step reads (G18): the command line, then MAIL_TRAP_URL, then the local trap.
         self.mail_trap_url = (mail_trap_url or os.environ.get("MAIL_TRAP_URL") or MAIL_TRAP_URL_DEFAULT).rstrip("/")
@@ -683,6 +795,8 @@ class Runner:
         self.started_instances = []  # the instances this run started: {"instance_id", "tenant", "base_url", "role"}
         self.platform_watch = {}  # what the run watches on the platform tenant: {"definitions": [...], "instances": [...]}
         self.records = []
+        self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
+        self._definition_seen = set()  # (kind, tenant) already taken
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
         self.replay = False
@@ -1029,7 +1143,8 @@ class Runner:
                 record.update(verdict="skipped", error="skip_if " + ", ".join(present) + " (already there)")
                 return self._finish(record, started, True)
             create = None if step.get("refusal_probe") else self._tenant_create(step)
-            if create is not None:
+            refusal = create is not None and self._is_refusal_step(step)
+            if create is not None and not refusal:
                 reason = self._create_skip_reason(step, create)
                 if reason:
                     record.update(verdict="skipped", error=reason)
@@ -1038,10 +1153,15 @@ class Runner:
             calls = self._execute(step, do, record)
             self._note_started_instances(step, calls)
             status, body, response = calls[0]
+            if any(self._is_definition_not_active(c[0], c[1]) for c in calls):
+                self._definition_report("after")
             results = self._assert_calls(step, do, calls, secret_step)
             record["status"] = status
             record["asserted"] = results
             failed = [r for r in results if not r["ok"]]
+            if failed and all(r.get("inconclusive") for r in failed):
+                return self._blocked_line(record, started, step, "inconclusive: no old rows (owner: BA)")
+            failed = [r for r in failed if not r.get("inconclusive")] or failed
             if failed:
                 first = failed[0]
                 what = first["what"]
@@ -1057,6 +1177,9 @@ class Runner:
                             break
                 if reason:
                     label += f" (reason: {reason})"  # a closed reason such as demo_cap_reached reaches the verdict line
+                if refusal and 200 <= status < 300:
+                    # a refusal test that got a 2xx: a tenant WAS created, name it
+                    label += self._retire_created_tenant(step, create, body, record)
                 record.update(verdict="fail", error=label)
                 which = re.match(r"call (\d+):", first["what"])
                 shown = calls[int(which.group(1)) - 1] if which and int(which.group(1)) <= len(calls) else calls[0]
@@ -1073,6 +1196,26 @@ class Runner:
         except Exception as err:  # a bug in a process file must not skip the cleanup
             record.update(verdict="error", error=f"{type(err).__name__}: {err}")
             return self._finish(record, started, False)
+
+    def _definition_report(self, kind):
+        """T-2992: the read-only definition report of the current tenant, once per kind and tenant, saved in the run
+        dir. A failure is a note in the summary and never changes the verdict of the run."""
+        key = (kind, self.tenant)
+        if key in self._definition_seen or self.replay:
+            return
+        self._definition_seen.add(key)
+        try:
+            import definition_report
+            path, note = definition_report.capture(self, kind, sys.modules[__name__])
+        except Exception as err:  # noqa: BLE001 - never a verdict
+            path, note = None, f"{self.tenant}: definition report ({kind}) failed: {err}"
+        self.definition_reports.append({"tenant": self.tenant, "kind": kind, "path": path, "note": note})
+        print(f"definition report ({kind}) {self.tenant}: {path or note}", file=self.out, flush=True)
+
+    @staticmethod
+    def _is_definition_not_active(status, body):
+        return status == 409 and isinstance(body, dict) and "definition_not_active" in (
+            body.get("reason"), body.get("error"), body.get("limit"), body.get("detail"))
 
     def _blocked_line(self, record, started, step, why):
         """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
@@ -1136,6 +1279,43 @@ class Runner:
             return None  # a name nobody gave: the step itself fails with that error
         return None
 
+    def _retire_created_tenant(self, step, create, body, record) -> str:
+        """A refusal step got a 2xx: a tenant WAS created. Read its slug from the ANSWER (the request body of a
+        probe such as {} names none), record it on the step line and deactivate it right away (the same route the
+        cleanup of BP-PLATFORM-01 uses); the residue check stays the second net. Returns the text for the label."""
+        slug = None
+        if isinstance(body, dict):
+            inner = body.get("tenant") if isinstance(body.get("tenant"), dict) else {}
+            for cand in (body.get("slug"), inner.get("slug"), create.get("slug")):
+                if isinstance(cand, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", cand):
+                    slug = cand
+                    break
+        if slug is None:
+            return " (a tenant was created but the answer names no slug: it cannot be retired, find it in the registry)"
+        record["created_tenant"] = slug
+        try:
+            status, _, _ = self.request(step.get("actor"), "POST", f"{TENANT_REGISTRY_PATH}/{slug}/deactivate", {})
+            retired = 200 <= status < 300
+        except RunnerError:
+            retired = False
+        record["created_tenant_retired"] = retired
+        return f" (a tenant was created: slug {slug}; " + ("retired by the runner (deactivated)" if retired else
+                                                           "the deactivate FAILED: it is residue") + ")"
+
+    @staticmethod
+    def _is_refusal_step(step) -> bool:
+        """A step that expects only a 4xx and saves nothing cannot create a tenant: --allow-create is not needed."""
+        if step.get("save"):
+            return False
+        if "expect_refused" in step:
+            return True
+        expect = step.get("expect")
+        if not isinstance(expect, dict) or "status" not in expect:
+            return False
+        wanted = expect["status"]
+        wanted = wanted if isinstance(wanted, list) else [wanted]
+        return bool(wanted) and all(isinstance(w, int) and not isinstance(w, bool) and 400 <= w < 500 for w in wanted)
+
     def _create_skip_reason(self, step, body: dict) -> str:
         """Why a tenant must not be created now (empty: it may run)."""
         if not self.allow_create:
@@ -1184,11 +1364,29 @@ class Runner:
             return [self._wait_mail(step, do, record)]
         if "login" in do:
             return [self._login(step, do, record)]
+        if "first_signin" in do:
+            return [self._first_signin(step, do, record)]
+        if "module_installed" in do:
+            return [self._module_installed(step, do, record)]
+        if "tenant_onboarded" in do:
+            return [self._tenant_onboarded(step, do, record)]
         if "parallel" in do:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
             return self._repeat(role, do["repeat"], times, http_as, record)
+        if "sweep" in do:
+            return [self._sweep(role, do["sweep"], http_as, record)]
+        if "page_through" in do:
+            return [self._page_through(role, do["page_through"], http_as, record)]
+        if "upload" in do:
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            record.update(method=info["method"], path=info["path"], request=info["request"])
+            if do["upload"].get("save_response") is True:
+                self._save_upload_response(do["upload"], info["result"])
+            return [info["result"]]
+        if "client1_tool" in do:
+            return [self._client1_tool(do["client1_tool"], record)]
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
@@ -1205,6 +1403,102 @@ class Runner:
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
+
+    # -- module_installed / tenant_onboarded: the local modes of the QA tenant setup (D-174) -------------
+
+    def _tenant_guard(self, role, spec, kind):
+        """The optional `tenant` of the fixture must be the tenant the actor lives on (a wrong run is refused)."""
+        want = spec.get("tenant")
+        have = self.actor_spec(role).get("tenant") or self.tenant
+        if want and want != have:
+            raise RunnerError(f"{kind}: the fixture is for tenant {want!r}, the actor {role!r} is on {have!r}")
+
+    @staticmethod
+    def _answer_of(body, text) -> str:
+        """The product's own short answer (closed codes and titles only, never a token) for a refusal."""
+        if isinstance(body, dict):
+            parts = [f"{k}={str(body[k])[:120]}" for k in ("error", "limit", "code", "title", "detail", "message")
+                     if isinstance(body.get(k), (str, int))]
+            if parts:
+                return ", ".join(parts)
+        return str(text or "")[:120] or "no answer"
+
+    def _installed_modules(self, role):
+        """-> (status, {module_id: version}) of GET /api/v1/me/modules; the map is None when it was not readable."""
+        status, body, _ = self.request(role, "GET", "/api/v1/me/modules")
+        items = body.get("installed_modules") if isinstance(body, dict) else None
+        if status != 200 or not isinstance(items, list):
+            return status, None
+        return status, {i["module_id"]: i.get("version") for i in items if isinstance(i, dict) and i.get("module_id")}
+
+    def _module_installed(self, step, do, record):
+        """The module is installed on the tenant of the actor: looked at first, installed only when absent
+        (POST /api/v1/tenant/modules; 409 = already there). A refusal of the product (unknown name, unmet
+        dependency) fails the step with its answer and is never retried. Nothing is uninstalled, ever."""
+        spec = do["module_installed"]
+        role = step.get("actor")
+        module = spec["module"]
+        self._tenant_guard(role, spec, "module_installed")
+        status, installed = self._installed_modules(role)
+        if installed is None:
+            raise RunnerError(f"module_installed {module}: GET /api/v1/me/modules answered {status}")
+        record["module_installed"] = {"module": module, "already": module in installed}
+        if module not in installed:
+            status, body, text = self.request(role, "POST", "/api/v1/tenant/modules", body={
+                "module_id": module, "rationale": f"UAT fixture module_installed (run {self.run_id})"})
+            if status not in (200, 201, 409):
+                raise RunnerError(f"module_installed {module}: the product refused the install with {status} "
+                                  f"({self._answer_of(body, text)})")
+            status, installed = self._installed_modules(role)
+            if installed is None or module not in installed:
+                raise RunnerError(f"module_installed {module}: absent from /api/v1/me/modules after the install")
+        # a dotted version is masked by the log's phone-number rule: the log holds its parts as numbers
+        parts = str(installed[module]).split(".")
+        version = [int(x) if x.isdigit() else x for x in parts]
+        record["module_installed"]["version"] = version
+        return 200, {"module_id": module, "version": version}, ""
+
+    def _tenant_onboarded(self, step, do, record):
+        """A read-only assertion that the tenant is set up: a legal entity, app_name, the modules and the
+        roles/permissions of the named actors. It never creates anything; the answer names every missing item."""
+        spec = do["tenant_onboarded"]
+        role = step.get("actor")
+        self._tenant_guard(role, spec, "tenant_onboarded")
+        missing = []
+        body = {"ok": True}
+        query = {"entity_type": "org_legal_entity", "filters": (
+            [{"field": "code", "op": "eq", "value": spec["legal_entity"]}] if spec.get("legal_entity") else [])}
+        status, found, _ = self.request(role, "POST", "/api/v1/entities/query", body=query)
+        items = found.get("items") if isinstance(found, dict) else None
+        if status != 200 or not items:
+            missing.append("legal entity" + (f" {spec['legal_entity']}" if spec.get("legal_entity") else "")
+                           + (f" (query answered {status})" if status != 200 else ""))
+        status, bundle, _ = self.request(role, "GET", "/api/v1/tenant/config-bundle")
+        settings = bundle.get("tenant_settings") if isinstance(bundle, dict) else None
+        app_name = settings.get("app_name") if isinstance(settings, dict) else None
+        if not isinstance(app_name, str) or not app_name.strip():
+            missing.append("app_name" + (f" (config-bundle answered {status})" if status != 200 else ""))
+        elif spec.get("app_name") and app_name != spec["app_name"]:
+            missing.append(f"app_name {spec['app_name']!r} (is {app_name!r})")
+        if spec.get("modules"):
+            status, installed = self._installed_modules(role)
+            if installed is None:
+                missing.append(f"modules (/me/modules answered {status})")
+            else:
+                missing += [f"module {m}" for m in spec["modules"] if m not in installed]
+        for actor, want in (spec.get("actors") or {}).items():
+            status, access, _ = self.request(actor, "GET", "/api/v1/me/access")
+            if status != 200 or not isinstance(access, dict):
+                missing.append(f"actor {actor}: /me/access answered {status}")
+                continue
+            missing += [f"actor {actor}: role {r}" for r in want.get("roles", []) if r not in (access.get("roles") or [])]
+            missing += [f"actor {actor}: permission {p}"
+                        for p in want.get("permissions", []) if p not in (access.get("permissions") or [])]
+        if missing:
+            raise RunnerError("tenant_onboarded: missing " + "; ".join(missing))
+        record["tenant_onboarded"] = {"legal_entity": True, "app_name": True, "modules": spec.get("modules") or [],
+                                      "actors": sorted(spec.get("actors") or {})}
+        return 200, body, ""
 
     def _login(self, step, do, record):
         """Sign in as a user of a realm that exists only since this run started. -> (200, {"signed_in": true}, "{}")
@@ -1247,6 +1541,133 @@ class Runner:
         self.secret_values.add(token)
         return 200, {"signed_in": True}, "{}"
 
+    # -- first_signin: the first administrator of a tenant made during the run -------------------
+
+    def _first_signin(self, step, do, record):
+        """Sign in as the first administrator of a tenant created in this run: read the temporary password from
+        the mail trap, do the forced password change of the realm through the login pages of the identity
+        provider (authorization code with PKCE, as the web app does), take the access token of the NEW realm.
+
+        The temporary password, the new password (made here), the code and the token live in memory only: they
+        are registered as secrets before they are used, so the log, the context and the summary never carry them.
+        A step that names the result as "bearer" (default name "new_admin") calls the API with the token. Every
+        refusal is a typed reason (first_signin refused: <reason>); no text of a mail or of an answer of the
+        identity provider is ever put into it."""
+        spec = substitute(do["first_signin"], self.ctx)
+        realm, recipient = spec.get("realm"), str(spec.get("recipient") or "").strip()
+        name = spec.get("as") or "new_admin"
+        if not isinstance(realm, str) or not REALM_RE.match(realm):
+            raise RunnerError("first_signin refused: realm_invalid")
+        if not recipient:
+            raise RunnerError("first_signin refused: recipient_missing")
+        username = str(spec.get("username") or recipient)
+        idp = os.environ.get("BPM_IDP_BASE_URL", IDP_BASE_URL_DEFAULT).rstrip("/")
+        parts = urllib.parse.urlsplit(idp)
+        if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost")):
+            raise RunnerError("first_signin refused: idp_not_https")
+        trap = str(spec.get("trap_url") or self.mail_trap_url or "").rstrip("/")
+        if trap_problem(trap):
+            raise RunnerError("first_signin refused: trap_unusable")
+        record.update(method="POST", path=f"/realms/{realm}/protocol/openid-connect/auth", mail_to=mask_mail_recipient(recipient))
+        within = self._wait_time(spec, "within_s", 60)
+        interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        subject = str(spec.get("subject") or "")
+        message_id, _ = self._await_mail(trap, recipient, subject, bool(spec.get("subject_contains") or not subject),
+                                         within, interval, mask_mail_recipient(recipient))
+        message = self._mail_message(trap, message_id) or {}
+        body = str(message.get("Text") or message.get("text") or "")
+        found = re.search(spec.get("password_pattern") or TEMP_PASSWORD_RE, body)
+        if not found:
+            raise RunnerError("first_signin refused: mail_without_temporary_password")
+        temporary = found.group(1)
+        self.secret_values.add(temporary)
+        new_password = self.password_factory()
+        self.secret_values.add(new_password)
+        token = self._idp_first_login(idp, realm, username, temporary, new_password, spec)
+        self.secrets[name] = token
+        self.secret_values.add(token)
+        return 200, {"signed_in": True}, "{}"
+
+    def _idp_first_login(self, idp, realm, username, temporary, new_password, spec):
+        """The pages of the identity provider: sign-in form, forced password change, code, token."""
+        client = str(spec.get("client_id") or "letflow-web")
+        redirect = str(spec.get("redirect_uri") or self.base_url + "/")
+        verifier = secrets.token_urlsafe(48)
+        self.secret_values.add(verifier)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), _NoRedirect)
+        endpoint = f"{idp}/realms/{realm}/protocol/openid-connect"
+
+        def go(url, form=None):
+            data = urllib.parse.urlencode(form).encode() if form is not None else None
+            req = urllib.request.Request(url, data=data, method="POST" if data is not None else "GET",
+                                         headers={"Accept": "text/html,application/json"})
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    return answer.status, answer.read().decode("utf-8", "replace"), answer.headers.get("Location")
+            except urllib.error.HTTPError as err:
+                return err.code, err.read().decode("utf-8", "replace"), err.headers.get("Location")
+            except (OSError, ValueError):
+                raise RunnerError("first_signin refused: idp_unreachable") from None
+
+        def action_of(page):
+            match = re.search(r"<form[^>]*\baction=\"([^\"]+)\"", page, re.I)
+            return urllib.parse.urljoin(endpoint + "/", html.unescape(match.group(1))) if match else None
+
+        def code_of(status, location):
+            if status in (301, 302, 303, 307) and location:
+                if location.startswith(redirect):
+                    values = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query).get("code")
+                    return values[0] if values else ""
+            return None
+
+        def follow(status, page, location):
+            for _ in range(5):  # redirects inside the identity provider
+                if status in (301, 302, 303, 307) and location and not location.startswith(redirect):
+                    status, page, location = go(urllib.parse.urljoin(endpoint + "/", location))
+                else:
+                    break
+            return status, page, location
+
+        query = urllib.parse.urlencode({"client_id": client, "response_type": "code", "scope": "openid",
+                                        "redirect_uri": redirect, "state": secrets.token_hex(8),
+                                        "code_challenge": challenge, "code_challenge_method": "S256"})
+        status, page, location = follow(*go(f"{endpoint}/auth?{query}"))
+        action = action_of(page) if status == 200 else None
+        if not action:
+            raise RunnerError("first_signin refused: login_page_missing")
+        status, page, location = follow(*go(action, {"username": username, "password": temporary}))
+        code = code_of(status, location)
+        if code is None:
+            action = action_of(page) if status == 200 else None
+            if not action or "password-new" not in page:
+                raise RunnerError("first_signin refused: temporary_password_rejected")
+            status, page, location = follow(*go(action, {"password-new": new_password,
+                                                         "password-confirm": new_password}))
+            code = code_of(status, location)
+            if code is None:
+                raise RunnerError("first_signin refused: password_policy_refused"
+                                  if status == 200 and "password-new" in page else "first_signin refused: password_change_failed")
+        if not code:
+            raise RunnerError("first_signin refused: no_code")
+        self.secret_values.add(code)
+        form = urllib.parse.urlencode({"grant_type": "authorization_code", "client_id": client, "code": code,
+                                       "redirect_uri": redirect, "code_verifier": verifier}).encode()
+        req = urllib.request.Request(f"{endpoint}/token", data=form, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+        try:
+            try:
+                with opener.open(req, timeout=HTTP_TIMEOUT_S) as answer:
+                    status, text = answer.status, answer.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as err:
+                status, text = err.code, ""
+            token = json.loads(text).get("access_token") if status == 200 else None
+        except (OSError, ValueError, AttributeError):
+            token = None
+        if not isinstance(token, str) or not token:
+            raise RunnerError("first_signin refused: token_missing")
+        return token
+
     def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
         """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
         runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
@@ -1270,7 +1691,10 @@ class Runner:
         method = str(spec["api"]).upper()
         path = substitute(spec["path"], self.ctx)
         body = redacted = None
-        if "body" in spec:
+        if "file" in spec and ("field" in spec or spec.get("raw")):  # an upload step: multipart, or the raw file body
+            body = self._multipart(spec)
+            redacted = body.summary
+        elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
@@ -1278,6 +1702,186 @@ class Runner:
         result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
                               bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _upload_file(self, rel: str) -> Path:
+        """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("upload_fixture_path_invalid: the file is a relative name under test/uat/fixtures")
+        if rel.startswith(UPLOAD_GENERATED_PREFIX):
+            import client1_workbook  # stdlib only; next to this file
+            out = self.run_dir / "generated-fixtures"
+            if not (out / "client1").is_dir():
+                client1_workbook.build(out / "client1")
+            path = out / rel[len("generated/"):]
+        else:
+            path = Path(self.upload_dir) / rel
+        if not path.is_file():
+            raise RunnerError(f"upload_fixture_missing: no fixture file {rel}")
+        return path
+
+    def _multipart(self, spec) -> Multipart:
+        raw = spec.get("raw") is True
+        field = "file" if raw else substitute(spec["field"], self.ctx)
+        if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]-]{1,64}", field):
+            raise RunnerError("upload: field is a plain form field name")
+        ctype = substitute(spec.get("content_type", "application/octet-stream"), self.ctx)
+        if not isinstance(ctype, str) or not CONTENT_TYPE_RE.match(ctype):
+            raise RunnerError("upload: content_type is not a media type")
+        rel = substitute(spec["file"], self.ctx)
+        path = self._upload_file(rel)
+        if path.stat().st_size > UPLOAD_MAX_BYTES:
+            raise RunnerError(f"upload_fixture_too_big: {rel} is over {UPLOAD_MAX_BYTES} bytes")
+        fields = substitute(spec.get("fields") or {}, self.ctx)
+        if not isinstance(fields, dict) or not all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(k)) and
+                                                   "\r" not in str(v) and "\n" not in str(v) for k, v in fields.items()):
+            raise RunnerError("upload: fields is a map of plain names to one-line values")
+        if raw:
+            if fields:
+                raise RunnerError("upload: a raw upload has no fields (the body is the file)")
+            return RawFile(path.name, path.read_bytes(), ctype)
+        return Multipart(fields, field, path.name, path.read_bytes(), ctype)
+
+    def _sweep(self, role, spec, http_as, record):
+        """T-2898: retire the throwaway definitions an EARLIER failed run left (a cleanup only knows its own ids).
+        List GET /api/v1/definitions (name filter, paged), keep the names that start with the scenario's throwaway
+        prefix and do not contain this run's marker, DELETE each (the product's own call: draft 204, active and
+        deprecated 200, archived 409, gone 404). One line per definition. A status outside `accept` fails the step;
+        nothing to sweep is '0 swept'. -> (200, {"swept": n, "already_gone": m, "lines": [...]}, text)."""
+        spec = substitute(spec, self.ctx)
+        prefix, marker = spec.get("prefix"), spec.get("exclude_contains")
+        versions_of = spec.get("draft_versions_of")
+        if versions_of is not None:  # T-2917: DRAFT uat-* VERSIONS of one named definition, not uat-tmp-* names
+            sweep_versions_problem(versions_of, marker)
+            prefix = versions_of
+        else:
+            sweep_prefix_problem(prefix, marker)
+        accept = spec.get("accept", SWEEP_ACCEPT)
+        found, cursor = [], None
+        for _ in range(SWEEP_MAX_PAGES):
+            path = "/api/v1/definitions?page_size=200&name=" + urllib.parse.quote(prefix, safe="")
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, _ = self.request(role, "GET", path, http_as=http_as)
+            if status != 200 or not isinstance(body, dict) or not isinstance(body.get("items"), list):
+                raise RunnerError(f"sweep: the list answered {status}, expected 200 with items")
+            for item in body["items"]:
+                name = item.get("name") if isinstance(item, dict) else None
+                if versions_of is not None:
+                    version = item.get("version") if isinstance(item, dict) else None
+                    # T-2930: EVERY draft of the named definition (an old draft has no uat- version)
+                    if name == versions_of and marker not in str(version) \
+                            and str(item.get("status")).upper() == "DRAFT" and item.get("id"):
+                        found.append((str(item["id"]), f"{name}@{version}", item.get("status")))
+                elif isinstance(name, str) and name.startswith(prefix) and marker not in name and item.get("id"):
+                    found.append((str(item["id"]), name, item.get("status")))
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+        else:
+            raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
+        lines, swept, gone = [], 0, 0
+        for def_id, name, state in found:
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
+                raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept:
+                raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
+            outcome = "already gone" if status in (404, 409) else "swept"
+            swept += outcome == "swept"
+            gone += outcome != "swept"
+            line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
+            lines.append(line)
+            print(self.scrub(line), file=self.out, flush=True)
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        print(self.scrub(summary), file=self.out, flush=True)
+        record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
+        result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
+
+    def _save_upload_response(self, spec, result):
+        """T-2857: the response body of an upload, kept as <run dir>/responses/<file stem>.json, which is the
+        file `qoimeks_convert.py headers --responses` reads (results[].record_id). Only the body is kept."""
+        rel = substitute(spec["file"], self.ctx)
+        stem = Path(str(rel)).stem
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", stem):
+            raise RunnerError("upload: save_response needs a plain file name")
+        out = self.run_dir / "responses"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / (stem + ".json")).write_text(result[2], encoding="utf-8")
+
+    def _client1_tool(self, spec, record):
+        """T-2857: one of a FIXED set of pilot tools, run as `python3 -I scripts/pilot/<tool>.py` with arguments built
+        only from the run dir and two ids of the context. No free-text argument. Exit 0 = step ok; exit 1 or 2
+        (or a crash) fails the step. The log keeps the RESULT / DIFF lines only, never a cell of the data."""
+        spec = substitute(spec, self.ctx)
+        tool = spec["tool"]
+        gen = self.run_dir / "generated-fixtures" / "client1"
+        csv = gen / "csv"
+        if tool == "headers":
+            for key in ("org_unit_id", "responsible_id"):
+                if not isinstance(spec.get(key), str) or not UUID_ARG_RE.fullmatch(spec[key]):
+                    raise RunnerError(f"client1_tool: {key} must be a record id")
+            argv = ["qoimeks_convert.py", "headers", "--out", gen, "--responses", self.run_dir / "responses",
+                    "--org-unit-id", spec["org_unit_id"], "--responsible-id", spec["responsible_id"]]
+        elif tool == "balances_compare":
+            argv = ["qoimeks_balances_compare.py", "--json-pages", self.run_dir / "pages" / "balances",
+                    "--csv", csv / "balances.csv", "--items", csv / "items.csv", "--locations", csv / "locations.csv"]
+        elif tool == "masters_compare":
+            argv = ["qoimeks_masters_compare.py", "--locations", csv / "locations.csv", "--items", csv / "items.csv",
+                    "--export-dir", self.run_dir / "pages" / "export"]
+        else:
+            raise RunnerError(f"client1_tool: no tool {tool}")
+        try:
+            done = subprocess.run([sys.executable, "-I", str(CLIENT1_TOOLS_DIR / argv[0]), *map(str, argv[1:])],
+                                  capture_output=True, text=True, timeout=CLIENT1_TOOL_TIMEOUT_S,
+                                  stdin=subprocess.DEVNULL)
+        except (subprocess.TimeoutExpired, OSError) as err:
+            raise RunnerError(f"client1_tool {tool}: did not finish ({type(err).__name__})") from None
+        lines = [ln for ln in done.stdout.splitlines() if ln.startswith(("RESULT", "DIFF", "wrote "))]
+        record.update(method="TOOL", path=tool, tool_exit=done.returncode, tool_lines=lines[:200])
+        if done.returncode != 0:
+            raise RunnerError(f"client1_tool {tool}: exit {done.returncode}, {len(lines)} result lines")
+        result = {"exit": 0, "lines": len(lines)}
+        return (200, result, json.dumps(result))
+
+    def _page_through(self, role, spec, http_as, record):
+        """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
+        to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
+        age_at_least / unique_ids of the step's expect read that collected set."""
+        spec = substitute(spec, self.ctx)
+        size = int(spec.get("page_size", 50))
+        cap = min(int(spec.get("max_pages", PAGE_THROUGH_MAX_PAGES)), PAGE_THROUGH_MAX_PAGES)
+        items_key, cursor_key = spec.get("items", "items"), spec.get("cursor", "next_cursor")
+        base = str(spec["path"])
+        joiner = "&" if "?" in base else "?"
+        items, cursor, seen, pages = [], None, set(), 0
+        while pages < cap:
+            path = f"{base}{joiner}page_size={size}"
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
+            status, body, text = self.request(role, "GET", path, http_as=http_as)
+            pages += 1
+            if status != 200:
+                raise RunnerError(f"page_through: page {pages} answered {status}, expected 200")
+            page = body.get(items_key) if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                raise RunnerError(f"page_through: page {pages} has no list {items_key}")
+            if "count" in body and body["count"] != len(page):
+                raise RunnerError(f"page_through: page {pages} count {body['count']} but {len(page)} items")
+            items.extend(page)
+            if spec.get("save_as"):  # T-2857: page-001.json ... for the compare tools
+                pdir = self.run_dir / "pages" / str(spec["save_as"])
+                pdir.mkdir(parents=True, exist_ok=True)
+                (pdir / ("page-%03d.json" % pages)).write_text(text, encoding="utf-8")
+            cursor = body.get(cursor_key)
+            if not cursor:
+                break
+            if cursor in seen:
+                raise RunnerError(f"page_through: page {pages} repeats the cursor of an earlier page")
+            seen.add(cursor)
+        result = {"items": items, "pages": pages, "truncated": bool(cursor)}
+        record.update(method="GET", path=base, pages=pages)
+        return (200, result, json.dumps(result))
 
     def _repeat(self, role, spec, times, http_as, record):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
@@ -1350,6 +1954,9 @@ class Runner:
                 expects = [expect] * len(calls)
         rows = []
         for i, (e, (status, body, text)) in enumerate(zip(expects, calls)):
+            if isinstance(e, dict) and (SET_ASSERTS & set(e)):
+                rows.extend(set_assertions(e, body))
+                e = {k: v for k, v in e.items() if k not in SET_ASSERTS}
             for r in run_assertions(e, status, body, text, mask):
                 rows.append(dict(r, what=f"call {i + 1}: {r['what']}") if len(calls) > 1 else r)
         return rows
@@ -1407,22 +2014,26 @@ class Runner:
         contains = bool(spec.get("subject_contains"))
         within = self._wait_time(spec, "within_s", 60)
         interval = self.poll_interval if self.poll_interval is not None else self._wait_time(spec, "interval_s", 2)
+        message_id, polls = self._await_mail(trap, recipient, subject, contains, within, interval, shown)
+        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
+                      mail_to=shown, mail_subject=subject, mail_id=message_id)
+        answer = {"to": shown, "subject": subject, "message_id": message_id}
+        return 200, answer, json.dumps(answer, ensure_ascii=False)
+
+    def _await_mail(self, trap, recipient, subject, contains, within, interval, shown):
+        """-> (message id, polls) of the first mail to the recipient with the subject, or a timeout RunnerError."""
         deadline = time.monotonic() + within
         polls, message_id, problem = 0, None, None
         while True:
             polls += 1
             message_id, problem = self._find_mail(trap, recipient, subject, contains)
             if message_id:
-                break
+                return message_id, polls
             if time.monotonic() >= deadline:
                 detail = f" ({problem})" if problem else ""
                 raise RunnerError(f"timeout: no mail to {shown} with the subject {subject!r} "
                                   f"in {within:g} s, {polls} polls{detail}")
             time.sleep(interval)
-        record.update(method="GET", path=log_safe_url(f"{trap}/api/v1/search"), polls=polls,
-                      mail_to=shown, mail_subject=subject, mail_id=message_id)
-        answer = {"to": shown, "subject": subject, "message_id": message_id}
-        return 200, answer, json.dumps(answer, ensure_ascii=False)
 
     @staticmethod
     def _wait_time(spec, key, default):
@@ -1591,6 +2202,8 @@ class Runner:
             with self._on(process["id"]):
                 if not self._fresh_process_tokens(process):
                     return False
+                if "/modules/stock" in json.dumps(process):
+                    self._definition_report("before")
                 self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
@@ -1863,7 +2476,9 @@ class Runner:
             try:
                 instance_id = str(substitute(name, self._watch_context()))
             except RunnerError:
-                raise RunnerError(f"the platform_residue block names an unknown instance: {name}") from None
+                # a step that saves it never ran (an earlier step failed): there is nothing to watch, say so
+                print(f"not saved: {name}", file=self.out, flush=True)
+                continue
             if instance_id and instance_id not in [i["instance_id"] for i in out]:
                 out.append({"instance_id": instance_id, "tenant": tenant, "base_url": None, "role": None})
         return out
@@ -1977,6 +2592,27 @@ class Runner:
             record["error"] = error
         self.write_line(record)
         return verdict not in ("fail", "error")
+
+    def retire_stale_shared_access(self, started_at, out=None) -> str:
+        """T-2980: retire a shared-stock-access object an EARLIER run left (its cleanup call lost to a 503).
+        Only on a QA tenant of the sweep list, only when GET says exists and created_at is older than this run's
+        start; DELETE as the tenant admin; a 404 is 'already gone'. -> the line printed ('' when nothing to do)."""
+        out = out or self.out
+        if self.tenant not in SHARED_ACCESS_SWEEP_TENANTS or "admin" not in self.actors:
+            return ""
+        status, body, _ = self.request("admin", "GET", SHARED_ACCESS_PATH)
+        if status != 200 or not isinstance(body, dict) or body.get("exists") is not True:
+            return ""
+        created = str(body.get("created_at") or "")
+        if not created or created[:19] >= started_at[:19]:  # ISO UTC strings compare as text; a younger object is this run's
+            return ""
+        status, _, _ = self.request("admin", "DELETE", SHARED_ACCESS_PATH)
+        outcome = "retired" if status in (200, 204) else "already gone" if status == 404 else f"refused ({status})"
+        line = f"{self.tenant}: {outcome} shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        if outcome == "retired":
+            line = f"{self.tenant}: retired shared-stock-access (created_at {created}, created_by {body.get('created_by')})"
+        print(line, file=out, flush=True)
+        return line
 
     def record_residue_baseline(self) -> bool:
         """Before the first process: record the existing documents and open tasks of every tenant the run touches,
@@ -2166,6 +2802,11 @@ class Runner:
         results = {}
         stopped = False
         cleanup_ok = True
+        if any(SHARED_ACCESS_PATH in json.dumps(p) for p in self.processes):
+            try:
+                self.retire_stale_shared_access(started_at)
+            except RunnerError as err:
+                print(f"{self.label}: shared-stock-access sweep skipped: {err}", file=self.out, flush=True)
         residue_ok = self.record_residue_baseline()
         self._save_safety_expectations()  # what a cleanup replay of this run has to judge (G-08)
         try:
@@ -2357,6 +2998,13 @@ class Runner:
         if first:
             what = f"{first.get('process', '')} {first.get('phase', '')} {first.get('step', '')}".strip()
             lines += ["", f"> **FIRST FAILING STEP: {what}** - {first.get('error', first.get('verdict'))}"]
+            shown = [f"{d['kind']}: {d['path']}" for d in self.definition_reports if d["path"]]
+            if shown:
+                lines += [f"> definition reports: {'; '.join(shown)}"]
+        if self.definition_reports:
+            lines += ["", "## Definition reports (read-only, T-2992)", ""]
+            for d in self.definition_reports:
+                lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
         lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
                   "|---|---|---|---|---|---|---|"]
         for pid in dict.fromkeys(r["process"] for r in self.records if r.get("phase") in ("step", "cleanup", "inputs", "outputs")):
@@ -2409,6 +3057,34 @@ def refuse_placeholders(text: str, source) -> None:
         raise ConfigError(f"{source}: placeholder {match.group()!r} is not allowed; use an input or a fixture")
 
 
+SWEEP_ACCEPT = [200, 204, 404, 409]
+SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
+SHARED_ACCESS_SWEEP_TENANTS = ("qoimeks-qa2",)  # the QA tenants of the reviewed sweep list (T-2980)
+SWEEP_MAX_PAGES = 50
+SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
+
+
+def sweep_prefix_problem(prefix, marker):
+    """Refuse a sweep that could reach a real definition: the prefix is a whole uat-tmp-<kind>- and this run's
+    marker is a real run id (never empty, or the sweep would also take this run's own definitions)."""
+    if not isinstance(prefix, str) or not SWEEP_PREFIX_RE.fullmatch(prefix):
+        raise RunnerError("sweep: prefix must be a throwaway prefix of the form uat-tmp-<kind>-")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
+SWEEP_VERSIONS_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")  # platform.register_tenant
+
+
+def sweep_versions_problem(name, marker):
+    """The draft-version sweep names ONE dotted definition name; only its DRAFT versions (T-2930: whatever their
+    version string) are retired, never an active/seeded version and never another definition."""
+    if not isinstance(name, str) or not SWEEP_VERSIONS_RE.fullmatch(name):
+        raise RunnerError("sweep: draft_versions_of must be one dotted definition name")
+    if not isinstance(marker, str) or len(marker) < 8:
+        raise RunnerError("sweep: exclude_contains must be this run's id (at least 8 characters)")
+
+
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
@@ -2422,6 +3098,18 @@ def validate_step(step, where) -> None:
     kind = kinds[0]
     if kind == "api":
         validate_call(do, where)
+    elif kind == "upload":
+        spec = do["upload"]
+        need = ("path", "file") if isinstance(spec, dict) and spec.get("raw") is True else ("path", "field", "file")
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip() for k in need):
+            raise ConfigError(f"{where}: upload needs a path, a field and a file (a raw upload: a path and a file)")
+        if str(spec.get("api", "POST")).upper() not in ("POST", "PUT") or "body" in spec:
+            raise ConfigError(f"{where}: upload is a POST or PUT with no JSON body (fields go in fields)")
+    elif kind == "client1_tool":
+        spec = do["client1_tool"]
+        if not isinstance(spec, dict) or spec.get("tool") not in CLIENT1_TOOLS or \
+                set(spec) - {"tool", "org_unit_id", "responsible_id"}:
+            raise ConfigError(f"{where}: client1_tool is {{tool: {'|'.join(CLIENT1_TOOLS)}, org_unit_id?, responsible_id?}}")
     elif kind == "wait_task":
         if not isinstance(do["wait_task"], dict) or not {"for_document", "step"} <= set(do["wait_task"]):
             raise ConfigError(f"{where}: wait_task needs for_document and step")
@@ -2432,6 +3120,25 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: login needs a realm, a username and a password")
         if not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", spec["password"]):
             raise ConfigError(f"{where}: the login password must be a ${{name}} reference, never a literal")
+    elif kind == "first_signin":
+        spec = do["first_signin"]
+        if not isinstance(spec, dict) or not all(isinstance(spec.get(k), str) and spec.get(k).strip()
+                                                  for k in ("realm", "recipient")):
+            raise ConfigError(f"{where}: first_signin needs a realm and a recipient")
+        for key in ("password", "new_password"):
+            if key in spec:
+                raise ConfigError(f"{where}: first_signin takes no {key}: the temporary password comes from the "
+                                  "mail and the new one is made by the runner")
+    elif kind == "module_installed":
+        spec = do["module_installed"]
+        if not isinstance(spec, dict) or not isinstance(spec.get("module"), str) or not MODULE_NAME_RE.fullmatch(spec["module"]):
+            raise ConfigError(f"{where}: module_installed needs a module name of the form [a-z][a-z0-9_]{{0,63}}")
+        if spec.get("tenant") is not None and not (isinstance(spec["tenant"], str) and spec["tenant"].strip()):
+            raise ConfigError(f"{where}: module_installed tenant must be a text")
+    elif kind == "tenant_onboarded":
+        problem = tenant_onboarded_problem(do["tenant_onboarded"])
+        if problem:
+            raise ConfigError(f"{where}: tenant_onboarded {problem}")
     elif kind == "wait_mail":
         spec = do["wait_mail"]
         if not isinstance(spec, dict) or not all(isinstance(spec.get(key), str) and spec.get(key).strip()
@@ -2458,6 +3165,31 @@ def validate_step(step, where) -> None:
         times = do.get("times", 2)
         if not isinstance(times, (int, str)) or (isinstance(times, int) and times < 2):
             raise ConfigError(f"{where}: repeat needs times of at least 2")
+    elif kind == "sweep":
+        spec = do["sweep"]
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
+                                            or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
+            raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
+        if "draft_versions_of" not in spec and isinstance(spec.get("prefix"), str) and "${" not in spec["prefix"] and \
+                not SWEEP_PREFIX_RE.fullmatch(spec["prefix"]):
+            raise ConfigError(f"{where}: sweep prefix must be of the form uat-tmp-<kind>-")
+        if spec.get("exclude_contains") != "${run_id}":
+            raise ConfigError(f"{where}: sweep exclude_contains must be ${{run_id}}")
+        if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
+                                      and all(isinstance(c, int) for c in spec["accept"])):
+            raise ConfigError(f"{where}: sweep accept is a list of status codes")
+    elif kind == "page_through":
+        spec = do["page_through"]
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \
+                or set(spec) - {"path", "page_size", "cursor", "items", "max_pages", "save_as"}:
+            raise ConfigError(f"{where}: page_through is {{path, page_size?, cursor?, items?, max_pages?, save_as?}}")
+        if "save_as" in spec and not (isinstance(spec["save_as"], str) and re.fullmatch(r"[a-z0-9_]{1,30}", spec["save_as"])):
+            raise ConfigError(f"{where}: page_through save_as is a short plain name")
+        mp = spec.get("max_pages", 1)
+        if isinstance(mp, int) and not 1 <= mp <= PAGE_THROUGH_MAX_PAGES:
+            raise ConfigError(f"{where}: page_through max_pages is 1..{PAGE_THROUGH_MAX_PAGES}")
     elif kind == "parallel":
         calls = do["parallel"]
         if not isinstance(calls, list) or len(calls) < 2 or len(calls) > 6:
@@ -2559,7 +3291,7 @@ def load_fixture(path) -> dict:
     return doc
 
 
-def expand_fixtures(names, fixtures_dir, loaded=None, _stack=()) -> list:
+def expand_fixtures(names, fixtures_dir, loaded=None, _stack=(), built=None) -> list:
     """Fixture names -> fixture documents in run order: the `needs` of a fixture first, each fixture once per run.
     An unknown name is a ConfigError (exit 2: nothing runs)."""
     loaded = {} if loaded is None else loaded
@@ -2568,23 +3300,92 @@ def expand_fixtures(names, fixtures_dir, loaded=None, _stack=()) -> list:
             continue
         if name in _stack:
             raise ConfigError("fixtures: a cycle through " + " -> ".join(_stack + (name,)))
+        if built and name in built:
+            loaded[name] = built[name]
+            continue
         file = Path(fixtures_dir) / (str(name) + ".json")
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or not file.is_file():
             raise ConfigError(f"fixtures: unknown fixture {name!r} (no {file})")
         doc = load_fixture(file)
-        expand_fixtures(doc.get("needs") or [], fixtures_dir, loaded, _stack + (name,))
+        expand_fixtures(doc.get("needs") or [], fixtures_dir, loaded, _stack + (name,), built)
         loaded[name] = doc
     return list(loaded.values())
 
 
+def tenant_onboarded_problem(spec):
+    """Why a tenant_onboarded spec is wrong, or None."""
+    allowed = {"fixture", "tenant", "legal_entity", "app_name", "modules", "actors"}
+    if not isinstance(spec, dict) or set(spec) - allowed:
+        return "takes only " + ", ".join(sorted(allowed - {"fixture"}))
+    for key in ("tenant", "legal_entity", "app_name"):
+        if key in spec and not (isinstance(spec[key], str) and spec[key].strip()):
+            return f"{key} must be a text"
+    modules = spec.get("modules", [])
+    if not isinstance(modules, list) or not all(isinstance(m, str) and MODULE_NAME_RE.fullmatch(m) for m in modules):
+        return "modules is a list of module names"
+    actors = spec.get("actors", {})
+    if not isinstance(actors, dict):
+        return "actors is {actor: {roles, permissions}}"
+    for want in actors.values():
+        if not isinstance(want, dict) or set(want) - {"roles", "permissions"} or not all(
+                isinstance(v, list) and all(isinstance(n, str) for n in v) for v in want.values()):
+            return "actors is {actor: {roles: [...], permissions: [...]}}"
+    return None
+
+
+def builtin_fixture(entry) -> dict:
+    """A parameterised fixture of a process file -> a fixture document made of one native step per item:
+    {"fixture": "module_installed", "module": "assets" | ["org", "assets"], "tenant"?} and
+    {"fixture": "tenant_onboarded", ...}. Syntax is checked here, before any request."""
+    kind = entry.get("fixture")
+    if kind not in BUILTIN_FIXTURES:
+        raise ConfigError(f"fixtures: unknown fixture kind {kind!r} (one of {', '.join(BUILTIN_FIXTURES)})")
+    if kind == "module_installed":
+        modules = entry.get("module")
+        modules = modules if isinstance(modules, list) else [modules]
+        extra = set(entry) - {"fixture", "module", "tenant"}
+        if extra or not modules or len(set(map(str, modules))) != len(modules) or not all(
+                isinstance(m, str) and MODULE_NAME_RE.fullmatch(m) for m in modules):
+            raise ConfigError(f"fixtures: module_installed needs module names of the form [a-z][a-z0-9_]{{0,63}}, "
+                              f"no empty or duplicate name, and only module, tenant ({sorted(extra) or 'ok'})")
+        steps = [{"id": f"f{i + 1}", "actor": "admin", "do": {"module_installed": dict(
+                      {"module": m}, **({"tenant": entry["tenant"]} if entry.get("tenant") else {}))},
+                  "expect": {"status": 200}, "save": {f"module_{m}_version": "$.version"}}
+                 for i, m in enumerate(modules)]
+        doc = {"id": "module_installed-" + "+".join(modules),
+               "description": "The module is installed on the tenant of the admin actor (looked at first, installed "
+                              "only when absent, 409 = already there).",
+               "leaves": "A module install is never removed by a test: there is no cleanup.",
+               "provides": [f"module_{m}_version" for m in modules], "steps": steps, "cleanup": []}
+    else:
+        problem = tenant_onboarded_problem(entry)
+        if problem:
+            raise ConfigError(f"fixtures: tenant_onboarded {problem}")
+        spec = {k: v for k, v in entry.items() if k != "fixture"}
+        name = "tenant_onboarded-" + hashlib.sha1(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:8]
+        doc = {"id": name, "description": "A read-only assertion that the tenant is set up (legal entity, app_name, "
+                                          "modules, roles of the actors); creates nothing.",
+               "leaves": "Nothing: it only reads.", "provides": ["tenant_onboarded"],
+               "steps": [{"id": "f1", "actor": "admin", "do": {"tenant_onboarded": spec},
+                          "expect": {"status": 200}, "save": {"tenant_onboarded": "$.ok"}}], "cleanup": []}
+    for step in doc["steps"]:
+        validate_step(step, doc["id"])
+    return doc
+
+
 def fixtures_for(processes, fixtures_dir) -> list:
-    names = []
+    names, built = [], {}
     for p in processes:
         value = p.get("fixtures") or []
-        if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
-            raise ConfigError(f"{p['id']}: fixtures is a list of fixture names")
-        names += value
-    return expand_fixtures(names, fixtures_dir)
+        if not isinstance(value, list) or not all(isinstance(n, str) or (isinstance(n, dict) and "fixture" in n) for n in value):
+            raise ConfigError(f"{p['id']}: fixtures is a list of fixture names (or {{\"fixture\": kind, ...}} objects)")
+        for n in value:
+            if isinstance(n, dict):
+                doc = builtin_fixture(n)
+                built[doc["id"]] = doc
+                n = doc["id"]
+            names.append(n)
+    return expand_fixtures(names, fixtures_dir, built=built)
 
 
 def load_chain(path) -> tuple:
@@ -2989,6 +3790,18 @@ def build_parser():
                      help="let a step create a tenant (POST /api/v1/tenants); without it the step is skipped")
     dry.add_argument("--mail-trap-url", help="the mail trap (Mailpit) a wait_mail step reads "
                                             "(default env MAIL_TRAP_URL or " + MAIL_TRAP_URL_DEFAULT + ")")
+    sweep = sub.add_parser("residue-sweep", help="reverse the documents and complete the tasks of a reviewed list on ONE QA tenant (T-2869)")
+    sweep.add_argument("list_file", help="e.g. test/uat/sweeps/residue-sweep-qoimeks-qa2.json")
+    sweep.add_argument("--tenant", required=True)
+    sweep.add_argument("--base-url")
+    sweep.add_argument("--base-url-template")
+    sweep.add_argument("--run-dir")
+    rep = sub.add_parser("definition-report", help="read-only report of the stock definitions of ONE QA tenant (T-2982)")
+    rep.add_argument("--tenant", required=True)
+    rep.add_argument("--admin", required=True, help="the keycloak user of the tenant admin")
+    rep.add_argument("--base-url")
+    rep.add_argument("--base-url-template")
+    rep.add_argument("--run-dir")
     return parser
 
 
@@ -3103,6 +3916,14 @@ def main(argv=None) -> int:
         return main_cleanup(args)
     if args.command == "dry-run":
         return cmd_dry_run(args)
+    if args.command == "residue-sweep":
+        import residue_sweep
+
+        return residue_sweep.main(args, sys.modules[__name__])
+    if args.command == "definition-report":
+        import definition_report
+
+        return definition_report.main(args, sys.modules[__name__])
     return main_run(args)
 
 

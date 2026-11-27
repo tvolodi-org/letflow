@@ -1,0 +1,167 @@
+{
+  "id": "BP-EXAM-01",
+  "bp_entry": "BP-EXAM-01",
+  "title": "Exam: write the question bank",
+  "description": "The exam author (tenant administrator) builds a small question bank: creates a category and a question, replaces the question as a whole, then deletes the question and the category (leaf first); the cleanup repeats the removals if a step failed, so the tenant is left as found. Only the administrator acts: the refusal of a role without the authoring permission is BP-EXAM-07. Not played here: answer options (on the dry-run tenant the administrator may not write the restricted field is_correct, 403 restricted fields) and the tree and lineage refusals (the active category definition on the dry-run tenant does not yet declare parent_id).",
+  "tenant": "${tenant}",
+  "residue_check": false,
+  "inputs": [],
+  "defaults": {
+    "missing_id": "00000000-0000-4000-8000-000000000000"
+  },
+  "dry_run": {
+    "tenant": "bilimbaga",
+    "actors": {
+      "admin": "actor-bilimbaga-admin"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/category",
+        "body": {
+          "field_values": {
+            "name": {
+              "en": "UAT ${run_id} category"
+            },
+            "sort_order": 0
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "cat_a": "$.record_id"
+      }
+    },
+    {
+      "id": "s2",
+      "actor": "admin",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/modules/exam/authoring/question",
+        "body": {
+          "field_values": {
+            "category_id": "${cat_a}",
+            "difficulty": "easy",
+            "type": "single",
+            "default_locale": "en",
+            "status": "draft",
+            "version": 1,
+            "stem": {
+              "en": "UAT ${run_id} question"
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.record_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "q1": "$.record_id"
+      }
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {
+        "api": "PUT",
+        "path": "/api/v1/modules/exam/authoring/question/${q1}",
+        "body": {
+          "field_values": {
+            "category_id": "${cat_a}",
+            "difficulty": "easy",
+            "type": "single",
+            "default_locale": "en",
+            "status": "draft",
+            "version": 1,
+            "stem": {
+              "en": "UAT ${run_id} question changed"
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/question/${q1}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/category/${cat_a}"
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "outputs": {},
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "q1"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/question/${q1}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "cat_a"
+      ],
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/modules/exam/authoring/category/${cat_a}"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409,
+          422
+        ]
+      }
+    }
+  ]
+}

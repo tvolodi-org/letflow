@@ -2,8 +2,10 @@
  *  separate camera button (phone rear camera; the ordinary picker stays as the fallback), drag-and-drop, and paste.
  *  Paste and drop are handled on the focusable drop target only, never on `window`, so a hidden panel cannot take a
  *  paste, and a paste into a text field keeps its text behaviour. It only reports the files; the caller prepares,
- *  limits and uploads them. Every text comes in `labels` (the caller owns the catalog). */
-import { useId, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+ *  limits and uploads them. Every text comes in `labels` (the caller owns the catalog).
+ *  Inside a `Field` with `group`, the field gives the picker its id, its group role and the name of the
+ *  label; the picker passes them to its root, so the whole picker is the named group of the field. */
+import { useId, useRef, useState, type ClipboardEvent, type DragEvent, type HTMLAttributes, type KeyboardEvent } from 'react'
 import { Camera, ImagePlus } from 'lucide-react'
 import { Button } from './Button'
 
@@ -38,14 +40,18 @@ function isTextTarget(target: EventTarget | null): boolean {
   return el.closest('input, textarea, [contenteditable=""], [contenteditable="true"]') !== null
 }
 
-export function PhotoUploadPicker(props: {
+export interface PhotoUploadPickerProps extends HTMLAttributes<HTMLDivElement> {
   labels: PhotoUploadLabels
   onFiles: (files: File[]) => void
   disabled?: boolean
   /** shown when disabled, so a dead control always says why */
   disabledReason?: string
-}) {
-  const { labels, onFiles, disabled = false } = props
+  /** The test id of the file input; the camera input keeps its own. */
+  inputTestId?: string
+}
+
+export function PhotoUploadPicker(props: PhotoUploadPickerProps) {
+  const { labels, onFiles, disabled = false, inputTestId = 'photo-file-input', className, ...rest } = props
   const reasonId = useId()
   const fileRef = useRef<HTMLInputElement | null>(null)
   const cameraRef = useRef<HTMLInputElement | null>(null)
@@ -79,7 +85,7 @@ export function PhotoUploadPicker(props: {
   }
 
   return (
-    <div className="lf-photoup">
+    <div {...rest} className={className == null ? 'lf-photoup' : `lf-photoup ${className}`}>
       <div className="lf-btn-row">
         <Button variant="secondary" size="md" icon={<ImagePlus className="lf-icon" aria-hidden="true" />} disabled={disabled} aria-describedby={disabled ? reasonId : undefined} onClick={() => fileRef.current?.click()} data-testid="photo-choose">
           {labels.choose}
@@ -88,7 +94,7 @@ export function PhotoUploadPicker(props: {
           {labels.take}
         </Button>
       </div>
-      <input ref={fileRef} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept={PICKER_ACCEPT} disabled={disabled} onChange={fromInput} data-testid="photo-file-input" />
+      <input ref={fileRef} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept={PICKER_ACCEPT} disabled={disabled} onChange={fromInput} data-testid={inputTestId} />
       <input ref={cameraRef} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" accept="image/*" capture="environment" disabled={disabled} onChange={fromInput} data-testid="photo-camera-input" />
       <div
         className={`lf-photoup__drop${over ? ' is-over' : ''}${disabled ? ' is-disabled' : ''}`}
