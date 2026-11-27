@@ -671,6 +671,8 @@ CLIENT1_TOOL_TIMEOUT_S = 120
 UUID_ARG_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
 UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+BODY_FILE_MAX_BYTES = 2 * 1024 * 1024
+BEARER_ENV_RE = re.compile(r"UAT_QA_PROVISIONER_[A-Z0-9_]{1,48}")  # route 3 only: a provisioner credential, by name
 UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
 CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
 
@@ -781,10 +783,11 @@ class Runner:
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
                  overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
-                 password_factory=None, upload_dir=None):
+                 password_factory=None, upload_dir=None, body_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
         self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
+        self.body_dir = Path(body_dir) if body_dir else UPLOAD_FIXTURES_DIR.parent  # T-3108: test/uat
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -1265,7 +1268,7 @@ class Runner:
 
     @staticmethod
     def _handles_secret(step) -> bool:
-        if step.get("http_as") or step.get("bearer") or "login" in (step.get("do") or {}):
+        if step.get("http_as") or step.get("bearer") or step.get("bearer_env") or "login" in (step.get("do") or {}):
             return True
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
@@ -1391,6 +1394,7 @@ class Runner:
         """-> a list of (status, parsed, text), one per HTTP call (one for api, wait_task, assert_only)."""
         http_as = step.get("http_as")
         role = step.get("actor")
+        extra = self._bearer_extra(step)
         if "wait_task" in do:
             return [self._wait_task(step, do, record)]
         if "wait_mail" in do:
@@ -1407,13 +1411,13 @@ class Runner:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
-            return self._repeat(role, do["repeat"], times, http_as, record)
+            return self._repeat(role, do["repeat"], times, http_as, record, extra)
         if "sweep" in do:
             return [self._sweep(role, do["sweep"], http_as, record)]
         if "page_through" in do:
-            return [self._page_through(role, do["page_through"], http_as, record)]
+            return [self._page_through(role, do["page_through"], http_as, record, extra)]
         if "upload" in do:
-            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as, **extra)
             record.update(method=info["method"], path=info["path"], request=info["request"])
             if do["upload"].get("save_response") is True:
                 self._save_upload_response(do["upload"], info["result"])
@@ -1423,12 +1427,6 @@ class Runner:
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        base = None
-        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
-            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
-            if not base.startswith(("http://", "https://")):
-                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
-        extra = {"bearer": step.get("bearer"), "bearer_base": base}
         info = self._call(role, spec, http_as, **extra)
         if "poll" in step:
             info = self._poll_call(step, do, role, spec, http_as, info, record, extra)
@@ -1436,6 +1434,26 @@ class Runner:
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
+
+    def _bearer_extra(self, step) -> dict:
+        """The credential keywords of a step (kept on every kind of call: api, upload, repeat, page_through, T-3108).
+        `bearer` names a session; `bearer_env` names an environment variable of the provisioner credential (route 3,
+        POST /admin/v1/tenants): the VALUE is read here, registered as a secret and never written."""
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        bearer = step.get("bearer")
+        env_name = step.get("bearer_env")
+        if env_name:
+            value = os.environ.get(env_name)
+            if not value:
+                raise RunnerError(f"bearer_env {env_name}: not set in the environment (.env.uat); presence only is checked")
+            self.secret_values.add(value)
+            bearer = "env:" + env_name
+            self.secrets[bearer] = value
+        return {"bearer": bearer, "bearer_base": base}
 
     # -- module_installed / tenant_onboarded: the local modes of the QA tenant setup (D-174) -------------
 
@@ -1736,11 +1754,32 @@ class Runner:
         elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
+        elif "body_file" in spec:
+            body = substitute(self._body_from_file(spec["body_file"]), self.ctx)
+            redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
         result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
                               bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _body_from_file(self, rel):
+        """T-3108: a JSON body read from a file under test/uat (the 142 location links, the converter header bodies).
+        The path is relative, has no `..`, and its resolved target (symlinks followed) stays inside test/uat."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("body_file_path_invalid: the file is a relative name under test/uat")
+        root = self.body_dir.resolve()
+        path = (root / rel).resolve()
+        if not path.is_relative_to(root):
+            raise RunnerError("body_file_path_invalid: the file is outside test/uat")
+        if not path.is_file():
+            raise RunnerError(f"body_file_missing: no file {rel}")
+        if path.stat().st_size > BODY_FILE_MAX_BYTES:
+            raise RunnerError(f"body_file_too_big: {rel} is over {BODY_FILE_MAX_BYTES} bytes")
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            raise RunnerError(f"body_file_not_json: {rel}") from None
 
     def _upload_file(self, rel: str) -> Path:
         """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
@@ -1883,7 +1922,7 @@ class Runner:
         result = {"exit": 0, "lines": len(lines)}
         return (200, result, json.dumps(result))
 
-    def _page_through(self, role, spec, http_as, record):
+    def _page_through(self, role, spec, http_as, record, extra=None):
         """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
         to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
         age_at_least / unique_ids of the step's expect read that collected set."""
@@ -1898,7 +1937,7 @@ class Runner:
             path = f"{base}{joiner}page_size={size}"
             if cursor:
                 path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
-            status, body, text = self.request(role, "GET", path, http_as=http_as)
+            status, body, text = self.request(role, "GET", path, http_as=http_as, **(extra or {}))
             pages += 1
             if status != 200:
                 raise RunnerError(f"page_through: page {pages} answered {status}, expected 200")
@@ -1922,11 +1961,11 @@ class Runner:
         record.update(method="GET", path=base, pages=pages)
         return (200, result, json.dumps(result))
 
-    def _repeat(self, role, spec, times, http_as, record):
+    def _repeat(self, role, spec, times, http_as, record, extra=None):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
         if times < 2:
             raise RunnerError("repeat: times must be at least 2")
-        infos = [self._call(role, spec, http_as) for _ in range(times)]
+        infos = [self._call(role, spec, http_as, **(extra or {})) for _ in range(times)]
         record.update(method=infos[0]["method"], path=infos[0]["path"], calls=[
             {"status": i["result"][0]} for i in infos])
         if infos[0]["request"] is not None:
@@ -3127,6 +3166,8 @@ def sweep_versions_problem(name, marker):
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
+    if "body_file" in spec and ("body" in spec or not isinstance(spec["body_file"], str)):
+        raise ConfigError(f"{where}: body_file is a file name under test/uat and excludes body")
 
 
 def validate_step(step, where) -> None:
@@ -3256,6 +3297,12 @@ def validate_step(step, where) -> None:
         raise ConfigError(f"{where}: http_as can only be shared_access")
     if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
         raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_env" in step and not (isinstance(step["bearer_env"], str) and BEARER_ENV_RE.fullmatch(step["bearer_env"])
+                                     and step.get("platform_route") is True and "bearer" not in step):
+        raise ConfigError(f"{where}: bearer_env is a UAT_QA_PROVISIONER_* variable name, on a platform_route step, "
+                          "without bearer")
+    if "platform_route" in step and step["platform_route"] is not True:
+        raise ConfigError(f"{where}: platform_route can only be true")
     if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
                                       and step.get("bearer")):
         raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
