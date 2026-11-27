@@ -25,7 +25,7 @@ REPO = HERE.parent.parent.parent
 def fx_steps(name, provides, uses=""):
     """find (optional save), make unless found, both through the fake fx routes."""
     return [
-        {"id": "f1", "actor": "admin", "do": {"api": "POST", "path": "/api/v1/fx/find", "body": {"name": name}},
+        {"id": "f1", "actor": "admin", "positional_ok": "the find is filtered by name to its own row", "do": {"api": "POST", "path": "/api/v1/fx/find", "body": {"name": name}},
          "expect": {"status": 200}, "save": {provides: {"pick": "$.items[0].record_id", "optional": True}}},
         {"id": "f2", "actor": "admin", "skip_if": [provides], "do": {"api": "POST", "path": "/api/v1/fx/make", "body": {"name": name}},
          "expect": {"status": 201}, "save": {provides: "$.record_id", f"{provides}_created": "yes"}},
