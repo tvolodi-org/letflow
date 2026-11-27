@@ -304,3 +304,12 @@ describe('classifyRollbackError — direct unit coverage (§8.1 item 6)', () => 
     ).toBe('unknown')
   })
 })
+
+describe('T-2815 D6 no developer text', () => {
+  it('does not claim the rollback is not sent to the server', () => {
+    setupAdmin()
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
+    expect(screen.queryByText(/Not sent to the server/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/REQ-371/)).not.toBeInTheDocument()
+  })
+})

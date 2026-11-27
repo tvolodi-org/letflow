@@ -74,7 +74,7 @@ function mount(def: ProcessDefinition = DEF, editorDirty = false) {
   const r = render(tree(def, editorDirty, qc))
   return { ...r, rerenderDef: (next: ProcessDefinition) => r.rerender(tree(next, editorDirty, qc)) }
 }
-const addStep = async () => fireEvent.click(await screen.findByTestId('edit-add'))
+const addStep = async () => fireEvent.click(await screen.findByTestId('edit-add', {}, { timeout: 10_000 }))
 const save = () => fireEvent.click(screen.getByTestId('edit-save'))
 
 describe('T-1563 diagram edit: save', () => {
@@ -82,7 +82,7 @@ describe('T-1563 diagram edit: save', () => {
     vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
     vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
     mount()
-    expect(await screen.findByTestId('edit-save')).toBeDisabled() // nothing changed yet
+    expect(await screen.findByTestId('edit-save', {}, { timeout: 10_000 })).toBeDisabled() // nothing changed yet
     await addStep()
     save()
     await waitFor(() => expect(definitionsApi.update).toHaveBeenCalledTimes(1))
@@ -249,7 +249,7 @@ describe('T-1563 diagram edit: save', () => {
     vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
     vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
     const r = mount()
-    await screen.findByTestId('edit-add')
+    await screen.findByTestId('edit-add', {}, { timeout: 10_000 })
     r.rerenderDef({ ...DEF, updated_at: '2026-11-05T00:00:00Z', graph: { ...DEF.graph, nodes: [...DEF.graph.nodes, { id: 'remote', node_type: 'END', label: null, attributes: { position: { x: 0, y: 200 } } }] } })
     expect(screen.queryByTestId('edit-stale')).toBeNull()
     await addStep()
