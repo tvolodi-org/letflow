@@ -81,7 +81,7 @@ export default function DefinitionListPage() {
     }
   }, [pendingNavId, navigate])
   const { data, isLoading, isError, error, refetch } = useDefinitions({ status })
-  const searchQuery = useDefinitionSearch(debouncedSearch, { page_size: 20 })
+  const searchQuery = useDefinitionSearch(debouncedSearch, { page_size: 20, status })
   const versionsQuery = useDefinitionVersions(expandedDefName ?? '')
   const activate = useActivateDefinition()
   const archive = useArchiveDefinition()
