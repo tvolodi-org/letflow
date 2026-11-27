@@ -121,6 +121,7 @@ env|LETFLOW_VOICE_STT_BASE_URL|voice|module|runtime|url|none|yes|Letflow.Webhook
 env|LETFLOW_VOICE_STT_MODEL|voice|module|runtime|plain|none|no|none|Name of the speech to text model.
 env|LETFLOW_VOICE_STT_PROVIDER|voice|module|runtime|plain|none|no|none|Provider of the speech to text service.
 env|LOG_LEVEL|operations|platform|runtime|plain|info|no|none|Level the logger writes at.
+env|MAX_INFLIGHT_AGE_MS|operations|platform|runtime|plain|120000|no|none|Milliseconds an admitted request may run before the node logs it as stale, 0 switches the sweep off, and the admission is never released.
 env|MIX_TEST_PARTITION|testing|test|runtime|plain|none|no|none|Number of the database partition a test run owns.
 env|MOBILE_OIDC_CLIENT_ID|web|platform|runtime|plain|none|no|none|OIDC client identifier the mobile application authenticates with.
 env|OIDC_CLIENT_ID|identity|platform|runtime|plain|none|no|none|OIDC client identifier the web application authenticates with.
@@ -130,6 +131,7 @@ env|POOL_SIZE|operations|platform|runtime|plain|30|no|none|Number of connections
 env|PORT|operations|platform|runtime|plain|4000|no|none|Port the HTTP listener binds.
 env|RELEASE_NAME|operations|platform|runtime|plain|none|no|none|Name of the release the running build belongs to.
 env|RESERVED_HEADROOM|operations|platform|runtime|plain|2|no|none|Number of database connections kept free for the operator.
+env|STALE_SWEEP_INTERVAL_MS|operations|platform|runtime|plain|1000|no|none|Milliseconds between the node's looks for an over-age admitted request.
 env|TEST_PARALLEL_FILE_MARKER_DIR|testing|test|runtime|plain|none|no|none|Directory a watched test child publishes its running test file to.
 env|TEST_PARALLEL_GROUP|testing|test|runtime|plain|none|no|none|Group of test partitions that may run at the same time.
 env|TEST_POOL_SIZE|testing|test|runtime|plain|none|no|none|Number of connections one test partition may hold.
