@@ -16,6 +16,7 @@ import { formatDate } from '@/i18n/format'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { Button } from '@/components/ui/Button'
+import { Checkbox } from '@/components/ui/Checkbox'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { definitionLabel } from '@/pages/dashboard/definitionLabels'
@@ -27,6 +28,11 @@ import { DesignerGuidePanel } from '@/components/guide/DesignerGuidePanel'
 import { useGuideStore } from '@/stores/guideStore'
 
 
+/** A version made by a UAT runner: its version string (or name) starts with `uat-`. */
+function isRunnerResidue(d: ProcessDefinition): boolean {
+  return /^uat-/.test(d.version ?? '') || /^uat-/.test(d.name ?? '')
+}
+
 export default function DefinitionListPage() {
   const navigate = useNavigate()
   const uiLocale = useUiLocale()
@@ -35,6 +41,7 @@ export default function DefinitionListPage() {
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const [status, setStatus] = useState<DefinitionStatus | undefined>()
+  const [showTestRuns, setShowTestRuns] = useState(false)
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -89,9 +96,11 @@ export default function DefinitionListPage() {
 
   const isSearching = debouncedSearch.trim().length > 0
   const searchResults = searchQuery.data as { items?: { definition: ProcessDefinition; rank: number }[] } | undefined
-  const items: ProcessDefinition[] = isSearching
+  const allItems: ProcessDefinition[] = isSearching
     ? (searchResults?.items?.map((r) => r.definition) ?? [])
     : ((data as { items?: ProcessDefinition[] } | undefined)?.items ?? [])
+  // D5: runner residue (versions named uat-...) is hidden unless the toggle is on.
+  const items = showTestRuns ? allItems : allItems.filter((d) => !isRunnerResidue(d))
   const isLoadingItems = isSearching ? searchQuery.isLoading : isLoading
   const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
@@ -264,9 +273,23 @@ export default function DefinitionListPage() {
             </Button>
           )}
           {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
-            <Button variant="secondary" size="sm" onClick={() => archive.mutate(def.id)} loading={archive.isPending}>
-              {dm.archive}
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => archive.mutate(def.id)}
+                loading={archive.isPending}
+                disabled={def.status !== 'DEPRECATED'}
+                aria-describedby={def.status !== 'DEPRECATED' ? `archive-why-${def.id}` : undefined}
+              >
+                {dm.archive}
+              </Button>
+              {def.status !== 'DEPRECATED' && (
+                <span id={`archive-why-${def.id}`} className="lf-hint" data-testid={`archive-why-${def.id}`}>
+                  {dm.archiveOnlyDeprecated}
+                </span>
+              )}
+            </>
           )}
           {hasDesignerRole && (
             <Button variant="secondary" size="sm" data-testid={`btn-copy-${def.id}`} onClick={() => void handleCopy(def)} disabled={createDef.isPending}>
@@ -389,6 +412,7 @@ export default function DefinitionListPage() {
             <option value="ARCHIVED">{dm.archived}</option>
           </select>
         </div>
+        <Checkbox data-testid="show-test-runs" checked={showTestRuns} onChange={setShowTestRuns} label={dm.showTestRuns} />
       </FilterBar>
 
       <QueryStateBoundary
@@ -406,6 +430,12 @@ export default function DefinitionListPage() {
             <span style={{ display: 'block', marginTop: '.5rem' }}>{dm.emptyHint}</span>
           )}
         </p>
+      )}
+
+      {archive.isError && (
+        <div role="alert" data-testid="archive-error" className="lf-banner lf-banner--danger">
+          {dm.archiveRefused}
+        </div>
       )}
 
       {copyError && (

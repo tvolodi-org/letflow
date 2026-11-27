@@ -250,3 +250,36 @@ describe('T-3161 search combined with the status filter', () => {
     )
   })
 })
+
+describe('T-2815 D5 runner residue and D8 archive refusal', () => {
+  const RESIDUE = { ...ACTIVE_DEF, id: 'def-res', name: 'platform.register_tenant', version: 'uat-20261125-ab12', status: 'DEPRECATED' as const }
+
+  it('hides uat- versions until the toggle is on', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF, RESIDUE as unknown as typeof ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'designer')
+    expect(screen.queryByTestId('open-process-def-res')).not.toBeInTheDocument()
+    expect(screen.getByTestId(`open-process-${ACTIVE_DEF.id}`)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('show-test-runs'))
+    expect(screen.getByTestId('open-process-def-res')).toBeInTheDocument()
+  })
+
+  it('disables archive of an active version and says why', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'designer')
+    const btn = screen.getByRole('button', { name: 'Archive' })
+    expect(btn).toBeDisabled()
+    expect(screen.getByText('Only a deprecated version can be archived.')).toBeVisible()
+    expect(btn.getAttribute('aria-describedby')).toBe(`archive-why-${ACTIVE_DEF.id}`)
+  })
+
+  it('says why when archive is refused', async () => {
+    const { useArchiveDefinition } = await import('@/hooks/useDefinitions')
+    vi.mocked(useArchiveDefinition).mockReturnValue({ mutate: vi.fn(), isPending: false, isError: true } as unknown as ReturnType<typeof useArchiveDefinition>)
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'designer')
+    expect(screen.getByTestId('archive-error')).toHaveTextContent('Only a deprecated version can be archived')
+  })
+})
