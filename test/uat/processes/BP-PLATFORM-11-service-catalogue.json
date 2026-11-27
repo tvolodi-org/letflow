@@ -22,7 +22,7 @@
     {
       "id": "s1",
       "actor": "platform-admin",
-      "says": "The operator lists the catalogue (a small page): 200.",
+      "says": "The operator lists the catalogue (a small page): 200. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a service.",
       "do": {
         "api": "GET",
         "path": "/api/v1/admin/services?page_size=5"
@@ -31,7 +31,7 @@
         "status": 200,
         "json": {
           "$.items": {
-            "exists": true
+            "present": true
           }
         }
       }

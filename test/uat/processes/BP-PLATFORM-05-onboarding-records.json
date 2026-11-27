@@ -336,7 +336,7 @@
     {
       "id": "s14",
       "actor": "platform-admin",
-      "says": "The pending administrators of the record: a list (the fixture has no pending first administrator).",
+      "says": "The pending administrators of the record: a list (the fixture has no pending first administrator). T-3107: the list is empty on purpose, so the step asserts that the list is THERE (`present`), not that it holds an administrator.",
       "do": {
         "api": "GET",
         "path": "/api/v1/onboarding/${onboarding_id}/pending-admins"
@@ -345,7 +345,7 @@
         "status": 200,
         "json": {
           "$.pending_admins": {
-            "exists": true
+            "present": true
           }
         }
       },
