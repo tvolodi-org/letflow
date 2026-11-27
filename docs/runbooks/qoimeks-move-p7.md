@@ -70,6 +70,15 @@ Take them from the real tools, never from memory. Each one passes or fails; a di
 | 5 | Every opening document is posted, none is pending or draft | `GET /api/v1/modules/stock/documents`, each document `posted` |
 | 6 | The approver can act and the storekeeper cannot | `GET /api/v1/modules/stock/approval-access`: 200 with `can_approve: true` for the administrator, 403 for the storekeeper (`pilot-rollout.md`, step 6) |
 
+## Definition health (T-3014): before step 3 and after step 9
+
+A read-only check, no SQL and no write: `python3 -B scripts/uat/runner.py definition-report --tenant TENANT_SLUG --admin ADMIN_USER`
+(see `scripts/uat/README.md`, "definition-report"). Run it once **before** the freeze (step 3) and once **after** the six checks
+(step 9). Every stock definition must show `ok`. A name shown `dead-newest` (no ACTIVE row, the newest row DEPRECATED or ARCHIVED) means
+the stock routes answer 409 `definition_not_active`: do not go on. The repair is the product's own path: the module ensure-seeds step
+(`POST` of the module's ensure-seeds route by a tenant administrator, or the boot upgrade) re-seeds and re-activates it, with a logged
+warning; then run the report again. Keep both `definition_report.json` files in the record of the window.
+
 ## ROLLBACK
 
 Any check fails, or the client or the owner says stop: **lift the Qoimeks write freeze** (the Qoimeks team switches `MAINTENANCE_MODE`

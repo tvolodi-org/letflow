@@ -39,6 +39,23 @@ class RunReportCase(FakeServerCase):
         self.assertFalse((self.run_dir / "definition_report_after.json").exists())
         self.assertIn(str(path.resolve()), self.summary())
 
+    def test_dead_newest_fails_the_stock_leg_loudly_before_the_first_step(self):
+        """T-3014: stock_receipt ARCHIVED with no ACTIVE row: the run fails at the health check, naming the report."""
+        self.state.definitions = [row("a1", "stock_receipt", "ARCHIVED"), row("a2", "stock_issue", "ACTIVE")]
+        code, r = self.run_process()
+        self.assertEqual(code, 1)
+        text = self.summary()
+        path = (self.run_dir / "definition_report_before.json").resolve()
+        self.assertIn("definition-health", text)
+        self.assertIn("DEAD-NEWEST stock definition(s) on qoimeks-qa2: stock_receipt", text)
+        self.assertIn(str(path), text)
+        self.assertEqual(json.loads(path.read_text())["verdicts"]["stock_receipt"], "dead-newest")
+
+    def test_healthy_tenant_passes_the_health_check(self):
+        self.state.definitions = [row("a2", "stock_issue", "ACTIVE")]
+        code, r = self.run_process()
+        self.assertNotIn("definition-health", self.summary())
+
     def test_409_definition_not_active_triggers_the_after_report(self):
         self.state.post_409 = "definition_not_active"
         code, r = self.run_process()

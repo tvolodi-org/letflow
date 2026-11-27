@@ -105,6 +105,7 @@ GET /platform-module-rollouts/:id ModuleRolloutsManage
 GET /platform-problem-reports ProblemReportsManage
 GET /platform-problem-reports/:id ProblemReportsManage
 GET /platform-problem-reports/:id/images/:image_id ProblemReportsManage
+GET /platform-status/admission TenantsManage
 GET /platform-status/backup TenantsManage
 GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead

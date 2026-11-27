@@ -557,8 +557,11 @@ field :owner_manifest_hash, :string; field :owner_body_hash, :string
   same helper. If the supervisor wants REQ-501 strictly minimal, drop it from the list (no other effect). `definition_map/1` exposes `owner_module` and
   `owner_module_version` read-only; the hashes are never serialised. Export omits all stamp fields.
   `Definitions.update` of a stamped row (including `variable_schemas` of PATCH) is 409
-  `module_owned_definition`. Activate/deprecate/archive/rollback-to of a stamped row are allowed
-  (activation runs the hash check). Hard delete of a stamped DRAFT is not restricted (OQ-R9).
+  `module_owned_definition`. AMENDED by T-3014 (a tenant admin archived the module's ACTIVE
+  `stock_receipt` on QA): the tenant API now refuses, with 409 and an audit row
+  (`definition.<verb>.refused`), activate, deprecate, archive, DELETE (also of a stamped DRAFT),
+  PUT, PATCH and rollback on any module-owned name. Module upgrade, ensure-seeds and the platform
+  paths call the context without `tenant_request` and are unchanged.
 
 ### 4.9 `PinRebind` (R3)
 

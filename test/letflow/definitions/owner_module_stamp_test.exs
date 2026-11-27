@@ -638,8 +638,9 @@ defmodule Letflow.Definitions.OwnerModuleStampTest do
     test "lifecycle audit states of a stamped row carry no hash keys", %{schema: schema} do
       row = create_owned!(schema, %{})
       assert {:ok, %{definition: _}} = Definitions.activate(row.id, prefix: schema)
-      assert {:ok, _} = Definitions.deprecate(row.id, prefix: schema)
-      assert {:ok, _} = Definitions.archive(row.id, prefix: schema)
+      # T-3014: a stamped row is never retired through the tenant API
+      assert {:error, :module_owned_definition} = Definitions.deprecate(row.id, prefix: schema)
+      assert {:error, :module_owned_definition} = Definitions.archive(row.id, prefix: schema)
 
       %{rows: rows} =
         Repo.query!(
@@ -648,7 +649,7 @@ defmodule Letflow.Definitions.OwnerModuleStampTest do
           [row.id]
         )
 
-      assert length(rows) >= 4
+      assert length(rows) >= 1
 
       for [_action, before_state, after_state] <- rows, state <- [before_state, after_state] do
         if is_map(state) do

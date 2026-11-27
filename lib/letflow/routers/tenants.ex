@@ -799,6 +799,26 @@ defmodule Letflow.Routers.Tenants do
 
   defp render_promote(conn, {:ok, result}), do: Response.created(conn, promote_map(result))
 
+  # T-3014: refused, no state change; the audit row goes to the caller's own tenant schema.
+  defp render_promote(conn, {:error, :module_owned_definition}) do
+    case Letflow.TenantProvisioning.schema_name_for_tenant(conn.assigns.auth_context.tenant_id) do
+      {:ok, prefix} ->
+        key = conn.path_params |> Map.get("process_key", "") |> to_string()
+
+        Letflow.Definitions.record_refused_attempt(
+          "definition.promote",
+          binary_part(key, 0, min(64, byte_size(key))),
+          prefix: prefix,
+          actor_id: conn.assigns.auth_context.user_id
+        )
+
+      _ ->
+        :ok
+    end
+
+    Response.conflict(conn, "a module-owned definition cannot be changed by a tenant")
+  end
+
   defp render_promote(conn, {:error, :forbidden}),
     do: Response.forbidden(conn, "insufficient permissions")
 
