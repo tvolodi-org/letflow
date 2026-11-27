@@ -275,6 +275,22 @@
       "expect": {
         "status": 200
       }
+    },
+    {
+      "id": "c1p",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/purge",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
     }
   ]
 }

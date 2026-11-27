@@ -220,6 +220,19 @@ class StepsBToH(unittest.TestCase):
             self.assertEqual([f"slug{i}"], c["requires"])
         self.assertNotIn("qoimeks-client1", FILE.read_text())
 
+    def test_t3210_each_deactivated_tenant_is_purged_right_after_and_only_that_one(self):
+        ids = [c["id"] for c in self.process["cleanup"]]
+        for i, cid in zip((1, 2, 3, 4), ("c3", "c4", "c5", "c6")):
+            purge = self.cleanup[cid + "p"]
+            self.assertEqual(ids.index(cid) + 1, ids.index(cid + "p"))  # right after its deactivate
+            self.assertEqual(("POST", f"/api/v1/tenants/${{slug{i}}}/purge"), (purge["do"]["api"], purge["do"]["path"]))
+            self.assertEqual([f"slug{i}"], purge["requires"])  # skipped when the run made no such tenant
+            self.assertEqual(200, purge["expect"]["status"])  # a refusal is a loud cleanup failure
+        purges = [c for c in self.process["cleanup"] if c["do"]["path"].endswith("/purge")]
+        self.assertEqual(4, len(purges))  # the four tenants of this run, no sweep, no fixed name
+        for c in purges:
+            self.assertRegex(c["do"]["path"], r"^/api/v1/tenants/\$\{slug[1-4]\}/purge$")
+
     def test_every_cleanup_step_is_conditional_on_what_the_run_made(self):
         for step in self.process["cleanup"]:
             self.assertTrue(step.get("requires"), step["id"])
@@ -550,3 +563,74 @@ class BlockedNeverFails(H2IsPlayed):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PurgeRecorder(BaseHTTPRequestHandler):
+    """T-3210: a platform API that records every POST and answers the purge with a switchable status."""
+
+    seen = []
+    purge_status = 200
+
+    def do_GET(self):  # noqa: N802
+        self.reply(200, {"status": "ok", "sha": "abc123", "items": []})
+
+    def do_POST(self):  # noqa: N802
+        type(self).seen.append(self.path)
+        if self.path.endswith("/purge"):
+            self.reply(type(self).purge_status, {"status": "deleted"} if type(self).purge_status == 200 else {"error": "not_eligible"})
+        else:
+            self.reply(200, {})
+
+    def reply(self, status, doc):
+        data = json.dumps(doc).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+class PurgeInCleanup(FakeServerCase):
+    def setUp(self):
+        super().setUp()
+        self.handler = type("P", (PurgeRecorder,), {"seen": [], "purge_status": 200})
+        self.other = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+        threading.Thread(target=self.other.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.addCleanup(self.other.server_close)
+        self.addCleanup(self.other.shutdown)
+        self.actors = {"admin": {"user": "adm", "tenant": "qoimeks-qa2",
+                                 "base_url": f"http://127.0.0.1:{self.other.server_address[1]}"}}
+
+    def clean(self, inputs):
+        process = json.loads(FILE.read_text())
+        cleanup = [c for c in process["cleanup"] if c["id"] in ("c3", "c3p", "c4", "c4p")]
+        r = runner.Runner({"id": "C", "steps": [], "cleanup": cleanup}, base_url=self.base, tenant="qoimeks-qa2",
+                          actors=self.actors, run_dir=self.run_dir, inputs=inputs, poll_interval=0.01,
+                          out=io.StringIO(), residue_check=False)
+        return r.run()
+
+    def test_the_created_tenant_is_deactivated_then_purged_and_a_foreign_one_never(self):
+        code = self.clean({"slug1": "uat-tmp-aaaa", "slug2": "uat-tmp-bbbb"})
+        self.assertEqual(0, code, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(["/api/v1/tenants/uat-tmp-aaaa/deactivate", "/api/v1/tenants/uat-tmp-aaaa/purge",
+                          "/api/v1/tenants/uat-tmp-bbbb/deactivate", "/api/v1/tenants/uat-tmp-bbbb/purge"],
+                         [p for p in self.handler.seen if "/tenants/" in p])
+        self.assertFalse([p for p in self.handler.seen if "qoimeks" in p])
+
+    def test_a_tenant_this_run_did_not_create_is_not_purged(self):
+        code = self.clean({"slug1": "uat-tmp-aaaa"})  # slug2 never made: its steps are skipped
+        self.assertEqual(0, code)
+        purged = [p for p in self.handler.seen if p.endswith("/purge")]
+        self.assertEqual(["/api/v1/tenants/uat-tmp-aaaa/purge"], purged)
+
+    def test_a_refused_purge_fails_the_cleanup_loudly_with_the_tenant_name(self):
+        self.handler.purge_status = 409
+        code = self.clean({"slug1": "uat-tmp-aaaa"})
+        self.assertNotEqual(0, code)
+        verdicts = self.verdicts()
+        self.assertEqual("fail", verdicts[("cleanup", "c3p")])
+        text = json.dumps(self.lines())
+        self.assertIn("uat-tmp-aaaa", text)
