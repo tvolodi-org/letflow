@@ -85,6 +85,10 @@ A tenant administrator assembles an exam: title, pass mark, number of attempts, 
 - UAT: scripted -- the runner scenario above runs this process.
 - security: no
 
+**Gaps.**
+
+- WHY PARTIAL: the builder write path is played by the scenario (draft exam, section, rule, edit, refusal, cleanup); the last task (assign the exam to a candidate) has no route, so it cannot be played. Pinned questions are not walked (they need a live BP-EXAM-01 question). Owner: PM/product owner decides the assignment route and screen; a developer task builds it, then a step is added here.
+
 ## BP-EXAM-03 -- Find and start an exam
 
 A candidate opens the exam list, sees the exams assigned to them and open now, and starts one. The system checks in this order: the exam exists and is active, the candidate is assigned, the exam is not archived, the availability window is open, the attempts are not used up, no session of theirs is open. It then draws the questions (with a fresh seed) and fixes them in the session. If a session is already open the answer names it so the screen can continue it. STAYS PARTIAL (no runner scenario): a candidate can start only an exam that is assigned to them, and nothing but the mix seed task writes an assignment (no route, no screen: Authoring.create_assignment, lib/letflow/modules/exam/authoring.ex:131). A runner process has no seed step, so the start cannot be played at API level without inventing behaviour. Needs: an assignment route or an exam_assignment fixture of the runner. The refusals of the candidate's session routes are played by BP-EXAM-07.
@@ -117,6 +121,10 @@ A candidate opens the exam list, sees the exams assigned to them and open now, a
 - implementation: `partial`
 - UAT: planned -- no runner scenario yet.
 - security: no
+
+**Gaps.**
+
+- WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. After it merges, add the scenario: assign, list available, start, 409 on a second start; cleanup needs a withdraw route for the assignment too.
 
 ## BP-EXAM-04 -- Sit the exam and submit
 
@@ -154,6 +162,10 @@ The candidate answers the questions. Each answer is saved at once (single, multi
 - UAT: planned -- no runner scenario yet.
 - security: no
 
+**Gaps.**
+
+- WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs BP-EXAM-03 for an open session. Browser-only signals (tab switch, full screen) are posted to the events route by a script, but the deadline needs a session with a short time limit.
+
 ## BP-EXAM-05 -- Grade short-text answers
 
 An examiner (today a tenant administrator) opens the grading queue, sees the short-text answers waiting for a mark (optionally for one exam, in a chosen language), opens one answer, and gives a score between zero and the maximum of the question. When the last waiting answer of a session is marked the system finalises the session (score, pass/fail). An answer is marked once. STAYS PARTIAL (no runner scenario): it needs a submitted session with a short-text answer waiting for the examiner, which needs BP-EXAM-03 and BP-EXAM-04 first (no assignment route). The refusals of the grading routes (403 for a candidate, 422 for a body with a grader id, 404 on an unknown answer) are played by BP-EXAM-07.
@@ -188,6 +200,10 @@ An examiner (today a tenant administrator) opens the grading queue, sees the sho
 - UAT: planned -- no runner scenario yet.
 - security: no
 
+**Gaps.**
+
+- WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs a submitted session with a short-text answer (BP-EXAM-03/04). Graded answers have no undo: a disposable tenant or a re-run-tolerant assertion is needed.
+
 ## BP-EXAM-06 -- See my results and get the certificate
 
 The candidate opens the list of their finished sessions with score, pass/fail and certificate status, opens one result, and, when the session is passed and the exam issues certificates, asks for the certificate and downloads it as a PDF. The first request issues it; every later request returns the same one. STAYS PARTIAL (no runner scenario): it needs a finished session of a candidate, which the missing assignment route makes unreachable at API level; the certificate refusal on a session that is not the caller's (404) is played by BP-EXAM-07.
@@ -219,6 +235,10 @@ The candidate opens the list of their finished sessions with score, pass/fail an
 - implementation: `partial`
 - UAT: planned -- no runner scenario yet.
 - security: no
+
+**Gaps.**
+
+- WHY PARTIAL (no runner scenario): a candidate can start an exam only when an exam_assignment record exists for them; the only writer is Authoring.create_assignment (lib/letflow/modules/exam/authoring.ex), called by the mix seed task, with no route and no screen and no runner fixture or step kind that can call it. Checked on main 2026-11-27: no assignment route in lib/letflow/modules/exam/router.ex. Owner: PM/product owner decides the assignment route + screen (BP-EXAM-02 last task, orphans-exam.md); a developer task builds it. Also needs a passed session; issuing a certificate has no undo route, so the cleanup must be decided with the owner.
 
 ## BP-EXAM-07 -- Security: roles and crafted input are refused
 

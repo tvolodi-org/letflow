@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `maintenance` has 21 process(es): 17 implemented, 3 partial, 1 planned. Executed by: 21 direct, 0 definition.
+The area `maintenance` has 21 process(es): 17 implemented, 4 partial. Executed by: 21 direct, 0 definition.
 
 ## The processes of the area
 
@@ -21,7 +21,7 @@ The area `maintenance` has 21 process(es): 17 implemented, 3 partial, 1 planned.
 | BP-MAINTENANCE-08 | Read and list work orders | A tenant administrator lists the orders (filter by status or asset card, newest first, paging) and opens one; the view shows the status r... | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-09 | Web screens for work requests | Report a problem from the new-request form, the request list and the request page (REQ-898, merged in #5099). | TENANT_ADMIN | partial | direct | no | no | see report |
 | BP-MAINTENANCE-10 | Web screens for work orders and My work orders | The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person,... | TENANT_ADMIN, TASK_WORKER (the technician, addressed by the work order) | partial | direct | no | no | see report |
-| BP-MAINTENANCE-11 | My work orders on the phone app and PWA | The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen... | TASK_WORKER (the technician, addressed by the work order) | planned | direct | no | no | see report |
+| BP-MAINTENANCE-11 | My work orders on the phone app and PWA | The assigned person sees their open work orders in the phone app (and its PWA), built on the task inbox, and opens the generic task scree... | TASK_WORKER (the technician, addressed by the work order) | partial | direct | no | no | see report |
 | BP-MAINTENANCE-12 | Problem-report export for the PM handoff (platform) | The operator session polls the read-only export with a hash-configured bearer credential; each new problem report (older than the settle... | PM export credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-13 | Import the owner list into the platform company | The owner's team posts the JSON copy of the lab list with a write credential of its own; new items (with thread and screenshots) are stor... | Owner-list credential (bearer, hash-configured; not a user role) | implemented | direct | no | no | see report |
 | BP-MAINTENANCE-14 | Security: a crafted completion cannot write another work order | The completer of a task can name any non-system output variable. | TASK_WORKER (the technician, addressed by the work order), TENANT_ADMIN | implemented | direct | no | yes | see report |
@@ -341,6 +341,10 @@ Report a problem from the new-request form, the request list and the request pag
 - security: no
 - automation: planned
 
+**Gaps.**
+
+- No runner scenario can play this row on QA today (re-checked 2026-11-27): (1) the release flag :maintenance_enabled is false in config/config.exs:191 (true only in config/test.exs:314), so the module answers 404 on QA; (2) the runner has no browser step for a module screen. Steps blocked_by: flag on for a QA tenant, owner PM (release decision); a browser step in the runner, owner runner/UAT tooling task. The API half is played by BP-MAINTENANCE-01..03 once the flag is on. Nothing is blocked in the product code here.
+
 ## BP-MAINTENANCE-10 -- Web screens for work orders and My work orders
 
 The order list and the order page with Assign, the new-order form (from a request or direct), and My work orders for the assigned person, built on the task inbox (REQ-899, merged in #5111). The screens exist in web/src/modules/maintenance (maintenanceRoutes.tsx: admin/maintenance/orders, orders/new, orders/:id, maintenance/my-orders). Stays planned: the release flag :maintenance_enabled is off on QA, REQ-899 is still pending in the register, and the runner has no browser step for a module tenant. The API half is BP-MAINTENANCE-04..08. The phone screens of the technician (REQ-900) are not built.
@@ -372,13 +376,22 @@ The order list and the order page with Assign, the new-order form (from a reques
 - security: no
 - automation: planned
 
+**Gaps.**
+
+- No runner scenario can play this row on QA today (re-checked 2026-11-27): the release flag :maintenance_enabled is false (config/config.exs:191), and the runner has no browser step for the order list, the order page, the new-order form or My work orders. Steps blocked_by: flag on for a QA tenant plus a technician login in the actor roster, owner PM; a browser step in the runner, owner runner/UAT tooling task. The API half is BP-MAINTENANCE-04..08.
+
 ## BP-MAINTENANCE-11 -- My work orders on the phone app and PWA
 
-The assigned person sees their open work orders in the phone app and its PWA, built on the task inbox, and opens the existing task screen to report the work done. Not built: apps/mobile has no maintenance screen. Why it stays planned (re-checked 2026-11-21): `grep -rli maintenance apps/mobile/lib` is empty; REQ-900 is pending. The technician's completion is already BP-MAINTENANCE-06.
+The assigned person sees their open work orders in the phone app (and its PWA), built on the task inbox, and opens the generic task screen to report the work done. The Flutter screen is merged (REQ-900, commit b7df4358d): apps/mobile/lib/features/maintenance/work_orders_screen.dart, with a widget test in apps/mobile/test/features/maintenance/work_orders_test.dart. The technician's completion is BP-MAINTENANCE-06.
 
 **Actors and their permissions.**
 
 - `TASK_WORKER (the technician, addressed by the work order)` -- TasksComplete (core task route; no maintenance permission)
+
+**Steps.**
+
+1. **TASK_WORKER (the technician)**: call `mobile: /maintenance/my-orders`, function `WorkOrdersScreen`, `WorkOrdersController (reads /api/v1/tasks/inbox)`, `TaskDetailScreen`
+   Result: the technician's open work orders are listed and one opens the generic task screen
 
 **Runner scenario.**
 
@@ -386,9 +399,14 @@ The assigned person sees their open work orders in the phone app and its PWA, bu
 
 **Status.**
 
-- implementation: `planned` (requirement: REQ-900)
+- implementation: `partial` (requirement: REQ-900)
 - UAT: planned -- no runner scenario yet.
 - security: no
+- automation: planned
+
+**Gaps.**
+
+- Screen merged (REQ-900, b7df4358d); status is partial because no runner scenario plays it. Remaining blockers: (1) the release flag :maintenance_enabled is false (config/config.exs:191, true only in config/test.exs:314), so QA answers 404 for the module - owner PM; (2) the JSON runner has no phone/PWA step - owner runner/UAT tooling task. The technician completion itself is BP-MAINTENANCE-06.
 
 ## BP-MAINTENANCE-12 -- Problem-report export for the PM handoff (platform)
 
@@ -752,6 +770,10 @@ The operator asked for voice, webhook and old-address inputs. The maintenance mo
 - UAT: planned -- no runner scenario yet.
 - security: yes
 - automation: planned
+
+**Gaps.**
+
+- Nothing to walk: the row records inputs that do not exist. Its one positive claim (a path outside the twelve routes is refused as unmatched) needs an ExUnit test first (owner: a maintenance test task; grep -rn unmatched test/letflow/modules/maintenance is empty) and a QA tenant with the flag on (owner PM); a runner step would only see 404 today. Not written as a scenario on purpose (no write endpoint is probed to see if it works).
 
 ## Orphans (docs/bp/orphans-maintenance.md)
 

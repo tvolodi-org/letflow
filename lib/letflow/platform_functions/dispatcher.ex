@@ -234,9 +234,16 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_onboarding_failed
     platform_call_permission_required
     platform_call_provision_failed
+    platform_call_purge_failed
+    platform_call_purge_not_eligible
+    platform_call_purge_not_suspended
+    platform_call_purge_production_refused
+    platform_call_purge_unconfirmed
+    platform_call_reactivate_failed
     platform_call_realm_already_bound
     platform_call_realm_bind_failed
     platform_call_signature_invalid
+    platform_call_suspend_failed
     platform_call_tenant_create_failed
     platform_call_tenant_not_active
     platform_call_tenant_not_allowed

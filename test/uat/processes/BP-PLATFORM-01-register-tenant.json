@@ -98,9 +98,9 @@
           "$.items[3].name": "tenant.grant_first_admins",
           "$.items[5].name": "tenant.notify_admin",
           "$.items[6].name": "tenant.provision",
-          "$.items[7].name": "tenant.record_lifecycle",
-          "$.items[8].name": "tenant.record_onboarding",
-          "$.items[9].name": "tenant.validate",
+          "$.items[9].name": "tenant.record_lifecycle",
+          "$.items[10].name": "tenant.record_onboarding",
+          "$.items[12].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },

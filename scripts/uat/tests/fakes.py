@@ -160,6 +160,8 @@ def make_handler(state):
 
         def route(self, method, path, body, who):
             base = "/api/v1/modules/stock"
+            if getattr(state, "post_409", None) and method == "POST" and path.startswith(base + "/documents"):
+                return self.reply(409, {"error": "conflict", "reason": state.post_409})
             if path == "/api/v1/tenants":
                 if who not in state.platform_roles:
                     return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})
@@ -354,10 +356,16 @@ def make_handler(state):
                         state.qty -= doc["qty"]
                 return self.reply(200, {"status": "ok"})
             if path == "/api/v1/identity/shared-stock-access":
+                if method == "GET" and getattr(state, "shared_status", False):
+                    exists = state.shared_value is not None
+                    return self.reply(200, {"enabled": True, "exists": exists, "created_at": state.shared_created_at if exists else None,
+                                            "created_by": "u1", "rotated_at": None})
                 if method == "POST":
                     state.shared_value = SHARED_VALUE
                     return self.reply(201, {"value": SHARED_VALUE})
                 if method == "DELETE":
+                    if state.shared_value is None and getattr(state, "shared_status", False):
+                        return self.reply(404, {"title": "Not Found"})
                     state.revoked += 1
                     state.shared_value = None
                     return self.reply(204)
