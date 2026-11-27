@@ -53,7 +53,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     # C10: the assets module manifest declares its `write_handlers` the same way.
     "lib/letflow/modules/assets/assets.ex",
     # CMMS (REQ-896/897): the maintenance module manifest declares its `write_handlers` the same way.
-    "lib/letflow/modules/maintenance/maintenance.ex"
+    "lib/letflow/modules/maintenance/maintenance.ex",
+    # D-204: the module family DERIVATION reads the compiled manifests' `write_handlers` at compile
+    # time to build the catalogue entries (data in the compiled manifest, read the way the Catalog
+    # reads it); it never resolves or calls a handler, so the API-caller scan below stays green.
+    "lib/letflow/platform_functions/module_family.ex"
   ]
   # R2 (deliberate edit): `ManagedTypes.module_owner/1` calls `Catalog.manifest_hash/1` to
   # fill the `Owner` stamp inputs (`version`, `manifest_hash`); nothing else outside the

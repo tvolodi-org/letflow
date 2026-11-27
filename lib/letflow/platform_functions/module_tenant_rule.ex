@@ -31,12 +31,18 @@ defmodule Letflow.PlatformFunctions.ModuleTenantRule do
       the one compiled into this build. The tenant must upgrade the module
       before it may run the call.
 
-  ## Never raises
+  ## Never raises on a tenant input
 
-  A rule that answers at run time never raises (INV-8): every answer is `:ok`
-  or `{:error, code}` with a code out of `codes/0`. A module that is not
-  compiled into this build cannot have an entry (the catalogue is derived from
-  the compiled modules), so it is not a case the rule has to answer.
+  A rule that answers at run time never raises on a TENANT input (INV-8):
+  every answer is `:ok` or `{:error, code}` with a code out of `codes/0`. A
+  module that is not compiled into this build cannot have an entry (the
+  catalogue is derived from the compiled modules), so it is not a case the rule
+  has to answer.
+
+  The BOUNDARY of that promise: the check reads the tenant's install row from
+  the database, so a DATABASE fault still propagates, as it does everywhere
+  else in the module path. The rule hides no infrastructure fault behind a
+  refusal code.
   """
 
   alias Letflow.Definitions.ModuleWrites
@@ -60,7 +66,8 @@ defmodule Letflow.PlatformFunctions.ModuleTenantRule do
   installed in that tenant and the compiled module's manifest hash is the
   accepted one, `{:error, code}` otherwise.
 
-  Never raises.
+  Never raises on a tenant input; a database fault propagates (see the
+  moduledoc).
   """
   @spec check(Entry.t(), String.t()) :: :ok | {:error, atom()}
   def check(%Entry{} = entry, prefix) when is_binary(prefix) do

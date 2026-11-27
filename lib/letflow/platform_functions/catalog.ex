@@ -38,9 +38,17 @@ defmodule Letflow.PlatformFunctions.Catalog do
   `list/1` shows only the entries the CALLER's tenant may use: an entry marked
   `platform_tenant_only` (the platform family) is visible only in the platform
   tenant (INV-10). A company tenant sees the empty list for that family, so
-  the read route cannot be used to probe which platform functions exist. The
-  module family is visible to everybody: a module's functions are the
-  module's own, and the module id is public (a tenant installs modules itself).
+  the read route cannot be used to probe which platform functions exist.
+
+  The MODULE family is not hidden the way the platform family is: a module's
+  functions are the module's own, and the module id is public (a tenant
+  installs modules itself). But "visible" here means what `list/1` FILTERS, not
+  who may call the read route: the one production caller of `list/1` is
+  `GET /platform-functions`, whose policy `:TenantsManage` is PLATFORM scope,
+  so in practice a company tenant's designer CANNOT yet pick a module family
+  entry. The exposure is narrower than the filter, and it fails closed. Making
+  the module family reachable for a company tenant is a P3 question (the
+  module-call authority), not a property of this catalogue.
 
   ## Compile-time checks
 
