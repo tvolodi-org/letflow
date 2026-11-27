@@ -221,6 +221,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_grant_failed
     platform_call_hostname_mismatch
     platform_call_hostname_taken
+    platform_call_idp_unreachable
     platform_call_invalid_display_name
     platform_call_invite_failed
     platform_call_invalid_email

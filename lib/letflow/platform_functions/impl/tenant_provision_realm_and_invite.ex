@@ -34,6 +34,9 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite do
   The temporary password lives in one local variable from the provisioner's answer to the mail
   send: it is not in an output, the dispatch row, a log line or an error (INV-4, A1..A3). No branch
   logs the address, the realm or the hostname; every failure is a code of this module's closed set.
+  A failing create shows its CAUSE class in the step log as the code: `platform_call_idp_unreachable`
+  (transport, timeout, TLS, 502/503/504, 429: retryable) versus `platform_call_realm_create_failed`
+  (the provisioner's own refusal); a realm that already exists is a replay and succeeds.
   Configuration absent (URL, token or hostname domain) is refused BEFORE any call:
   `platform_call_provisioner_not_configured`, nothing half-created.
 
@@ -58,6 +61,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite do
           | :platform_call_invalid_slug
           | :platform_call_provisioner_not_configured
           | :platform_call_realm_create_failed
+          | :platform_call_idp_unreachable
           | :platform_call_invite_failed
 
   @doc "Runs the step over the resolved `inputs`."
@@ -88,13 +92,23 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite do
       {:ok, _kind, realm} -> invite(request, realm)
       {:error, :not_configured} -> {:error, :platform_call_provisioner_not_configured}
       {:error, :bad_url} -> {:error, :platform_call_provisioner_not_configured}
-      {:error, _code} -> {:error, :platform_call_realm_create_failed}
+      {:error, code} -> {:error, classify(code)}
     end
   rescue
     _exception -> {:error, :platform_call_realm_create_failed}
   catch
     _kind, _reason -> {:error, :platform_call_realm_create_failed}
   end
+
+  # The cause class of a failed create, as a code and never as text (no reason, no secret). The
+  # client folds a transport error, a timeout, a TLS failure and a 5xx (502/503/504 of the public
+  # proxy in front of the identity server) into `:unavailable`, and a 429 into `:rate_limited`: the
+  # identity side is not reachable now, the step is retryable (row P2). A 4xx refusal of the
+  # provisioner (401/403/400, demo cap) is its own answer and stays `realm_create_failed`; a
+  # realm-exists answer (409, 200) is a REPLAY and a success, it never gets here.
+  defp classify(:unavailable), do: :platform_call_idp_unreachable
+  defp classify({:rate_limited, _delay}), do: :platform_call_idp_unreachable
+  defp classify(_refusal), do: :platform_call_realm_create_failed
 
   # The password is read from `realm` for this one call and is not returned.
   defp invite(request, realm) do

@@ -105,7 +105,7 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInviteTest do
     stub = Stub.start!([{500, %{}}, {201, Stub.created(tenant_id)}])
     configure!(stub)
 
-    assert {:error, :platform_call_realm_create_failed} = Body.run(context(tenant_id))
+    assert {:error, :platform_call_idp_unreachable} = Body.run(context(tenant_id))
     assert mails() == []
 
     assert {:ok, %{"realm_id" => _}} = Body.run(context(tenant_id))
@@ -115,12 +115,42 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInviteTest do
     assert keys == [tenant_id, tenant_id]
   end
 
-  test "PR2 a provisioner timeout is the same code, nothing mailed", %{tenant_id: tenant_id} do
+  test "PR2 a provisioner timeout is idp_unreachable, nothing mailed", %{tenant_id: tenant_id} do
     stub = Stub.start!([{200, {:sleep, 1500}}])
     configure!(stub, http_timeout_ms: 100)
 
+    assert {:error, :platform_call_idp_unreachable} = Body.run(context(tenant_id))
+    assert mails() == []
+  end
+
+  test "PR2 503 of the proxy is idp_unreachable; a refusal (403, 400) is not", %{
+    tenant_id: tenant_id
+  } do
+    stub = Stub.start!([{503, %{}}, {403, %{}}, {400, %{}}])
+    configure!(stub)
+
+    assert {:error, :platform_call_idp_unreachable} = Body.run(context(tenant_id))
+    assert {:error, :platform_call_realm_create_failed} = Body.run(context(tenant_id))
     assert {:error, :platform_call_realm_create_failed} = Body.run(context(tenant_id))
     assert mails() == []
+  end
+
+  test "PR2 a realm-exists answer (200 replay) succeeds, it is no failure class", %{
+    tenant_id: tenant_id
+  } do
+    stub = Stub.start!([{200, replay(tenant_id)}])
+    configure!(stub)
+
+    assert {:ok, %{"realm_id" => _}} = Body.run(context(tenant_id))
+  end
+
+  test "PR9 sign-up OFF, provisioner configured: the function works", %{tenant_id: tenant_id} do
+    stub = Stub.start!([{201, Stub.created(tenant_id)}])
+    configure!(stub, enabled: false)
+
+    refute Letflow.Signup.enabled?()
+    assert {:ok, %{"realm_id" => _}} = Body.run(context(tenant_id))
+    assert length(mails()) == 1
   end
 
   test "PR3 invite fails after the realm exists: the retry is a replay and repeats the invite", %{
@@ -241,7 +271,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInviteTest do
 
     source = File.read!("lib/letflow/platform_functions/dispatcher.ex")
 
-    for code <- ~w(platform_call_realm_create_failed platform_call_invite_failed
+    for code <-
+          ~w(platform_call_realm_create_failed platform_call_idp_unreachable platform_call_invite_failed
                    platform_call_provisioner_not_configured platform_call_invalid_slug) do
       assert source =~ code
     end
