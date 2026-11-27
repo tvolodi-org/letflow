@@ -101,7 +101,18 @@ Remember the id of the document as `doc_id`."*
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
   `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
   Besides "equals" you may write `{"contains": "text"}`, `{"regex": "..."}`, `{"exists": true}`, `{"absent": true}`,
-  and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
+  `{"present": true}`, and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
+  * `{"exists": true}` means **a value is really there**: the path was found and the value is neither null nor
+    empty (`''`, `[]`, `{}`). A false, a zero and a number are values; a null and an empty string, list or map
+    are not. On a list, `exists` therefore means "the list holds at least one item".
+  * `{"present": true}` means **the key is there**: the value may be null or empty. Use it when the step wants the
+    key and not a value -- a list that may be empty on this environment ("the list may be empty when no backup is
+    configured"), or a field that may be null. A step that uses `present` says so in its own words, so a reader
+    knows the null or the empty list is intended and not an accident.
+  * `{"absent": true}` means the path is missing or the value is null; `{"absent": false}` means the path is there
+    with a value that is not null.
+  * T-3107: `exists` used to mean only "the path was found", so a null passed. The audit of every `exists` in
+    `test/uat/processes` and the fix are in `docs/uat/exists-matcher-audit.md`.
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.

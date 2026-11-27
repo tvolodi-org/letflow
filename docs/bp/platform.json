@@ -1013,9 +1013,10 @@
           "GET /health"
         ],
         "code_refs": [
-          "lib/letflow/router.ex:123"
+          "lib/letflow/router.ex:134",
+          "lib/letflow/router.ex:138"
         ],
-        "result": "200 {status: ok, sha}"
+        "result": "200 {status: ok, sha, admission: the global admission counters of the node -- the budget that is applied, the units in use, the fair-share divisor and the refusals since the node started; an aggregate figure, no tenant identifier}"
       },
       {
         "actor": "anyone",
@@ -1054,16 +1055,19 @@
           "admin/health"
         ],
         "functions": [
-          "Letflow.BackupStatus.read"
+          "Letflow.BackupStatus.read",
+          "Letflow.Admission.Observability.counters_with_tenants"
         ],
         "route": [
-          "GET /api/v1/platform-status/backup"
+          "GET /api/v1/platform-status/backup",
+          "GET /api/v1/platform-status/admission"
         ],
         "code_refs": [
-          "lib/letflow/routers/platform_status.ex:25",
+          "lib/letflow/routers/platform_status.ex:45",
+          "lib/letflow/routers/platform_status.ex:49",
           "web/src/router.tsx:159"
         ],
-        "result": "200 {configured, jobs:[{job,state,ts,age_seconds}]}"
+        "result": "200 {configured, jobs:[{job,state,ts,age_seconds}]}; the admission counters answer the budget, the refusals and the per-tenant in-flight rows with hashed tenant names"
       },
       {
         "actor": "PLATFORM_ADMIN",
@@ -1616,7 +1620,7 @@
           "lib/letflow/routers/tenants.ex:211",
           "lib/letflow/routers/tenants.ex:215",
           "lib/letflow/routers/onboarding.ex:207",
-          "lib/letflow/routers/platform_status.ex:25",
+          "lib/letflow/routers/platform_status.ex:45",
           "lib/letflow/routers/platform_module_rollouts.ex:44",
           "lib/letflow/routers/platform_migrations.ex:88",
           "lib/letflow/routers/event_retention.ex:67",
@@ -1672,7 +1676,7 @@
           "GET /api/v1/platform-status/backup"
         ],
         "code_refs": [
-          "lib/letflow/routers/platform_status.ex:25"
+          "lib/letflow/routers/platform_status.ex:45"
         ],
         "result": "the operator of the platform tenant gets 200 (positive control)"
       }

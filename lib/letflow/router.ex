@@ -120,8 +120,23 @@ defmodule Letflow.Router do
   # ISS-1043: `sha` is the git commit the release was built from (or null when
   # the image was built without GIT_SHA). Still no auth, no DB; `status` stays
   # exactly "ok" for deploy/redeploy-*.sh. See Letflow.BuildInfo.
+  #
+  # T-3034: the answer also carries the GLOBAL admission counters (the budget
+  # that is actually applied, the units in use, the fair-share divisor and the
+  # refusals since the process started). They are aggregate figures about the
+  # NODE -- no tenant identifier, no route, no tenant data -- so they may sit
+  # on this public route next to the liveness signal; the per-tenant rows
+  # (which DO show tenant data) are served from the platform-scope route
+  # `GET /api/v1/platform-status/admission` instead. The counters are read
+  # defensively: a node whose admission process is down still answers 200 with
+  # `"admission": {"available": false}` -- a liveness probe must never fail
+  # because of an observability counter.
   get "/health" do
-    Letflow.Api.Response.send_json(conn, 200, %{status: "ok", sha: Letflow.BuildInfo.sha()})
+    Letflow.Api.Response.send_json(conn, 200, %{
+      status: "ok",
+      sha: Letflow.BuildInfo.sha(),
+      admission: Letflow.Admission.Observability.counters()
+    })
   end
 
   # T-1607: readiness per part. Public, no tenant data; 200 when every part is ok, 503 with the

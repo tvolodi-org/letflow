@@ -162,8 +162,8 @@ class StepsBToH(unittest.TestCase):
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
-        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
-                 "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
+        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C3r", "C4", "C5", "D1",
+                 "E1", "E2", "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
         self.assertLess(ids.index("B0b"), ids.index("B1"))  # the allowed destination comes before the mail step
@@ -292,8 +292,9 @@ class StepsBToH(unittest.TestCase):
         self.assertTrue(self.verdict("B2", pending))
         self.assertFalse(self.verdict("B3", pending))  # armed but never run: the runner is off
 
-    def test_the_process_creates_the_realm_and_the_unknown_realm_is_a_negative(self):
-        # /onboarding probes a realm that is SENT; the registrations send none, the process creates it
+    def test_the_registrations_send_no_realm_and_the_unknown_realm_is_a_negative(self):
+        # /onboarding probes a realm that is SENT; the registrations send none, so the tenant has no realm
+        # (decision 0072: Letflow never creates realms; the bind_realm step is a no-op)
         for sid in ("B1", "F6", "G3"):
             self.assertNotIn("idp_realm_id", self.steps[sid]["do"]["body"], sid)
         neg = self.steps["B1n"]
@@ -304,17 +305,29 @@ class StepsBToH(unittest.TestCase):
         self.assertNotIn("save", neg)
         # E1 sends no realm (realm1 is null without Keycloak, smoke T-2946) and forces the failure with an
         # administrator address off the email allow-list: the notify step is refused (ERROR + DLQ)
-        self.assertEqual("$.idp_realm_id", self.steps["C3"]["save"]["realm1"])
+        self.assertEqual("$.idp_realm_id", self.steps["C3r"]["save"]["realm1"])
         self.assertNotIn("idp_realm_id", self.steps["E1"]["do"]["body"])
         email = self.steps["E1"]["do"]["body"]["admin_email"]
         self.assertTrue(email.endswith("@refused.uat.letflow.internal"))
         self.assertNotEqual("uat.letflow.internal", email.split("@")[1])
         self.assertNotIn("realm", self.process["inputs"])
 
-    def test_the_description_names_the_setting_and_no_marker_is_left(self):
+    def test_the_realm_step_does_not_pass_on_a_null(self):
+        """T-3107: the realm of a tenant made by the process is null on QA. The step that claims the
+        realm must fail on a null (and is blocked anyway), so the run never says a realm is bound when
+        there is none. C3 no longer claims the realm at all."""
+        null_realm = {"slug": "${slug1}", "status": "active", "idp_realm_id": None}
+        self.assertFalse(self.verdict("C3r", null_realm))
+        self.assertTrue(self.verdict("C3r", {"slug": "${slug1}", "status": "active",
+                                             "idp_realm_id": "uat-tmp-x"}))
+        self.assertTrue(self.verdict("C3", null_realm))
+        self.assertNotIn("$.idp_realm_id", self.steps["C3"]["expect"]["json"])
+        self.assertEqual({"exists": True}, self.steps["C3r"]["expect"]["json"]["$.idp_realm_id"])
+
+    def test_the_description_names_the_setting_and_the_one_blocked_step(self):
         text = self.process["description"]
         self.assertIn("LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true", text)
-        self.assertIn("No step carries a blocked_by marker now", text)
+        self.assertIn("C3r carries the blocked_by marker", text)
         self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
@@ -409,11 +422,17 @@ class BlockedSteps(H2IsPlayed):
         self.assertIn("steps not run (blocked_by): 1", summary)
         self.assertIn("1 steps NOT RUN", summary)
 
-    def test_no_step_of_the_scenario_is_parked_any_more(self):
-        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason."""
+    def test_the_only_parked_step_is_the_realm_and_it_names_its_owner(self):
+        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason.
+
+        T-3107: the one marker is the realm of the new tenant (C3r): the registration sends no
+        idp_realm_id, so there is no realm to bind on QA (decision 0072) and the step is reported as
+        NOT RUN instead of passing on a null."""
         process = json.loads(FILE.read_text())
-        marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
-        self.assertEqual(set(), marked)
+        marked = {x["id"]: x["blocked_by"] for x in process["steps"] if x.get("blocked_by")}
+        self.assertEqual({"C3r"}, set(marked))
+        self.assertIn("owner", marked["C3r"])
+        self.assertIn("T-2727", marked["C3r"])
 
     def test_fresh_tenant_module_install_ends_active(self):
         """G14 finding: no shipped definition of a fresh tenant stays a draft; an empty install does not pass."""

@@ -68,6 +68,12 @@ class FakeStock:
         self.location_nodes = {}  # record id -> field values, for the real second_place fixture
         self.location_links = {}
         self.dead_after_health = False  # /health answers 503 from the second call on (QA down)
+        # T-3034: the admission counters the node publishes on its public /health route
+        self.admission = {"available": True, "tracked_tenants": 2, "in_use": 1, "cap": 28,
+                          "reserved_headroom": 2, "pool_size": 30,
+                          "rejections": {"global": 0, "tenant": 0}}
+        self.admission_missing = False  # the node publishes no admission section
+        self.capacity_503 = False  # the stock document post answers 503 "server at capacity"
         self.token_ttl = None  # authenticated requests a freshly minted token answers before expiring
         self.token_uses = {}
         self.token_serials = {}
@@ -119,7 +125,10 @@ def make_handler(state):
             with state.lock:
                 if path == "/health":
                     sha = state.sha()
-                    return self.reply(200, {"status": "ok", **({"sha": sha} if sha else {})})
+                    body = {"status": "ok", **({"sha": sha} if sha else {})}
+                    if not state.admission_missing:
+                        body["admission"] = state.admission
+                    return self.reply(200, body)
                 auth = self.headers.get("Authorization", "")
                 if path.startswith("/qoimeks/"):
                     good = state.shared_value is not None and auth == f"Bearer {state.shared_value}"
@@ -165,6 +174,9 @@ def make_handler(state):
             base = "/api/v1/modules/stock"
             if getattr(state, "post_409", None) and method == "POST" and path.startswith(base + "/documents"):
                 return self.reply(409, {"error": "conflict", "reason": state.post_409})
+            if getattr(state, "capacity_503", False) and method == "POST" and path.startswith(base + "/documents"):
+                return self.reply(503, {"status": 503, "title": "Service Unavailable",
+                                        "detail": "server at capacity, retry shortly"})
             if path == "/api/v1/tenants":
                 if who not in state.platform_roles:
                     return self.reply(403, {"title": "Forbidden", "detail": "insufficient permissions"})

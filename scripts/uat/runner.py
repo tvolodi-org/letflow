@@ -112,7 +112,7 @@ EMAIL_SHAPE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
-OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+OPERATORS = {"equals", "contains", "regex", "absent", "exists", "present", "default"}
 
 
 # The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
@@ -426,6 +426,18 @@ def values_equal(actual, expected) -> bool:
     return numeric if numeric is not None else actual == expected
 
 
+def value_present(found, actual) -> bool:
+    """Is there a value at this path? T-3107: `exists` means a value that is really there.
+
+    A path that is not found, a value of null and an empty value ('', [], {}) are NOT a
+    value: `exists` used to accept all three, so a step could pass on a null (the pilot
+    scenario BP-PLATFORM-01 read `$.idp_realm_id` as null and step C3 passed). A false and
+    a zero are values: they are not "nothing"."""
+    if not found or actual is None:
+        return False
+    return not (isinstance(actual, (str, list, tuple, dict, set)) and len(actual) == 0)
+
+
 def check_matcher(found, actual, matcher):
     """One matcher against one path result -> (ok, short description of what was expected)."""
     if isinstance(matcher, dict) and matcher.keys() & OPERATORS:
@@ -449,7 +461,12 @@ def check_matcher(found, actual, matcher):
             absent = (not found) or actual is None
             return (absent if matcher["absent"] else not absent), {"absent": matcher["absent"]}
         if "exists" in matcher:
-            return (found if matcher["exists"] else not found), {"exists": matcher["exists"]}
+            present = value_present(found, actual)
+            return (present if matcher["exists"] else not present), {"exists": matcher["exists"]}
+        if "present" in matcher:
+            # T-3107: the explicit "the key is there" matcher: the value may be null or empty.
+            # A step that uses it says so in its own words.
+            return (found if matcher["present"] else not found), {"present": matcher["present"]}
     return found and values_equal(actual, matcher), {"equals": matcher}
 
 
@@ -834,6 +851,12 @@ class Runner:
         self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
         self._definition_seen = set()  # (kind, tenant) already taken
         self.fixture_repairs = []  # T-3125: the loud lines of the dead-newest repairs of the run
+        # T-3034: the admission counters of the node (read-only, public /health): at the start of
+        # every tenant's leg and at every 503 whose body says capacity.
+        self.admission_counters = []  # {"tenant", "kind", "path", "note"} of the counter reads of the run
+        self._admission_counter_files = set()  # the names already written (the cap of ten per run)
+        self._admission_counter_tenants = set()  # the tenants whose leg start was already read
+        self._admission_503_seq = 0  # the number of the capacity refusals read so far
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
         self.replay = False
@@ -1192,6 +1215,8 @@ class Runner:
             status, body, response = calls[0]
             if any(self._is_definition_not_active(c[0], c[1]) for c in calls):
                 self._definition_report("after")
+            # T-3034: a capacity refusal gets the counters of the node saved next to it.
+            self._admission_counters_on_capacity(calls)
             results = self._assert_calls(step, do, calls, secret_step)
             record["status"] = status
             record["asserted"] = results
@@ -1332,6 +1357,53 @@ class Runner:
     def _is_definition_not_active(status, body):
         return status == 409 and isinstance(body, dict) and "definition_not_active" in (
             body.get("reason"), body.get("error"), body.get("limit"), body.get("detail"))
+
+    # -- the admission counters (T-3034) ------------------------------------------------------
+
+    def _leg_tenant(self):
+        """The tenant of the leg that runs now: the tenant of the current process (a chain entry may run on
+        its own tenant), else the tenant of the run."""
+        return self.process_tenants.get((self.process or {}).get("id"), self.tenant)
+
+    def _admission_counter(self, kind):
+        """T-3034: the admission counters of the node, saved in the run dir. A failure is a note in the
+        summary and never changes the verdict of the run."""
+        if self.replay:
+            return
+        tenant = self._leg_tenant()
+        try:
+            import admission_counter
+            path, note = admission_counter.capture(self, kind, tenant)
+        except Exception as err:  # noqa: BLE001 - never a verdict
+            path, note = None, f"{tenant}: admission counter ({kind}) failed: {err}"
+        self.admission_counters.append({"tenant": tenant, "kind": kind, "path": path, "note": note})
+        print(f"admission counter ({kind}) {tenant}: {path or note}", file=self.out, flush=True)
+
+    def _admission_counter_start(self, tenant=None):
+        """The counters at the START of this tenant's leg (once per tenant of the run)."""
+        tenant = tenant or self._leg_tenant()
+        if tenant in self._admission_counter_tenants:
+            return
+        self._admission_counter_tenants.add(tenant)
+        self._admission_counter("start")
+
+    def _admission_counters_on_capacity(self, calls):
+        """Every 503 whose body says capacity gets the counters of the node saved next to it: the file
+        says what the budget looked like at the moment of the refusal."""
+        for status, body, _text in calls:
+            if status == 503 and self._says_capacity(body):
+                self._admission_counter("503")
+
+    @staticmethod
+    def _says_capacity(body) -> bool:
+        """Whether a 503 body is the admission refusal (its detail names the capacity)."""
+        if not isinstance(body, dict):
+            return False
+        for key in ("detail", "error", "reason", "title", "message"):
+            value = body.get(key)
+            if isinstance(value, str) and "capacity" in value.lower():
+                return True
+        return False
 
     def _blocked_line(self, record, started, step, why):
         """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
@@ -2364,6 +2436,9 @@ class Runner:
                     self._definition_report("before")
                     if not self._definition_health_ok(process):
                         return False
+                # T-3034: the counters at the start of this tenant's leg (a chain process may have
+                # a tenant of its own; the leg's tenant is the one of the process).
+                self._admission_counter_start(self._leg_tenant())
                 self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
@@ -2959,6 +3034,8 @@ class Runner:
             self._summary(started_at, sha_start, None, False, True, False)
             print(f"{self.label}: FAIL (preflight; run dir {self.run_dir})", file=self.out, flush=True)
             return 1
+        # T-3034: the counters of the node at the start of the run's own tenant leg.
+        self._admission_counter_start(self.tenant)
         results = {}
         stopped = False
         cleanup_ok = True
@@ -3172,6 +3249,10 @@ class Runner:
                 pass
         for line in self.fixture_repairs:
             lines += ["", f"> **{line}**"]
+        if self.admission_counters:
+            lines += ["", "## Admission counters (read-only, T-3034)", ""]
+            for d in self.admission_counters:
+                lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
         lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
                   "|---|---|---|---|---|---|---|"]
         for pid in dict.fromkeys(r["process"] for r in self.records if r.get("phase") in ("step", "cleanup", "inputs", "outputs")):

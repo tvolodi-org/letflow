@@ -808,7 +808,19 @@ if config_env() == :prod do
   # @default_reserved_headroom exactly -- this fix targets the pool_size side
   # of the cap, not the headroom side.
   config :letflow, :admission,
-    reserved_headroom: String.to_integer(System.get_env("RESERVED_HEADROOM") || "2")
+    reserved_headroom: String.to_integer(System.get_env("RESERVED_HEADROOM") || "2"),
+    # T-3034: the age bound of an in-flight admission. An admission held longer
+    # than this is LOGGED ONCE with its route class and its age -- it is never
+    # released: Letflow.Admission's own contract forbids revoking a held
+    # admission, and a forced release would hand the unit to a request that is
+    # still running. The bound exists so an operator learns WHICH request class
+    # holds the budget instead of guessing. MAX_INFLIGHT_AGE_MS=0 switches the
+    # sweep off entirely. The sweep period (how often the node looks for an
+    # over-age admission) is a second value, STALE_SWEEP_INTERVAL_MS, default
+    # one second.
+    max_in_flight_age_ms: String.to_integer(System.get_env("MAX_INFLIGHT_AGE_MS") || "120000"),
+    stale_sweep_interval_ms:
+      String.to_integer(System.get_env("STALE_SWEEP_INTERVAL_MS") || "1000")
 
   # ISS-0015 (GH#71): the port was previously hardcoded in
   # lib/letflow/application.ex, despite config/prod.exs's own comment
