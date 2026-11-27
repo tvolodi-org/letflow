@@ -2,7 +2,7 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
-  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (a realm already bound to another tenant: duplicate_realm) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. No step carries a blocked_by marker now. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (an administrator address whose domain is not on the email allow-list: the notify step is refused, platform_call_notify_refused) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. No step carries a blocked_by marker now. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
@@ -98,9 +98,9 @@
           "$.items[3].name": "tenant.grant_first_admins",
           "$.items[5].name": "tenant.notify_admin",
           "$.items[6].name": "tenant.provision",
-          "$.items[7].name": "tenant.record_lifecycle",
-          "$.items[8].name": "tenant.record_onboarding",
-          "$.items[9].name": "tenant.validate",
+          "$.items[9].name": "tenant.record_lifecycle",
+          "$.items[10].name": "tenant.record_onboarding",
+          "$.items[12].name": "tenant.validate",
           "$.items[1].inputs[0].name": {
             "exists": true
           },
@@ -413,7 +413,7 @@
     {
       "id": "E1",
       "actor": "admin",
-      "says": "E. A forced failure supported by the bind itself: a registration whose realm is the one the process of B1 created and bound (realm1, read in C3) to the first throwaway tenant. The bind step refuses a realm bound to another tenant (duplicate_realm); it does not ask Keycloak, so an unknown realm would NOT fail.",
+      "says": "E. A forced failure that a valid request can still reach: the registration names an administrator address whose domain (refused.uat.letflow.internal) is NOT on the platform tenant's email allow-list (the allow-list matches the domain exactly and only uat.letflow.internal was added in B0b). Every earlier check passes (the route pre-checks slug, hostname and realm; no realm is sent), so the instance starts and the notify step (tenant.notify_admin) is refused with platform_call_notify_refused, which lands as ERROR plus a DLQ entry (platform_step_runner apply_result). The first version of this step reused realm1 as idp_realm_id to force a duplicate_realm at bind_realm, but realm1 is null on a platform without a Keycloak realm (smoke T-2946, C3: idp_realm_id null), so nothing failed and the instance COMPLETED.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -421,8 +421,7 @@
           "slug": "uat-tmp-${uuid2}",
           "display_name": "UAT registration ${run_id}",
           "hostname": "uat-tmp-${uuid2}.${hostname_suffix}",
-          "idp_realm_id": "${realm1}",
-          "admin_email": "reg-${uuid2}@uat.letflow.internal"
+          "admin_email": "reg-${uuid2}@refused.uat.letflow.internal"
         }
       },
       "expect": {
@@ -442,7 +441,7 @@
     {
       "id": "E2",
       "actor": "admin",
-      "says": "E. The instance ends in ERROR.",
+      "says": "E. The instance ends in ERROR (the refused notify step). The poll stops at the first ERROR.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id2}"
@@ -461,7 +460,7 @@
     {
       "id": "E3",
       "actor": "admin",
-      "says": "E. The timeline names the failed step (bind_realm) and the steps before it as completed.",
+      "says": "E. The timeline names the failed step (notify, the tenth step of the seeded v2 log) and the steps before it as completed.",
       "do": {
         "api": "GET",
         "path": "/api/v1/instances/${instance_id2}/timeline"
@@ -475,9 +474,11 @@
         "json": {
           "$.steps[3].node_id": "provision",
           "$.steps[3].result": "completed",
-          "$.steps[6].node_id": "bind_realm",
-          "$.steps[6].result": "failed",
-          "$.steps[6].last_failure_kind": {
+          "$.steps[9].node_id": "notify_gate",
+          "$.steps[9].result": "completed",
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].result": "failed",
+          "$.steps[10].last_failure_kind": {
             "exists": true
           }
         }
@@ -510,7 +511,7 @@
     {
       "id": "E5",
       "actor": "admin",
-      "says": "E. The platform administrator retries the entry: the failed step is dispatched once more (the realm stays refused, so it fails again; the retry is bounded, not a loop).",
+      "says": "E. The platform administrator retries the entry: the failed step is dispatched once more (the address stays refused, so it fails again; the retry is bounded, not a loop).",
       "do": {
         "api": "POST",
         "path": "/api/v1/dlq/${dlq_id}/retry",
@@ -541,8 +542,8 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.steps[6].node_id": "bind_realm",
-          "$.steps[6].attempts": {
+          "$.steps[10].node_id": "notify",
+          "$.steps[10].attempts": {
             "regex": "^[2-9]$"
           }
         }

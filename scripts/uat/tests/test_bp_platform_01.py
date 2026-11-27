@@ -40,8 +40,11 @@ FUNCTIONS = [
     "tenant.install_default_modules",
     "tenant.notify_admin",
     "tenant.provision",
+    "tenant.purge",
+    "tenant.reactivate",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
+    "tenant.suspend",
     "tenant.validate",
 ]
 
@@ -171,7 +174,7 @@ class StepsBToH(unittest.TestCase):
             body = self.steps[sid]["do"]["body"]
             self.assertTrue(body["slug"].startswith("uat-tmp-"), sid)
             self.assertTrue(body["hostname"].startswith(body["slug"]), sid)
-            self.assertTrue(body["admin_email"].endswith("@uat.letflow.internal"), sid)
+            self.assertTrue(body["admin_email"].endswith("uat.letflow.internal"), sid)
             slugs.add(body["slug"])
         self.assertEqual(4, len(slugs))
         for i in (1, 2, 3, 4):
@@ -213,18 +216,18 @@ class StepsBToH(unittest.TestCase):
         self.assertFalse(self.verdict("B2", {"steps": []}))
 
     def test_e3_the_failed_step_is_named(self):
-        rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][6]["last_failure_kind"] = "refused"
+        rows = self.log(self.V1, {"notify": "failed"})
+        rows["steps"][10]["last_failure_kind"] = "refused"
         self.assertTrue(self.verdict("E3", rows))
         self.assertFalse(self.verdict("E3", self.log(self.V1)))
         self.assertTrue(self.verdict("E2", {"status": "ERROR"}))
         self.assertFalse(self.verdict("E2", {"status": "COMPLETED"}))
 
     def test_e6_a_second_attempt_is_shown(self):
-        rows = self.log(self.V1, {"bind_realm": "failed"})
-        rows["steps"][6]["attempts"] = 2
+        rows = self.log(self.V1, {"notify": "failed"})
+        rows["steps"][10]["attempts"] = 2
         self.assertTrue(self.verdict("E6", rows))
-        self.assertFalse(self.verdict("E6", self.log(self.V1, {"bind_realm": "failed"})))
+        self.assertFalse(self.verdict("E6", self.log(self.V1, {"notify": "failed"})))
 
     def test_f_the_edited_version_has_the_file_step_and_g_the_rollback_does_not(self):
         self.assertTrue(self.verdict("F8", self.log(self.V2)))
@@ -299,9 +302,13 @@ class StepsBToH(unittest.TestCase):
         self.assertEqual(422, neg["expect"]["status"])
         self.assertEqual("idp_realm_id", neg["expect"]["json"]["$.errors[0].field"])
         self.assertNotIn("save", neg)
-        # C3 reads the created realm back; E1 reuses it: the bind refuses a realm bound to another tenant
+        # E1 sends no realm (realm1 is null without Keycloak, smoke T-2946) and forces the failure with an
+        # administrator address off the email allow-list: the notify step is refused (ERROR + DLQ)
         self.assertEqual("$.idp_realm_id", self.steps["C3"]["save"]["realm1"])
-        self.assertEqual("${realm1}", self.steps["E1"]["do"]["body"]["idp_realm_id"])
+        self.assertNotIn("idp_realm_id", self.steps["E1"]["do"]["body"])
+        email = self.steps["E1"]["do"]["body"]["admin_email"]
+        self.assertTrue(email.endswith("@refused.uat.letflow.internal"))
+        self.assertNotEqual("uat.letflow.internal", email.split("@")[1])
         self.assertNotIn("realm", self.process["inputs"])
 
     def test_the_description_names_the_setting_and_no_marker_is_left(self):

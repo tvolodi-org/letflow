@@ -26,6 +26,7 @@ import {
   setNotifyStep,
   setPlatformCall,
   setScriptBinding,
+  setSubProcessChild,
   type EditResult,
 } from '@/utils/canvas/graphEdit'
 import { emptyPlatformCall, parsePlatformCall, withDerivedMapping } from '@/utils/canvas/platformCall'
@@ -38,6 +39,7 @@ import { Select } from '@/components/ui/Select'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { stepCaption } from './nodeSummary'
 import { PlatformCallEditor, type PlatformCatalogueState } from './PlatformCallEditor'
+import { SubProcessEditor } from './SubProcessEditor'
 import { NotifyStepEditor, type NotifyCatalogueState } from './NotifyStepEditor'
 import { useDiagramText } from './useDiagramText'
 
@@ -73,9 +75,11 @@ interface PanelProps {
   problems: string[]
   /** The tenant the catalogue read is scoped to (the page resolves it from the session). */
   tenantId?: string | null
+  /** T-2847: the `owner_module` stamp of the definition being edited; decides which children the picker offers. */
+  parentOwnerModule?: string | null
 }
 
-export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, problems, tenantId = null }: PanelProps & { nodeId: string }) {
+export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, problems, tenantId = null, parentOwnerModule = null }: PanelProps & { nodeId: string }) {
   const e = useEditText()
   const t = useDiagramText()
   const node = graph.nodes.find((n) => n.id === nodeId)
@@ -311,11 +315,16 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
         </Field>
       )}
       {editable && node.node_type === 'SUB_PROCESS' && (
-        <Field label={e('field.subDefinition')}>
-          <input value={text('definition_name')} onChange={(ev) => setAttr('definition_name', ev.target.value)} data-testid="edit-field-sub-definition" />
-        </Field>
+        <SubProcessEditor
+          tenantId={tenantId}
+          parentOwnerModule={parentOwnerModule}
+          definitionName={text('definition_name')}
+          iface={readAttrs(node).interface}
+          onChange={(name, iface) => onApply(setSubProcessChild(graph, node.id, name, iface), undefined, `sub:${node.id}`)}
+        />
       )}
-      {['HUMAN_TASK', 'SERVICE_TASK', 'SUB_PROCESS'].includes(node.node_type) && <p className="lf-hint">{e('structuredInEditor')}</p>}
+      {['HUMAN_TASK', 'SERVICE_TASK'].includes(node.node_type) && <p className="lf-hint">{e('structuredInEditor')}</p>}
+      {node.node_type === 'SUB_PROCESS' && <p className="lf-hint">{e('structuredInEditorSub')}</p>}
 
       <section aria-label={e('connections')} data-testid="edit-connections">
         <h4>{e('connections')}</h4>

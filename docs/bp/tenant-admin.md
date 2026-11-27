@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `tenant-admin` has 47 process(es): 36 implemented, 11 partial. Executed by: 47 direct, 0 definition.
+The area `tenant-admin` has 48 process(es): 37 implemented, 11 partial. Executed by: 48 direct, 0 definition.
 
 ## The processes of the area
 
@@ -58,6 +58,7 @@ The area `tenant-admin` has 47 process(es): 36 implemented, 11 partial. Executed
 | BP-TENANT-ADMIN-45 | SECURITY: Shared stock access value lifecycle: create, use, rotate, revoke, refused after revoke, never in the status | Runner script of BP-TENANT-ADMIN-15 and BP-TENANT-ADMIN-39. | TENANT_ADMIN, STOREKEEPER, old phone app | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-46 | SECURITY: Platform routes need the platform role; the platform administrator is kept out of a company's approval and ledger switches | The company list, one company's record (also the caller's own), the company create and the backup status are refused to a tenant administ... | PLATFORM_ADMIN (platform company), TENANT_ADMIN, STOREKEEPER | implemented | direct | yes | yes | see report |
 | BP-TENANT-ADMIN-47 | SECURITY: The storekeeper does not hold the stock approve permission; the tenant administrator does (decision 0093) | Decision 0093: the stock approve, post and reverse tasks require StockApprove, checked at claim and completion before the addressing rule... | STOREKEEPER, TENANT_ADMIN | partial | direct | yes | yes | see report |
+| BP-TENANT-ADMIN-48 | Scroll a long list past a day: the My Tasks inbox | A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls... | STOREKEEPER or TENANT_ADMIN | implemented | direct | yes | no | see report |
 
 ## BP-TENANT-ADMIN-01 -- Sign in to the company's own address and map the person to the company
 
@@ -1743,6 +1744,38 @@ Decision 0093: the stock approve, post and reverse tasks require StockApprove, c
 - UAT: scripted -- the runner scenario above runs this process.
 - security: yes
 - automation: runner
+
+## BP-TENANT-ADMIN-48 -- Scroll a long list past a day: the My Tasks inbox
+
+A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). Read-only; nothing to clean up. The runner script follows the cursor (page_through step), asserts the oldest task is older than 24 hours ('inconclusive: no old rows' otherwise) and that ids are unique across pages.
+
+**Actors and their permissions.**
+
+- `STOREKEEPER or TENANT_ADMIN` -- TasksList
+
+**Steps.**
+
+1. **STOREKEEPER or TENANT_ADMIN**: screen `/tasks`, call `GET /api/v1/tasks/inbox?page_size=N&cursor=<next_cursor>`, function `Tasks.list_tasks/2`, `Pagination.decode_cursor/4`
+   Result: each page answers 200 with items, count and next_cursor; the cursor carries the seek key of the last row and its own issue time, so an old last row does not expire it; the last page has next_cursor null
+
+**Refusals.**
+
+- a malformed cursor or a cursor of another list answers 422 (the same text for both)
+- a page size outside the allowed range answers 400
+
+**Tests.**
+
+- `test/letflow/api/pagination_test.exs`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-TENANT-ADMIN-48-long-list-scroll-past-a-day.json` (runner id `BP-TENANT-ADMIN-48`)
+
+**Status.**
+
+- implementation: `implemented`
+- UAT: scripted -- the runner scenario above runs this process.
+- security: no
 
 ## Orphans (docs/bp/orphans-tenant-admin.md)
 

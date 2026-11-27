@@ -48,10 +48,26 @@ ACTOR_RE = re.compile(r"^\s*(actor-[A-Za-z0-9_.-]+):", re.M)
 SHARED_ROUTER = "lib/letflow/routers/shared_stock_access.ex"
 STOCK_ROUTER = "lib/letflow/modules/stock/router.ex"
 STOCK_MOUNT = ["modules", "stock"]
+API_PIPELINE = "lib/letflow/plugs/api_pipeline.ex"
+FORWARD_RE = re.compile(r"^\s*forward\(\s*\"([^\"]*)\"\s*,\s*to:\s*Letflow\.Routers\.([A-Za-z0-9_.]+)", re.M)
 
 
 UNDO_TAILS = ("reverse", "cancel")
 COLLECTION_ALIASES = {"quick-counts": "documents"}  # creates a stock document, undone through /documents/:id/...
+
+
+def snake(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name.rsplit(".", 1)[-1]).lower()
+
+
+def forwarded_mounts(root: Path) -> dict:
+    """router file stem -> mounts (segment lists) that api_pipeline.ex forwards to it, e.g. tenant_modules -> [[tenant, modules]]."""
+    f = root / API_PIPELINE
+    found = {}
+    if f.is_file():
+        for mount, module in FORWARD_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
+            found.setdefault(snake(module), []).append(segments(mount))
+    return found
 
 
 def default_root() -> Path:
@@ -77,6 +93,7 @@ class Routes:
         # the other modules' routers (exam, assets, ...) are mounted at /api/v1/modules/<module>
         other = [f for f in sorted((root / "lib/letflow/modules").glob("*/router.ex")) if f != root / STOCK_ROUTER]
         files += other
+        forwarded = forwarded_mounts(root)
         for f in files:
             if not f.is_file():
                 continue
@@ -86,6 +103,8 @@ class Routes:
                 mounts = [["modules", f.parent.name]]
             else:
                 mounts = [[stem], STOCK_MOUNT + [stem]] if rel != STOCK_ROUTER else [STOCK_MOUNT]
+            if f.parent.name == "routers":  # a router forwarded at another mount, e.g. /tenant/modules
+                mounts = [m for m in forwarded.get(f.stem, []) if m not in mounts] + mounts
             for method, route in ROUTE_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
                 target = self.shared if rel == SHARED_ROUTER else self.api
                 target.append((method.upper(), segments(route), mounts))

@@ -51,7 +51,11 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
       bind_realm(),
       grant_first_admins(),
       install_default_modules(),
-      notify_admin()
+      notify_admin(),
+      suspend(),
+      reactivate(),
+      purge(),
+      set_script_policy()
     ]
   end
 
@@ -250,6 +254,111 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
         }
       ],
       idempotency_key: ["tenant_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  # T-2972 (BP-PLATFORM-02 G1): the tenant lifecycle entries. The tenant is named by its slug (a start
+  # variable, as `tenant.create` does). A lifecycle change is a REQUEST, not a state (suspend, reactivate,
+  # suspend again are three real changes of one tenant), so the key is the slug AND a `request_id` the
+  # starter makes fresh for each start: a retry of the same step is the same call, a new start is a new one.
+  defp suspend do
+    %Entry{
+      name: "tenant.suspend",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "slug", type: :string, required: true, source_class: :start},
+        %Input{name: "request_id", type: :string, required: true, source_class: :start}
+      ],
+      outputs: [],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{
+          text: "deactivates the tenant and releases its runtime",
+          class: :write_tenant_registry
+        }
+      ],
+      idempotency_key: ["slug", "request_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  defp reactivate do
+    %Entry{
+      name: "tenant.reactivate",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "slug", type: :string, required: true, source_class: :start},
+        %Input{name: "request_id", type: :string, required: true, source_class: :start}
+      ],
+      outputs: [],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{text: "activates a deactivated tenant again", class: :write_tenant_registry}
+      ],
+      idempotency_key: ["slug", "request_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  # DESTRUCTIVE. Refused unless `confirm` equals the slug, the tenant is suspended and is not a
+  # production tenant (`Letflow.PlatformFunctions.Impl.TenantPurge`).
+  defp purge do
+    %Entry{
+      name: "tenant.purge",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "slug", type: :string, required: true, source_class: :start},
+        %Input{name: "confirm", type: :string, required: true, source_class: :start},
+        %Input{name: "request_id", type: :string, required: true, source_class: :start}
+      ],
+      outputs: [],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{
+          text:
+            "DESTRUCTIVE: drops the suspended tenant's schema and deletes its data (never a production tenant)",
+          class: :ddl
+        }
+      ],
+      idempotency_key: ["slug", "request_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  # BP-PLATFORM-04 G1 (T-3020): a tenant's script policy (kill switch, solo-audited flag) as a
+  # platform step. The starter names the tenant (`:start`, like `tenant.create`'s slug); the body
+  # resolves it against the registry and refuses an unknown id and the platform tenant itself. The
+  # key is the target and the value: a retry of the same step writes nothing (the Policy no-op rule).
+  # Side effect class: the closed list has no policy class, and the write is a tenant-registry
+  # write (the policy row of a registered tenant), so it uses `:write_tenant_registry`.
+  defp set_script_policy do
+    %Entry{
+      name: "tenant.set_script_policy",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "tenant_id", type: :uuid, required: true, source_class: :start},
+        %Input{name: "setting", type: :string, required: true, source_class: :start},
+        %Input{name: "value", type: :boolean, required: true, source_class: :start},
+        %Input{name: "reason", type: :string, required: true, source_class: :start}
+      ],
+      outputs: [
+        %Output{name: "kill_switch_on", type: :string},
+        %Output{name: "solo_audited_allowed", type: :string}
+      ],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{
+          text:
+            "sets the tenant's script kill switch or its solo-audited allowance, and audits it",
+          class: :write_tenant_registry
+        }
+      ],
+      idempotency_key: ["tenant_id", "setting", "value"],
       platform_tenant_only: true
     }
   end

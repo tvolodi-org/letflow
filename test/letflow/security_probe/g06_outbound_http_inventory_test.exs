@@ -100,6 +100,13 @@ defmodule Letflow.SecurityProbe.G06OutboundHttpInventoryTest do
   # shared validator (rule I5). `:response_derived` is refused outright (I4).
   @registry [
     %{
+      file: "lib/mix/tasks/letflow.advisory_gate.ex",
+      function: "query_osv/1",
+      client: ":httpc",
+      url_source: ":platform_config",
+      note: "the OSV advisory service of the platform operator (the Dart advisory source)"
+    },
+    %{
       file: "lib/letflow/webhooks.ex",
       function: "do_dispatch_http/3",
       client: ":httpc",
@@ -190,7 +197,8 @@ defmodule Letflow.SecurityProbe.G06OutboundHttpInventoryTest do
     {"lib/letflow/oidc/realm_probe.ex", "exchange/2"},
     {"lib/letflow/signup/realm_users.ex", "http/3"},
     {"lib/letflow/signup/realm_provisioner.ex", "http/5"},
-    {"lib/letflow/obs/alerts.ex", "deliver_with_retry/4"}
+    {"lib/letflow/obs/alerts.ex", "deliver_with_retry/4"},
+    {"lib/mix/tasks/letflow.advisory_gate.ex", "query_osv/1"}
   ]
 
   @rogue_fixture "test/fixtures/security_probes/rogue_outbound_client.ex"
@@ -818,8 +826,8 @@ defmodule Letflow.SecurityProbe.G06OutboundHttpInventoryTest do
       assert violations(sources) == []
     end
 
-    test "the registry is not empty and names the seven call sites" do
-      assert length(@registry) == 7
+    test "the registry is not empty and names the eight call sites" do
+      assert length(@registry) == 8
 
       registered = Enum.map(@registry, &{&1.file, &1.function})
       assert Enum.sort(registered) == Enum.sort(@expected_call_sites)

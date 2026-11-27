@@ -1127,17 +1127,22 @@
       "no credential or a wrong token: 401",
       "a path that no route of the module has: the ordinary unmatched answer (authz_unmatched)"
     ],
-    "scenario": null,
+    "scenario": "test/uat/processes/BP-MASTER-14-no-credential-refused.json",
     "status": "partial",
     "kind": "security",
     "security_scenarios": [
       {
-        "name": "no/wrong/expired/other-tenant token, unknown host",
+        "name": "no credential: 401 on one write route of each master router",
+        "status": "automated",
+        "scenario": "BP-MASTER-14"
+      },
+      {
+        "name": "wrong/expired token, other-tenant token, unknown host",
         "status": "planned",
-        "note": "the runner always sends the actor's own token; a credential-less call needs a runner step kind. Covered by the Elixir tests of the auth pipeline."
+        "note": "the runner signs with the actor's own valid token; needs a bad-bearer step option. Covered by the Elixir tests of the auth pipeline."
       }
     ],
-    "gap": "WHY PARTIAL: the runner always sends the actor's own valid token; it has no step kind for a call with no credential, a malformed header or an expired token (only http_as: shared_access and per-actor tokens exist). Needs a runner task: a step with `auth: none | bad`. The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline."
+    "gap": "WHY PARTIAL: the no-credential half is walked (anonymous caller, 401 on org sites, location nodes, code resolve, generic import). A wrong or expired token and an unknown host cannot be forged by the runner (it always sends the actor's own valid token). Owner: the runner maintainer (a step option for a bad bearer). The other-company token is walked in BP-MASTER-12 and SEC-ID-02. Covered meanwhile by the Elixir tests of the auth pipeline."
   },
   {
     "id": "BP-MASTER-15",

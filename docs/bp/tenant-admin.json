@@ -3489,5 +3489,64 @@
     "gaps": [
       "The storekeeper's direct claim and completion of the administrator's posting task by its id, and the task's absence from the storekeeper's My Tasks, need the id of a task found in another actor's inbox and an 'absent from a list' check: the runner has neither (runner tasks, not a product gap). They stay with test/letflow/modules/stock/stock_approve_tasks_test.exs and test/letflow/routers/tasks_required_permission_test.exs."
     ]
+  },
+  {
+    "id": "BP-TENANT-ADMIN-48",
+    "area": "tenant-admin",
+    "title": "Scroll a long list past a day: the My Tasks inbox",
+    "description": "A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with a long inbox, some of it older than 24 hours, and scrolls page after page by the cursor the answer gives until there is no next cursor. Every page answers 200, no task appears twice and none is skipped. A cursor must keep working however old the last row of its page is (class of the defect T-2571: the cursor expired by the age of the last row and page 3 answered 410). Read-only; nothing to clean up. The runner script follows the cursor (page_through step), asserts the oldest task is older than 24 hours ('inconclusive: no old rows' otherwise) and that ids are unique across pages.",
+    "actors": [
+      {
+        "role": "STOREKEEPER or TENANT_ADMIN",
+        "permission": "TasksList"
+      }
+    ],
+    "preconditions": [
+      "an active tenant with a long inbox: more than one page of tasks and at least one task older than 24 hours (qoimeks-qa2 had more than 400 open tasks on 2026-11-21; read it at run time, do not assume)",
+      "the product carries the fix of T-2571 (merged as 9315ba6fa)"
+    ],
+    "tasks": [
+      {
+        "actor": "STOREKEEPER or TENANT_ADMIN",
+        "forms": [
+          "/tasks"
+        ],
+        "functions": [
+          "Tasks.list_tasks/2",
+          "Pagination.decode_cursor/4"
+        ],
+        "route": "GET /api/v1/tasks/inbox?page_size=N&cursor=<next_cursor>",
+        "code_refs": [
+          "lib/letflow/routers/tasks.ex:147",
+          "lib/letflow/routers/tasks.ex:244",
+          "lib/letflow/routers/tasks.ex:298",
+          "lib/letflow/api/pagination.ex:230",
+          "web/src/api/tasks.ts:63",
+          "web/src/router.tsx:154",
+          "lib/letflow/tasks.ex:240",
+          "lib/letflow/api/pagination.ex:54"
+        ],
+        "result": "each page answers 200 with items, count and next_cursor; the cursor carries the seek key of the last row and its own issue time, so an old last row does not expire it; the last page has next_cursor null"
+      }
+    ],
+    "inputs": [
+      "page size"
+    ],
+    "outputs": [
+      "pages read",
+      "oldest task age (in the run record)"
+    ],
+    "refusals": [
+      "a malformed cursor or a cursor of another list answers 422 (the same text for both)",
+      "a page size outside the allowed range answers 400"
+    ],
+    "scenario": "test/uat/processes/BP-TENANT-ADMIN-48-long-list-scroll-past-a-day.json",
+    "status": "implemented",
+    "gaps": [
+      "The stock documents list (GET /api/v1/modules/stock/documents) is not scrolled by this script: the route takes `limit` (not `page_size`; any other key is refused invalid_filter, documents.ex list_filters) and answers `rows` (not `items`), while the runner's page_through step always sends page_size and reads `items` (runner.py _page_through). Needs a runner change (configurable limit parameter and rows key); its cursor carries no expiry (documents.ex cursor_of), so the class of T-2571 does not apply to it."
+    ],
+    "tests": [
+      "test/letflow/api/pagination_test.exs"
+    ]
   }
 ]

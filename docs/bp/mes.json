@@ -42,7 +42,8 @@
     ],
     "scenario": null,
     "status": "partial",
-    "partial_reason": "Not scripted because it cannot be undone on a shared QA company: installing mes_core succeeds (201) and creates a module record, and the uninstall route is switched off in this product (config/config.exs:188 modules_uninstall_enabled=false, no environment overrides it; installs.ex:159), so the runner's cleanup cannot restore the start state. Also the install route POST /api/v1/tenant/modules is at the root of a two-part route prefix that check_processes.py cannot match. It becomes scriptable when the uninstall flag is on in the QA release, or when a disposable tenant is available. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs."
+    "partial_reason": "Not scripted because it cannot be undone on a shared QA company: installing mes_core succeeds (201) and creates a module record, and the uninstall route is switched off in this product (config/config.exs:188 modules_uninstall_enabled=false, no environment overrides it; installs.ex:159), so the runner's cleanup cannot restore the start state. Also the install route POST /api/v1/tenant/modules is at the root of a two-part route prefix that check_processes.py cannot match. It becomes scriptable when the uninstall flag is on in the QA release, or when a disposable tenant is available. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs.",
+    "gap": "WHY PARTIAL (no runner scenario, T-2969): a walkthrough must restore the start state, and it cannot. Installing mes_core succeeds (201) and creates a module record; the uninstall route is switched off (config/config/config.exs:188 modules_uninstall_enabled=false, installs.ex), so cleanup is impossible on a shared QA company. The install route POST /api/v1/tenant/modules is also at the root of a two-part prefix that check_processes.py cannot match. Owner: operator (turn the uninstall flag on in the QA release) or PM (provide a disposable tenant); then a scenario can be written. Covered meanwhile by test/letflow/modules/mes_core/install_test.exs. The refusal side (storekeeper, seven sibling routes) is walked in SEC-MES-03."
   },
   {
     "id": "BP-MES-02",
@@ -166,6 +167,7 @@
     ],
     "scenario": null,
     "status": "planned",
-    "requirement": "none yet: MES plan tasks M2..M11 in docs/design/mes/13-phase1-plan.md have no REQ entry in docs/requirements.yaml"
+    "requirement": "none yet: MES plan tasks M2..M11 in docs/design/mes/13-phase1-plan.md have no REQ entry in docs/requirements.yaml",
+    "gap": "WHY PLANNED (no runner scenario, T-2969): mes_core has no routes, screens, handlers, permissions, roles, uploads, webhooks or approval steps on main, so there is nothing to refuse and a scenario would only assert a 404. Owner: whoever delivers MES plan tasks M2..M11 (docs/design/mes/13-phase1-plan.md); each of them adds its negative walkthrough with the thing it tests. The one MES path that exists today, module management per role, is walked in SEC-MES-03. No REQ entry exists for M2..M11 yet (PM to queue the requirement)."
   }
 ]

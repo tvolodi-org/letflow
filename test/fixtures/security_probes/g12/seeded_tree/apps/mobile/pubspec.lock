@@ -1,0 +1,27 @@
+# The Dart half of the seeded failing case of the G-12 probe: a pub lock with one production
+# package and one dev-only package, so the gate's production scope can be proven for the Pub
+# ecosystem too. It is TEXT under test/fixtures/ -- never resolved, never fetched.
+packages:
+  dio:
+    dependency: "direct main"
+    description:
+      name: dio
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
+  http:
+    dependency: "direct main"
+    description:
+      name: http
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.0"
+  only_dev:
+    dependency: "direct dev"
+    description:
+      name: only_dev
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.0"
+sdks:
+  dart: ">=3.0.0 <4.0.0"

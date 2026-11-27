@@ -1,0 +1,1630 @@
+{
+  "id": "BP-DESIGNER-34-sub-process-proof",
+  "bp_entry": "BP-DESIGNER-34",
+  "title": "A process definition as a sub-process of another: input filtered, output merged, child failure and a missing or upgraded child shown on the parent",
+  "description": "T-2844 (owner question: can a process definition be a sub-process of another?). Runs on the platform tenant as the platform administrator with throwaway definitions uat-tmp-subproof-<run_id>-<n>; no platform function, no mail, no provisioner (a child that declares a platform call is refused by the engine, T-2588, so the children are human tasks). 1: parent P calls child C as a SUB_PROCESS with an interface (input order_no, output child_result): the child instance appears, an extra parent variable does not reach it, the child's output is merged into P, P completes, its step log shows the call and its history a SUB_PROCESS_COMPLETED event. 2: the child ends without the output the parent requires: the parent ends in ERROR (EXECUTION_ERROR event), never a silent success; the dead-letter entry, if there is one, is retried. 3: the child definition is removed: a new start of the parent is refused 404 and nothing starts. 4: the child is upgraded while the parent waits before the call: OBSERVED from the code (SubProcess.resolve_child_definition, Definitions.get_active_by_name when the node is entered): the node is late-bound by name, so the parent runs the version of the child that is active when the node is entered, not the one active when the parent started; the step U8 asserts it and the smoke output is the proof. 5: a parent that names an unknown child is saved (the code has no definition-time check of the child name); a start is refused 404. Whether save or activate should refuse it with a code is a product question, not asserted here.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {}
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "A1",
+      "actor": "admin",
+      "says": "1. Child C (a human task 'work', declared input order_no) is saved as a draft.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-1",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof child",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "work",
+                "node_type": "HUMAN_TASK",
+                "attributes": {
+                  "role": "PLATFORM_ADMIN"
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "work"
+              },
+              {
+                "id": "e2",
+                "source": "work",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defC": "$.id"
+      }
+    },
+    {
+      "id": "A2",
+      "actor": "admin",
+      "says": "1. C is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defC}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defC"
+      ]
+    },
+    {
+      "id": "A3",
+      "actor": "admin",
+      "says": "1. Parent P: START, a SUB_PROCESS node 'call' naming C, interface inputs [order_no], outputs [child_result], END.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-2",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof parent",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "call",
+                "node_type": "SUB_PROCESS",
+                "attributes": {
+                  "definition_name": "uat-tmp-subproof-${run_id}-1",
+                  "interface": {
+                    "inputs": [
+                      {
+                        "name": "order_no",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ],
+                    "outputs": [
+                      {
+                        "name": "child_result",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "call"
+              },
+              {
+                "id": "e2",
+                "source": "call",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "secret_note",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defP": "$.id"
+      }
+    },
+    {
+      "id": "A4",
+      "actor": "admin",
+      "says": "1. The designer's live check accepts P.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defP}/validate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defP"
+      ]
+    },
+    {
+      "id": "A5",
+      "actor": "admin",
+      "says": "1. P is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defP}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defP"
+      ]
+    },
+    {
+      "id": "A6",
+      "actor": "admin",
+      "says": "1. P is started with order_no and an extra variable secret_note that the interface does not name.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-subproof-${run_id}-2",
+          "initial_variables": {
+            "order_no": "SP-${uuid1}",
+            "secret_note": "keep-${uuid1}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instP": "$.instance_id"
+      }
+    },
+    {
+      "id": "A7",
+      "actor": "admin",
+      "says": "1. The child instance appears: the child of P, an instance of C's definition, ACTIVE.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances?parent_instance_id=${instP}"
+      },
+      "poll": {
+        "within_s": 20,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].instance_id": {
+            "exists": true
+          },
+          "$.items[0].definition_id": "${defC}",
+          "$.items[0].status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instC": "$.items[0].instance_id"
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "A8",
+      "actor": "admin",
+      "says": "1. ONLY the filtered input reached C: order_no is there, secret_note is not.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instC}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.order_no": "SP-${uuid1}",
+          "$.variables.secret_note": {
+            "absent": true
+          }
+        }
+      },
+      "requires": [
+        "instC"
+      ]
+    },
+    {
+      "id": "A9",
+      "actor": "admin",
+      "says": "1. While C waits, P is ACTIVE.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ACTIVE"
+        }
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "A10",
+      "actor": "admin",
+      "says": "1. C's pending task is 'work'.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tasks?instance_id=${instC}&status=PENDING"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "work"
+        }
+      },
+      "save": {
+        "taskC": "$.items[0].id"
+      },
+      "requires": [
+        "instC"
+      ]
+    },
+    {
+      "id": "A11a",
+      "actor": "admin",
+      "says": "1. The person does the child's work and returns child_result (claim)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC}/claim",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC"
+      ]
+    },
+    {
+      "id": "A11b",
+      "actor": "admin",
+      "says": "1. The person does the child's work and returns child_result (complete)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC}/complete",
+        "body": {
+          "child_result": "done-${uuid1}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC"
+      ]
+    },
+    {
+      "id": "A12",
+      "actor": "admin",
+      "says": "1. P runs to its end.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "A13",
+      "actor": "admin",
+      "says": "1. C's output is merged into P: child_result is in P's variables, and P still has its own order_no.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.variables.child_result": "done-${uuid1}",
+          "$.variables.order_no": "SP-${uuid1}"
+        }
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "A14",
+      "actor": "admin",
+      "says": "1. The step log of P shows the sub-process step 'call' after start.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[0].node_id": "start",
+          "$.steps[1].node_id": "call",
+          "$.steps[1].result": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "A15",
+      "actor": "admin",
+      "says": "1. P's event history holds a SUB_PROCESS_COMPLETED event.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP}/history?event_type=SUB_PROCESS_COMPLETED"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].event_type": "SUB_PROCESS_COMPLETED"
+        }
+      },
+      "requires": [
+        "instP"
+      ]
+    },
+    {
+      "id": "F1",
+      "actor": "admin",
+      "says": "2. Child C2 (same shape as C).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-3",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof failing child",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "work",
+                "node_type": "HUMAN_TASK",
+                "attributes": {
+                  "role": "PLATFORM_ADMIN"
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "work"
+              },
+              {
+                "id": "e2",
+                "source": "work",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defC2": "$.id"
+      }
+    },
+    {
+      "id": "F2",
+      "actor": "admin",
+      "says": "2. C2 is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defC2}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defC2"
+      ]
+    },
+    {
+      "id": "F3",
+      "actor": "admin",
+      "says": "2. Parent P2 requires the output child_result from C2.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-4",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof parent",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "call",
+                "node_type": "SUB_PROCESS",
+                "attributes": {
+                  "definition_name": "uat-tmp-subproof-${run_id}-3",
+                  "interface": {
+                    "inputs": [
+                      {
+                        "name": "order_no",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ],
+                    "outputs": [
+                      {
+                        "name": "child_result",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "call"
+              },
+              {
+                "id": "e2",
+                "source": "call",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "secret_note",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defP2": "$.id"
+      }
+    },
+    {
+      "id": "F4",
+      "actor": "admin",
+      "says": "2. P2 is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defP2}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defP2"
+      ]
+    },
+    {
+      "id": "F5",
+      "actor": "admin",
+      "says": "2. P2 is started.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-subproof-${run_id}-4",
+          "initial_variables": {
+            "order_no": "SP-${uuid2}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instP2": "$.instance_id"
+      }
+    },
+    {
+      "id": "F6",
+      "actor": "admin",
+      "says": "2. C2's task appears: the child of P2, an instance of C2's definition.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances?parent_instance_id=${instP2}"
+      },
+      "poll": {
+        "within_s": 20,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].instance_id": {
+            "exists": true
+          },
+          "$.items[0].definition_id": "${defC2}"
+        }
+      },
+      "save": {
+        "instC2": "$.items[0].instance_id"
+      },
+      "requires": [
+        "instP2"
+      ]
+    },
+    {
+      "id": "F7",
+      "actor": "admin",
+      "says": "2. C2's pending task.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tasks?instance_id=${instC2}&status=PENDING"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "work"
+        }
+      },
+      "save": {
+        "taskC2": "$.items[0].id"
+      },
+      "requires": [
+        "instC2"
+      ]
+    },
+    {
+      "id": "F8a",
+      "actor": "admin",
+      "says": "2. The child ends WITHOUT the output P2 requires (claim)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC2}/claim",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC2"
+      ]
+    },
+    {
+      "id": "F8b",
+      "actor": "admin",
+      "says": "2. The child ends WITHOUT the output P2 requires (complete)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC2}/complete",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC2"
+      ]
+    },
+    {
+      "id": "F9",
+      "actor": "admin",
+      "says": "2. P2 is not a silent success: it ends in ERROR.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP2}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ERROR"
+        }
+      },
+      "requires": [
+        "instP2"
+      ]
+    },
+    {
+      "id": "F10",
+      "actor": "admin",
+      "says": "2. P2's history holds the EXECUTION_ERROR event.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP2}/history?event_type=EXECUTION_ERROR"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].event_type": "EXECUTION_ERROR"
+        }
+      },
+      "requires": [
+        "instP2"
+      ]
+    },
+    {
+      "id": "F11",
+      "actor": "admin",
+      "says": "2. The dead-letter list is read for P2 (the answer is recorded; an entry, if there is one, is saved for the retry).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/dlq?instance_id=${instP2}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "dlq_id": {
+          "pick": "$.items[0].id",
+          "optional": true
+        }
+      },
+      "requires": [
+        "instP2"
+      ]
+    },
+    {
+      "id": "F12",
+      "actor": "admin",
+      "says": "2. Retry path: when the failure is in the dead-letter list, the administrator retries it (bounded; the child never writes the output, so it fails again).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/dlq/${dlq_id}/retry",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          202
+        ]
+      },
+      "requires": [
+        "dlq_id"
+      ]
+    },
+    {
+      "id": "G1",
+      "actor": "admin",
+      "says": "3. C2 is removed (deprecated and archived): the child of P2 no longer exists as an active definition.",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defC2}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "defC2"
+      ]
+    },
+    {
+      "id": "G2",
+      "actor": "admin",
+      "says": "3. P2 started again: refused at start with the 404 of an unknown definition (G-13, T-2633); no parent and no child instance is made.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-subproof-${run_id}-4",
+          "initial_variables": {
+            "order_no": "SP-${uuid3}"
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    },
+    {
+      "id": "U1",
+      "actor": "admin",
+      "says": "4. Parent P4: a hold (human task) and then the SUB_PROCESS call of C (name -1).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-5",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof parent",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "hold",
+                "node_type": "HUMAN_TASK",
+                "attributes": {
+                  "role": "PLATFORM_ADMIN"
+                }
+              },
+              {
+                "id": "call",
+                "node_type": "SUB_PROCESS",
+                "attributes": {
+                  "definition_name": "uat-tmp-subproof-${run_id}-1",
+                  "interface": {
+                    "inputs": [
+                      {
+                        "name": "order_no",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ],
+                    "outputs": [
+                      {
+                        "name": "child_result",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e0",
+                "source": "start",
+                "target": "hold"
+              },
+              {
+                "id": "e1",
+                "source": "hold",
+                "target": "call"
+              },
+              {
+                "id": "e2",
+                "source": "call",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "secret_note",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defP4": "$.id"
+      }
+    },
+    {
+      "id": "U2",
+      "actor": "admin",
+      "says": "4. P4 is activated.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defP4}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defP4"
+      ]
+    },
+    {
+      "id": "U3",
+      "actor": "admin",
+      "says": "4. P4 is started: it stops at the hold, before the SUB_PROCESS node.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-subproof-${run_id}-5",
+          "initial_variables": {
+            "order_no": "SP-${uuid4}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instP4": "$.instance_id"
+      }
+    },
+    {
+      "id": "U4",
+      "actor": "admin",
+      "says": "4. The hold task of P4.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tasks?instance_id=${instP4}&status=PENDING"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "hold"
+        }
+      },
+      "save": {
+        "taskH": "$.items[0].id"
+      },
+      "requires": [
+        "instP4"
+      ]
+    },
+    {
+      "id": "U5",
+      "actor": "admin",
+      "says": "4. Version b of C (same name; its task node is named work_b) is saved.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-1",
+          "version": "b",
+          "description": "UAT ${run_id}: sub-process proof child, version b",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "work_b",
+                "node_type": "HUMAN_TASK",
+                "attributes": {
+                  "role": "PLATFORM_ADMIN"
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "work_b"
+              },
+              {
+                "id": "e2",
+                "source": "work_b",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defC1b": "$.id"
+      }
+    },
+    {
+      "id": "U6",
+      "actor": "admin",
+      "says": "4. Version b of C is activated (version a is deprecated) while P4 is paused before the call.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defC1b}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "defC1b"
+      ]
+    },
+    {
+      "id": "U7a",
+      "actor": "admin",
+      "says": "4. The person completes P4's hold, so P4 enters the SUB_PROCESS node now (claim)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskH}/claim",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskH"
+      ]
+    },
+    {
+      "id": "U7b",
+      "actor": "admin",
+      "says": "4. The person completes P4's hold, so P4 enters the SUB_PROCESS node now (complete)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskH}/complete",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskH"
+      ]
+    },
+    {
+      "id": "U8",
+      "actor": "admin",
+      "says": "4. OBSERVED: the child of P4 is an instance of version b (the version active when the node was entered), not of version a that was active when P4 started: the SUB_PROCESS node is late-bound by name.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances?parent_instance_id=${instP4}"
+      },
+      "poll": {
+        "within_s": 20,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].instance_id": {
+            "exists": true
+          },
+          "$.items[0].definition_id": "${defC1b}",
+          "$.items[0].status": "ACTIVE"
+        }
+      },
+      "save": {
+        "instC4": "$.items[0].instance_id"
+      },
+      "requires": [
+        "instP4"
+      ]
+    },
+    {
+      "id": "U9",
+      "actor": "admin",
+      "says": "4. The child's task is the work_b node of version b.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tasks?instance_id=${instC4}&status=PENDING"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].node_id": "work_b"
+        }
+      },
+      "save": {
+        "taskC4": "$.items[0].id"
+      },
+      "requires": [
+        "instC4"
+      ]
+    },
+    {
+      "id": "U10a",
+      "actor": "admin",
+      "says": "4. The child of P4 is done (claim)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC4}/claim",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC4"
+      ]
+    },
+    {
+      "id": "U10b",
+      "actor": "admin",
+      "says": "4. The child of P4 is done (complete)",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tasks/${taskC4}/complete",
+        "body": {
+          "child_result": "done-${uuid4}"
+        }
+      },
+      "expect": {
+        "status": [
+          200,
+          204
+        ]
+      },
+      "requires": [
+        "taskC4"
+      ]
+    },
+    {
+      "id": "U11",
+      "actor": "admin",
+      "says": "4. P4 runs to its end on the upgraded child.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instP4}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED",
+          "$.variables.child_result": "done-${uuid4}"
+        }
+      },
+      "requires": [
+        "instP4"
+      ]
+    },
+    {
+      "id": "N1",
+      "actor": "admin",
+      "says": "5. A parent that names a child definition that does not exist is saved (no definition-time check of the child name was found in the code; the status is recorded).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions",
+        "body": {
+          "name": "uat-tmp-subproof-${run_id}-6",
+          "version": "a",
+          "description": "UAT ${run_id}: sub-process proof parent",
+          "graph": {
+            "nodes": [
+              {
+                "id": "start",
+                "node_type": "START"
+              },
+              {
+                "id": "call",
+                "node_type": "SUB_PROCESS",
+                "attributes": {
+                  "definition_name": "uat-tmp-subproof-${run_id}-nochild",
+                  "interface": {
+                    "inputs": [
+                      {
+                        "name": "order_no",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ],
+                    "outputs": [
+                      {
+                        "name": "child_result",
+                        "json_schema": {
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "end",
+                "node_type": "END"
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start",
+                "target": "call"
+              },
+              {
+                "id": "e2",
+                "source": "call",
+                "target": "end"
+              }
+            ]
+          },
+          "variable_schemas": [
+            {
+              "variable_key": "order_no",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "secret_note",
+              "json_schema": {
+                "type": "string"
+              }
+            },
+            {
+              "variable_key": "child_result",
+              "json_schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.status": "DRAFT"
+        }
+      },
+      "save": {
+        "defP5": "$.id"
+      }
+    },
+    {
+      "id": "N2",
+      "actor": "admin",
+      "says": "5. Activation of it: recorded (200 when the child name is not checked, 422 when it is).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/definitions/${defP5}/activate",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          422
+        ]
+      },
+      "requires": [
+        "defP5"
+      ]
+    },
+    {
+      "id": "N3",
+      "actor": "admin",
+      "says": "5. Either way, a start is refused with 404 and starts nothing: the child is looked up when the node is entered, and an unknown child answers like an unknown definition.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "uat-tmp-subproof-${run_id}-6",
+          "initial_variables": {
+            "order_no": "SP-${uuid5}"
+          }
+        }
+      },
+      "expect_refused": {
+        "status": 404
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "defP"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defP}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "requires": [
+        "defC"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defC}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "actor": "admin",
+      "requires": [
+        "defP2"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defP2}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "actor": "admin",
+      "requires": [
+        "defC2"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defC2}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c5",
+      "actor": "admin",
+      "requires": [
+        "defP4"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defP4}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "actor": "admin",
+      "requires": [
+        "defC1b"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defC1b}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c7",
+      "actor": "admin",
+      "requires": [
+        "defP5"
+      ],
+      "says": "Remove the throwaway definition (a draft is deleted, an active one is deprecated and archived).",
+      "do": {
+        "api": "DELETE",
+        "path": "/api/v1/definitions/${defP5}"
+      },
+      "expect": {
+        "status": [
+          200,
+          204,
+          404,
+          409
+        ]
+      }
+    },
+    {
+      "id": "c8",
+      "actor": "admin",
+      "says": "Sweep the throwaway definitions of EARLIER failed runs: every definition whose name starts with uat-tmp-subproof- and does not contain this run's id is deleted through the product's own call; one line per definition.",
+      "do": {
+        "sweep": {
+          "prefix": "uat-tmp-subproof-",
+          "exclude_contains": "${run_id}"
+        }
+      },
+      "expect": {
+        "status": 200
+      }
+    }
+  ],
+  "defaults": {
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "instances": [
+      "${instP}",
+      "${instC}",
+      "${instP2}",
+      "${instC2}",
+      "${instP4}",
+      "${instC4}"
+    ]
+  },
+  "residue_check": false
+}

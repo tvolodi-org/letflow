@@ -150,11 +150,15 @@ defmodule Letflow.PlatformProcesses.Seed do
   def seed(opts) when is_list(opts) do
     with {:ok, prefix} <- prefix(opts),
          {:ok, activator} <- activator(opts, prefix) do
-      write(prefix, activator)
+      write(defn(opts), prefix, activator)
     end
   end
 
   # ── the tenant ───────────────────────────────────────────────────────────────────────
+
+  # The document to seed: the registration definition by default (T-2972: a second platform
+  # process, `Letflow.PlatformProcesses.TenantLifecycleDefinition`, is seeded the same way).
+  defp defn(opts), do: Keyword.get(opts, :definition, Definition)
 
   defp prefix(opts) do
     case Keyword.get(opts, :prefix) do
@@ -239,12 +243,12 @@ defmodule Letflow.PlatformProcesses.Seed do
   # version is kept and NOTHING is written, whichever of the seed's own rows
   # lies around. A seed may never switch an OLDER version on over a newer one
   # that already runs -- the activation deprecates the newer one.
-  defp write(prefix, activator) do
-    case existing(prefix) do
+  defp write(defn, prefix, activator) do
+    case existing(defn, prefix) do
       {:ok, %{same_version: row, actives: actives}} ->
         cond do
           # A version NEWER than the seed's is already the one that runs.
-          Enum.any?(actives, &newer?(&1.version, Definition.version())) ->
+          Enum.any?(actives, &newer?(&1.version, defn.version())) ->
             kept = newest(actives)
 
             {:ok, %{outcome: :newer_version_kept, definition: kept, version: kept.version}}
@@ -254,19 +258,19 @@ defmodule Letflow.PlatformProcesses.Seed do
           # switch-on did not finish: the seed finishes it. Any other row (an
           # administrator's draft of the same version, a deprecated one) is left
           # alone -- the seed never touches what it did not write.
-          unfinished_switch_on?(row) ->
+          unfinished_switch_on?(defn, row) ->
             activate(row, prefix, activator)
 
           # T-2727: a row of the seed's version that carries ANOTHER document (an administrator's own
           # v2) is never mistaken for the shipped one: nothing is written.
-          row != nil and row.graph != Definition.graph() ->
-            {:ok, %{outcome: :version_taken, definition: row, version: Definition.version()}}
+          row != nil and row.graph != defn.graph() ->
+            {:ok, %{outcome: :version_taken, definition: row, version: defn.version()}}
 
           row != nil ->
-            {:ok, %{outcome: :already_present, definition: row, version: Definition.version()}}
+            {:ok, %{outcome: :already_present, definition: row, version: defn.version()}}
 
           true ->
-            create_and_activate(prefix, activator)
+            create_and_activate(defn, prefix, activator)
         end
 
       {:error, reason} ->
@@ -276,20 +280,20 @@ defmodule Letflow.PlatformProcesses.Seed do
 
   # A DRAFT of the seed's own version carrying the seed's own document: the
   # switch-on did not finish, so the seed finishes it.
-  defp unfinished_switch_on?(nil), do: false
+  defp unfinished_switch_on?(_defn, nil), do: false
 
-  defp unfinished_switch_on?(row) do
-    row.status == :draft and row.graph == Definition.graph()
+  defp unfinished_switch_on?(defn, row) do
+    row.status == :draft and row.graph == defn.graph()
   end
 
   # The rows of this key in the platform tenant: the row of the seed's own
   # version and the ACTIVE rows (the ones that run).
-  defp existing(prefix) do
-    case Definitions.list(%{name: Definition.name(), limit: 200}, prefix: prefix) do
+  defp existing(defn, prefix) do
+    case Definitions.list(%{name: defn.name(), limit: 200}, prefix: prefix) do
       {:ok, rows} ->
-        rows = Enum.filter(rows, &(&1.name == Definition.name()))
+        rows = Enum.filter(rows, &(&1.name == defn.name()))
 
-        same_version = Enum.find(rows, &(&1.version == Definition.version()))
+        same_version = Enum.find(rows, &(&1.version == defn.version()))
         actives = Enum.filter(rows, &(&1.status == :active))
 
         {:ok, %{same_version: same_version, actives: actives}}
@@ -310,10 +314,10 @@ defmodule Letflow.PlatformProcesses.Seed do
     end)
   end
 
-  defp create_and_activate(prefix, activator) do
-    attrs = Definition.attrs() |> Map.put(:created_by, activator.user_id)
+  defp create_and_activate(defn, prefix, activator) do
+    attrs = defn.attrs() |> Map.put(:created_by, activator.user_id)
 
-    case Definitions.create_with_variable_schemas(attrs, Definition.variable_schemas(),
+    case Definitions.create_with_variable_schemas(attrs, defn.variable_schemas(),
            prefix: prefix,
            actor_id: activator.user_id
          ) do
@@ -323,7 +327,7 @@ defmodule Letflow.PlatformProcesses.Seed do
       {:error, :duplicate_name_version} ->
         # Another seed won the race: the definition exists, so the seed's own
         # rule applies -- nothing is written.
-        {:ok, %{outcome: :already_present, definition: nil, version: Definition.version()}}
+        {:ok, %{outcome: :already_present, definition: nil, version: defn.version()}}
 
       {:error, reason} ->
         {:error, reason}

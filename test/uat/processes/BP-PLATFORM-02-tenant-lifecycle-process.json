@@ -1,0 +1,653 @@
+{
+  "id": "BP-PLATFORM-02-tenant-lifecycle-process",
+  "bp_entry": "BP-PLATFORM-02",
+  "title": "Suspend, reactivate and purge a tenant as a definition-driven process (platform.tenant_lifecycle) with the destructive guard",
+  "description": "T-2972 G3/G4. The platform administrator starts instances of the seeded definition platform.tenant_lifecycle (action suspend, reactivate, purge) on a throwaway tenant uat-tmp-* that the registration process creates. Proves: the registry lists tenant.suspend/reactivate/purge; suspend and reactivate complete and change the tenant status; the purge is refused for an ACTIVE tenant and for a wrong confirmation (instance ERROR at the purge step, tenant untouched); the final purge of the suspended, confirmed test tenant runs the guard to the retention check. NOT automated: G5, the 409 of a reactivation after a real purge, blocked_by qa-retention-days-zero (owner: the operator/PM: a QA host with LETFLOW_PROVISIONER_RETENTION_DAYS=0 or a lifecycle window; the shipped default of 30 days is the product's rule and the scenario does not shorten it). Every start carries a fresh request_id (part of the call key: suspend, reactivate and suspend again of one tenant are three calls). The throwaway tenant is retired by G3 where the host allows, and deactivated by the cleanup otherwise (the same residue rule as BP-PLATFORM-01).",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "dry_run": {
+    "tenant": "bpm-default",
+    "actors": {
+      "admin": {
+        "user": "admin-user",
+        "tenant": "bpm-default",
+        "base_url": "https://qa.bizdala.com"
+      }
+    },
+    "inputs": {}
+  },
+  "outputs": {},
+  "steps": [
+    {
+      "id": "A1",
+      "actor": "admin",
+      "says": "The platform administrator reads the active definition platform.tenant_lifecycle of the platform tenant: it exists, it is ACTIVE.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/active/platform.tenant_lifecycle"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.name": "platform.tenant_lifecycle",
+          "$.status": "ACTIVE",
+          "$.start_permission": "TenantsManage"
+        }
+      }
+    },
+    {
+      "id": "A2",
+      "actor": "admin",
+      "says": "The function registry lists the three lifecycle entries (GET /api/v1/platform-functions).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/platform-functions"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[7].name": "tenant.purge",
+          "$.items[8].name": "tenant.reactivate",
+          "$.items[11].name": "tenant.suspend"
+        }
+      }
+    },
+    {
+      "id": "B1",
+      "actor": "admin",
+      "says": "G3 setup: the process creates its own throwaway tenant uat-tmp-* (registration process; no realm, no administrator address, so no mail).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/onboarding",
+        "body": {
+          "slug": "uat-tmp-${uuid1}",
+          "display_name": "UAT lifecycle ${run_id}",
+          "hostname": "uat-tmp-${uuid1}.${hostname_suffix}"
+        }
+      },
+      "expect": {
+        "status": 202,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          },
+          "$.status": "active"
+        }
+      },
+      "save": {
+        "instance_idR": "$.instance_id",
+        "slug1": "$.slug"
+      }
+    },
+    {
+      "id": "B2",
+      "actor": "admin",
+      "says": "The registration instance COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idR}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instance_idR"
+      ]
+    },
+    {
+      "id": "B3",
+      "actor": "admin",
+      "says": "The throwaway tenant exists and is active.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "poll": {
+        "within_s": 30,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "C1",
+      "actor": "admin",
+      "says": "DESTRUCTIVE GUARD (1): purge of an ACTIVE tenant with a confirmation equal to the slug: the instance starts (201) and the purge step is refused.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "purge",
+            "confirm": "${slug1}",
+            "request_id": "${uuid2}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idC1": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "C2",
+      "actor": "admin",
+      "says": "The refused purge ends in ERROR (platform_call_purge_not_suspended).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idC1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ERROR"
+        }
+      },
+      "requires": [
+        "instance_idC1"
+      ]
+    },
+    {
+      "id": "C3",
+      "actor": "admin",
+      "says": "The step log names the purge step as failed with a failure kind; the action gate ran before it.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idC1}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "action_gate",
+          "$.steps[2].node_id": "purge",
+          "$.steps[2].result": "failed",
+          "$.steps[2].last_failure_kind": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "instance_idC1"
+      ]
+    },
+    {
+      "id": "C4",
+      "actor": "admin",
+      "says": "Nothing was purged: the tenant is still active.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "poll": {
+        "within_s": 30,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "D1",
+      "actor": "admin",
+      "says": "G1/G2: suspend the throwaway tenant by process.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "suspend",
+            "request_id": "${uuid3}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idD1": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "D2",
+      "actor": "admin",
+      "says": "The suspend instance COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idD1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instance_idD1"
+      ]
+    },
+    {
+      "id": "D3",
+      "actor": "admin",
+      "says": "The tenant is inactive (suspended).",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "poll": {
+        "within_s": 30,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "inactive"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "E1",
+      "actor": "admin",
+      "says": "DESTRUCTIVE GUARD (2): purge of the suspended tenant with a WRONG confirmation is refused (platform_call_purge_unconfirmed).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "purge",
+            "confirm": "not-${slug1}",
+            "request_id": "${uuid4}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idE1": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "E2",
+      "actor": "admin",
+      "says": "The unconfirmed purge ends in ERROR.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idE1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "ERROR"
+        }
+      },
+      "requires": [
+        "instance_idE1"
+      ]
+    },
+    {
+      "id": "E3",
+      "actor": "admin",
+      "says": "The purge step is the failed one.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idE1}/timeline"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.steps[1].node_id": "action_gate",
+          "$.steps[2].node_id": "purge",
+          "$.steps[2].result": "failed",
+          "$.steps[2].last_failure_kind": {
+            "exists": true
+          }
+        }
+      },
+      "requires": [
+        "instance_idE1"
+      ]
+    },
+    {
+      "id": "E4",
+      "actor": "admin",
+      "says": "Nothing was purged: the tenant is still inactive and readable.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "poll": {
+        "within_s": 30,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "inactive"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "F1",
+      "actor": "admin",
+      "says": "Reactivate the tenant by process.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "reactivate",
+            "request_id": "${uuid5}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idF1": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "F2",
+      "actor": "admin",
+      "says": "The reactivate instance COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idF1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instance_idF1"
+      ]
+    },
+    {
+      "id": "F3",
+      "actor": "admin",
+      "says": "The tenant is active again.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "poll": {
+        "within_s": 30,
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.slug": "${slug1}",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "G1",
+      "actor": "admin",
+      "says": "Suspend again (the tenant must be suspended for the purge).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "suspend",
+            "request_id": "${uuid6}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idG1": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "G2",
+      "actor": "admin",
+      "says": "The second suspend COMPLETED.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idG1}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": "COMPLETED"
+        }
+      },
+      "requires": [
+        "instance_idG1"
+      ]
+    },
+    {
+      "id": "G3",
+      "actor": "admin",
+      "says": "G4 cleanup: the scenario's own purge retires its throwaway tenant: suspended, confirmed, test tenant. On a host whose retention (LETFLOW_PROVISIONER_RETENTION_DAYS, default 30) has not run out the guard answers platform_call_purge_not_eligible and the tenant stays inactive: that is the product's rule, the scenario does not shorten it.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/instances",
+        "body": {
+          "definition_name": "platform.tenant_lifecycle",
+          "initial_variables": {
+            "slug": "${slug1}",
+            "action": "purge",
+            "confirm": "${slug1}",
+            "request_id": "${uuid7}"
+          }
+        }
+      },
+      "expect": {
+        "status": 201,
+        "json": {
+          "$.instance_id": {
+            "exists": true
+          }
+        }
+      },
+      "save": {
+        "instance_idG3": "$.instance_id"
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "G4",
+      "actor": "admin",
+      "says": "The purge instance ended: COMPLETED when the retention is 0 on the host (the tenant is then purged and cannot be reactivated), ERROR when it is not eligible yet. Either is a proof that the guard ran; the next step tells which.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/instances/${instance_idG3}"
+      },
+      "poll": {
+        "within_s": "${run_within_s}",
+        "interval_s": 2
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.status": {
+            "regex": "^(COMPLETED|ERROR)$"
+          }
+        }
+      },
+      "requires": [
+        "instance_idG3"
+      ]
+    },
+    {
+      "id": "G5",
+      "actor": "admin",
+      "says": "A purged tenant is never reactivated: when G3 purged it the reactivation answers 409 'tenant was purged'. Needs a host with retention 0.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/reactivate"
+      },
+      "expect": {
+        "status": 409
+      },
+      "requires": [
+        "slug1"
+      ],
+      "blocked_by": "qa-retention-days-zero"
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "c1",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "Deactivate the throwaway tenant if it is not purged (a no-op when it already is suspended; a purged tenant answers 409 and is gone).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": [
+          200,
+          409
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "hostname_suffix": "letflow.qa.bizdala.com",
+    "run_within_s": "120"
+  },
+  "platform_residue": {
+    "definitions": [
+      "platform.tenant_lifecycle"
+    ],
+    "instances": [
+      "${instance_idR}",
+      "${instance_idC1}",
+      "${instance_idD1}",
+      "${instance_idE1}",
+      "${instance_idF1}",
+      "${instance_idG1}",
+      "${instance_idG3}"
+    ]
+  },
+  "residue_check": false
+}

@@ -218,6 +218,40 @@ class Process(CheckCase):
         doc = self.mutated(lambda d: d["steps"].append(step("s6", "GET", "/api/v1/modules/exam/nothing/${doc_id}")))
         self.assertTrue(any("matches no route" in p for p in self.check(doc)))
 
+    def _forwarded(self):
+        pipeline = self.root / "lib/letflow/plugs/api_pipeline.ex"
+        pipeline.parent.mkdir(parents=True, exist_ok=True)
+        pipeline.write_text(
+            '  forward("/tenant/settings", to: Letflow.Routers.TenantSettings)\n'
+            '  forward("/tenant/modules", to: Letflow.Routers.TenantModules)\n'
+            '  forward("/tenant/solutions", to: Letflow.Routers.TenantSolutions)\n')
+        for name, text in (("tenant_settings", 'authz_get "/", :SettingsRead do\n'),
+                           ("tenant_modules", 'authz_post "/", :ModulesManage do\n authz_post "/:module_id/upgrade", :ModulesManage do\n'),
+                           ("tenant_solutions", 'authz_post "/", :SolutionsManage do\n')):
+            (self.root / f"lib/letflow/routers/{name}.ex").write_text(text)
+
+    def test_routers_forwarded_at_tenant_name_match_their_mount(self):
+        self._forwarded()
+        for method, path in (("GET", "/api/v1/tenant/settings"), ("POST", "/api/v1/tenant/modules"),
+                             ("POST", "/api/v1/tenant/modules/${doc_id}/upgrade"), ("POST", "/api/v1/tenant/solutions")):
+            problems = self.check(self.mutated(lambda d, m=method, p=path: d["steps"].append(step("s6", m, p))))
+            self.assertEqual(problems, [], (path, problems))
+
+    def test_a_tenant_route_that_does_not_exist_still_fails(self):
+        self._forwarded()
+        for method, path in (("POST", "/api/v1/tenant/modules/${doc_id}/explode"), ("DELETE", "/api/v1/tenant/modules"),
+                             ("POST", "/api/v1/tenant/nothing")):
+            problems = self.check(self.mutated(lambda d, m=method, p=path: d["steps"].append(step("s6", m, p))))
+            self.assertTrue(any("matches no route" in p for p in problems), (path, problems))
+
+    def test_the_real_forwards_of_api_pipeline_are_all_read(self):
+        text = (REPO / "lib/letflow/plugs/api_pipeline.ex").read_text()
+        mounts = check_processes.forwarded_mounts(REPO)
+        self.assertEqual(sum(len(v) for v in mounts.values()), text.count("\n  forward(\""))
+        self.assertIn(["tenant", "modules"], mounts["tenant_modules"])
+        self.assertIn(["tenant", "solutions"], mounts["tenant_solutions"])
+        self.assertIn(["tenant", "settings"], mounts["tenant_settings"])
+
     def test_a_read_in_save_is_checked_like_a_step(self):
         doc = self.mutated(lambda d: d["steps"][0]["save"].update(extra={"api": "GET", "path": "/api/v1/modules/stock/nope"}))
         self.assertTrue(any("matches no route" in p for p in self.check(doc)))

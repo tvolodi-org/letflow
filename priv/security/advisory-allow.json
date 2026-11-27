@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "EEF-CVE-2026-133555",
+      "package": "db_connection",
+      "reason": "Forged DBConnection.Stream structs with a :log option; Letflow never builds a Stream struct from tenant or request data. Accepted until the dependency update to a fixed db_connection is landed by its own task.",
+      "owner": "team",
+      "expires": "2026-12-15"
+    }
+  ]
+}
