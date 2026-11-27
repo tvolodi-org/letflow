@@ -255,6 +255,7 @@
     {
       "id": "s20",
       "actor": "admin",
+      "says": "The administrator reads the approval rules: 200 with the list. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a rule.",
       "do": {
         "assert_only": {
           "path": "/api/v1/approval-rules"
@@ -264,7 +265,7 @@
         "status": 200,
         "json": {
           "$.items": {
-            "exists": true
+            "present": true
           }
         }
       }
@@ -344,6 +345,7 @@
     {
       "id": "s27",
       "actor": "admin2",
+      "says": "The second administrator reads the approval rules: 200 with the list. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a rule.",
       "do": {
         "assert_only": {
           "path": "/api/v1/approval-rules"
@@ -353,7 +355,7 @@
         "status": 200,
         "json": {
           "$.items": {
-            "exists": true
+            "present": true
           }
         }
       }

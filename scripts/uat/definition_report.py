@@ -30,7 +30,8 @@ import sys
 QA_HOST_RE = re.compile(r"^https://[a-z0-9-]+\.letflow\.qa\.bizdala\.com/?$")
 LOOPBACK_RE = re.compile(r"^http://(127\.0\.0\.1|localhost)(:\d+)?/?$")
 FIELDS = ("id", "name", "version", "status", "owner_module", "owner_module_version", "activation_state",
-          "needs_reactivation_reason", "needs_reactivation_at", "created_by", "created_at", "updated_at")
+          "needs_reactivation_reason", "needs_reactivation_at", "created_by", "created_at", "updated_at",
+          "archived_at")
 
 
 def is_stock(row):
@@ -50,6 +51,11 @@ def list_definitions(run):
         if not cursor or not body.get("items"):
             return rows
     raise RuntimeError("the definitions list has more than 100 pages")
+
+
+def dead_names(result):
+    """-> the names whose verdict is dead-newest (T-3014: the stock smoke fails loudly on them)."""
+    return sorted(n for n, (v, _) in result.items() if v == "dead-newest")
 
 
 def verdicts(rows):
@@ -102,7 +108,7 @@ def main(args, runner, out=None) -> int:
         for r in items:
             print("  " + " ".join(f"{k}={r.get(k)}" for k in FIELDS), file=out)
     print("no stock definition row" if not rows else "end of rows", file=out)
-    print("note: the API gives no status-change history; updated_at and created_by are the nearest", file=out)
+    print("note: the API gives no actor of a status change; archived_at (T-3014) and updated_at are the nearest in time, the actor is in the audit log and the run logs", file=out)
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "definition_report.json").write_text(
         json.dumps({"tenant": args.tenant, "verdicts": {n: v for n, (v, _) in result.items()}, "rows": rows},
@@ -160,6 +166,11 @@ def capture(run, kind, runner):
             return None, f"{tenant}: definition report ({kind}) failed: {box['err']}"
         rows = box["rows"]
         result = verdicts(rows)
+        dead = dead_names(result)
+        if dead and kind == "before":
+            if not hasattr(run, "dead_newest"):
+                run.dead_newest = {}
+            run.dead_newest[tenant] = dead
         base = f"definition_report_{kind}"
         name = base + ".json"
         if (run.run_dir / name).exists() or name in getattr(run, "_definition_names", set()):

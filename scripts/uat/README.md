@@ -101,7 +101,24 @@ Remember the id of the document as `doc_id`."*
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
   `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).
   Besides "equals" you may write `{"contains": "text"}`, `{"regex": "..."}`, `{"exists": true}`, `{"absent": true}`,
-  and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
+  `{"present": true}`, and `{"equals": "0", "default": "0"}` ("an empty list counts as 0").
+  * `{"exists": true}` means **a value is really there**: the path was found and the value is neither null nor
+    empty (`''`, `[]`, `{}`). A false, a zero and a number are values; a null and an empty string, list or map
+    are not. On a list, `exists` therefore means "the list holds at least one item".
+  * `{"present": true}` means **the key is there**: the value may be null or empty. Use it when the step wants the
+    key and not a value -- a list that may be empty on this environment ("the list may be empty when no backup is
+    configured"), or a field that may be null. A step that uses `present` says so in its own words, so a reader
+    knows the null or the empty list is intended and not an accident.
+  * `{"absent": true}` means the path is missing or the value is null; `{"absent": false}` means the path is there
+    with a value that is not null.
+  * T-3107: `exists` used to mean only "the path was found", so a null passed. The audit of every `exists` in
+    `test/uat/processes` and the fix are in `docs/uat/exists-matcher-audit.md`.
+  A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the first item whose
+  `name` is `tenant.validate` (several fields at once: `$.items[?definition_name=x&node_id=y]`). Name the item
+  of a list the server owns (a compiled catalogue): an assertion by position goes red when the server adds
+  an entry, for a reason that has nothing to do with the scenario (T-3105).
+  `check_processes.py` refuses `$.items[<number>]` in a step (T-3105). A list sorted by contract, or filtered to the
+  rows of this run, is exempted by the step key `"positional_ok": "<reason>"`; the reason is required.
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.
@@ -121,6 +138,7 @@ Remember the id of the document as `doc_id`."*
 | the person takes the task of a document in My Tasks and completes it | `"do": {"wait_task": {"for_document": "${doc_id}", "step": "post", "within_s": 30}, "claim": true, "complete": {"body": {}}}`. `step` is `post` for a receipt, issue or transfer and `reverse` for a reversal |
 | the system must send a mail and the process waits for it | `"do": {"wait_mail": {"recipient": "${admin_email}", "subject": "Tenant registered", "within_s": 60, "interval_s": 2}}` and `"expect": {"status": 200}`. See "Waiting for a mail" below |
 | a user of a realm made DURING the run signs in (the new tenant admin of a sign-up) | a step `"do": {"login": {"realm": "${tenant_realm}", "username": "...", "password": "${signup_password}"}}` (password grant of the identity provider, `BPM_IDP_BASE_URL`, default QA; the realm is the one the provisioner issued (save it from the registry's `idp_realm_id`), the password must be a `${name}` reference, `BPM_IDP_BASE_URL` must be https; the token stays a secret, never in the log) with actor `anonymous`; later steps name it with `"bearer": "session"` (the API of the run, that token; `"bearer_base": "<saved name>"` sends the call to a URL an earlier step saved, such as the new tenant's `tenant_url`) |
+| the provisioner route 3 (`POST /admin/v1/tenants` answers 202, then poll `GET /admin/v1/tenants/:id`) (T-3108) | a step flagged `"platform_route": true` with `"bearer_env": "UAT_QA_PROVISIONER_<NAME>"`: the NAME of an environment variable (from `.env.uat`) that holds the provisioner credential (`LETFLOW_PROVISIONER_CREDENTIAL_SHA256` of the deployment is its hash, `lib/letflow/plugs/provisioner_auth.ex`); only the name is in the file, the value is a registered secret and never logged; a missing variable fails the step naming the variable. `check_processes.py` accepts a path under `/admin/v1/` only on such a step. `bearer` also stays on `upload`, `repeat` and `page_through`. A JSON body can be read from a file with `"body_file": "<relative name under test/uat>"` (not with `body`; no `..`, no symlink out of test/uat, 2 MiB at most) |
 | a file goes up (the Excel load of Client 1) | `"do": {"upload": {"api": "POST", "path": "/api/v1/...?dry_run=true", "field": "file", "file": "generated/client1/03-items-01.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "fields": {"mode": "check"}}}` with `expect` and `save` as any step. See "Uploading a file" below |
 | only look and check (no change) | `"do": {"assert_only": {"path": "/api/v1/..."}}` and an `expect`. A read, never a body |
 | the same request twice (a retry: the system must not do it twice) | `"do": {"repeat": {"api": "POST", "path": "...", "body": {...}}}`, `"expect"` for the first answer and `"expect_repeat"` for the second (default: the same as the first) |

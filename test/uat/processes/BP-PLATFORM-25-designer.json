@@ -476,6 +476,7 @@
     },
     {
       "id": "B7",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "B. DLQ: the failure is in the dead-letter list of the platform tenant.",
       "do": {

@@ -46,9 +46,15 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[7].name": "tenant.purge",
-          "$.items[8].name": "tenant.reactivate",
-          "$.items[11].name": "tenant.suspend"
+          "$.items[?name=tenant.purge]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.reactivate]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.suspend]": {
+            "exists": true
+          }
         }
       }
     },

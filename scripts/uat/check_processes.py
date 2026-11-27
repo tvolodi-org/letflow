@@ -313,6 +313,40 @@ def check_platform_residue(doc, name, problems, defined):
                 problems.append(f"{name}: platform_residue.{key}: ${{{ref}}} is not an input and no step saves it")
 
 
+POSITIONAL = re.compile(r"\$\.items\[\d+\]")
+
+
+def positional_reads(value) -> list:
+    """Every JSON path in a step that indexes an API list answer by position (`$.items[3].name`).
+    `$[0]` and `$.rows[0]` read a database answer, not an API list, and are not this rule."""
+    found = []
+    if isinstance(value, str):
+        found.extend(POSITIONAL.findall(value))
+    elif isinstance(value, dict):
+        for key, sub in value.items():
+            found.extend(positional_reads(key))
+            found.extend(positional_reads(sub))
+    elif isinstance(value, list):
+        for sub in value:
+            found.extend(positional_reads(sub))
+    return found
+
+
+def check_positional(step, where, problems):
+    """No positional index into a list that can grow: assert by name/key (`$.items[?name=x].field`).
+
+    A list that is sorted by contract, or holds exactly one row by its own filter, is exempted by the step key
+    `positional_ok` with the reason as text (T-3105: a catalogue grew and moved `$.items[12]`)."""
+    reads = positional_reads({k: v for k, v in step.items() if k != "positional_ok"})
+    if not reads:
+        return
+    reason = step.get("positional_ok")
+    if isinstance(reason, str) and reason.strip():
+        return
+    problems.append(f"{where}positional index {reads[0]!r}: assert by name/key ($.items[?name=x].field), "
+                    "or give the step a positional_ok reason (a list sorted by contract or filtered to one row)")
+
+
 def check_wait_mail(step, where, problems):
     """The wait_mail step (G18): a recipient, a subject and a time the runner can read.
 
@@ -372,9 +406,11 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
             for name_ in sorted(step_refs(step) - defined):
                 problems.append(f"{where(sid)}${{{name_}}} is not an input and no earlier step or process saves it")
             for method, path in calls_of(step):
-                check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access")
+                check_path(problems, where(sid), routes, method, path, shared=step.get("http_as") == "shared_access",
+                           platform_route=step.get("platform_route") is True)
             if "wait_mail" in (step.get("do") or {}):
                 check_wait_mail(step, where(sid), problems)
+            check_positional(step, where(sid), problems)
             defined |= saves(step)
     outputs = doc.get("outputs") or {}
     for out_name, expr in outputs.items():
@@ -386,10 +422,14 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
     return set(outputs)
 
 
-def check_path(problems, where, routes, method, path, shared=False):
+def check_path(problems, where, routes, method, path, shared=False, platform_route=False):
     if not method or not path:
         problems.append(f"{where}a call needs a method and a path")
         return
+    if platform_route:  # T-3108: only a step flagged `platform_route: true`, only the provisioner mount
+        if not path.startswith("/admin/v1/") or ".." in path:
+            problems.append(f"{where}path {path!r} of a platform_route step must start with /admin/v1/")
+        return  # the provisioner router is not in the router files compared below
     if not shared and not path.startswith("/api/"):
         problems.append(f"{where}path {path!r} must start with /api/")
         return

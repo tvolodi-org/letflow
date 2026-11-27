@@ -266,42 +266,86 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
       assert conn.resp_body =~ "DRAFT"
     end
 
-    test "activate, deprecate, archive and rollback responses carry no hash and no stamp keys",
+    # T-3014 (class test): EVERY tenant-API path that retires a definition refuses a module-owned
+    # version and leaves the row untouched -- the incident was DELETE answering 200 and archiving
+    # the module's ACTIVE stock_receipt on a QA tenant.
+    test "DELETE, deprecate and archive of a stamped ACTIVE or DEPRECATED row answer 409 and write nothing",
+         %{tenant: tenant, schema: schema} do
+      active = stamped!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(active.id, prefix: schema)
+
+      dep = stamped!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(dep.id, prefix: schema)
+
+      Letflow.Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^dep.id),
+        [set: [status: :deprecated]],
+        prefix: schema
+      )
+
+      for {row, status} <- [{active, :active}, {dep, :deprecated}],
+          {method, path} <- [
+            {"DELETE", "/#{row.id}"},
+            {"POST", "/#{row.id}/deprecate"},
+            {"POST", "/#{row.id}/archive"}
+          ] do
+        conn = call(method, path, tenant, nil, ["TENANT_ADMIN"])
+
+        assert conn.status == 409,
+               "#{method} #{path} (#{status}): #{conn.status} #{conn.resp_body}"
+
+        assert conn.resp_body =~ "module-owned"
+        reloaded = Letflow.Repo.get!(ProcessDefinition, row.id, prefix: schema)
+        assert reloaded.status == status
+        assert is_nil(reloaded.archived_at)
+      end
+
+      assert {:error, :module_owned_definition} = Definitions.deprecate(active.id, prefix: schema)
+      assert {:error, :module_owned_definition} = Definitions.archive(dep.id, prefix: schema)
+
+      # control: a tenant-made row is still retired by DELETE
+      plain = plain!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(plain.id, prefix: schema)
+      assert call("DELETE", "/#{plain.id}", tenant, nil, ["TENANT_ADMIN"]).status == 200
+    end
+
+    test "activate, deprecate, archive and rollback of a stamped row are refused without leaking a hash",
          %{tenant: tenant, schema: schema} do
       name = "gh2590-r2-life-#{System.unique_integer([:positive])}"
       v1 = stamped!(schema, name)
 
+      # T-3014: the tenant API refuses every one of them (409), and the body carries no hash
       for action <- ["activate", "deprecate", "archive"] do
         conn = call("POST", "/#{v1.id}/#{action}", tenant, nil, ["TENANT_ADMIN"])
-        assert conn.status == 200, "#{action}: #{conn.resp_body}"
+        assert conn.status == 409, "#{action}: #{conn.resp_body}"
         refute conn.resp_body =~ v1.owner_manifest_hash
         refute conn.resp_body =~ v1.owner_body_hash
         refute conn.resp_body =~ "owner_manifest_hash"
         refute conn.resp_body =~ "owner_body_hash"
       end
 
-      # rollback over a stamped version: a fresh stamped v1 re-activated, response is the
-      # 5-key rollback map
+      assert Repo.get!(ProcessDefinition, v1.id, prefix: schema).status == :draft
+
+      # rollback over a stamped version is refused too
       name = name <> "-rb"
       v1 = stamped!(schema, name)
       assert {:ok, %{definition: _}} = Definitions.activate(v1.id, prefix: schema)
 
-      plain =
-        Definitions.create(
-          %{name: name, version: "2.0.0", graph: @graph, created_by: Ecto.UUID.generate()},
-          prefix: schema
-        )
+      assert {:ok, v2} =
+               Definitions.create(
+                 %{name: name, version: "2.0.0", graph: @graph, created_by: Ecto.UUID.generate()},
+                 prefix: schema
+               )
 
-      assert {:ok, v2} = plain
       assert {:ok, %{definition: _}} = Definitions.activate(v2.id, prefix: schema)
 
       conn =
         call("POST", "/#{name}/rollback", tenant, %{"target_version" => "1.0.0"}, ["TENANT_ADMIN"])
 
-      assert conn.status == 200, conn.resp_body
+      assert conn.status == 409, conn.resp_body
       refute conn.resp_body =~ v1.owner_manifest_hash
-      refute conn.resp_body =~ v1.owner_body_hash
       refute conn.resp_body =~ "owner_"
+      assert Repo.get!(ProcessDefinition, v2.id, prefix: schema).status == :active
     end
 
     test "GET /active/:name shows the module, never a hash", %{tenant: tenant, schema: schema} do
@@ -363,6 +407,133 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
 
       copy = Repo.get!(ProcessDefinition, body["id"], prefix: schema)
       assert {copy.owner_module, copy.owner_body_hash} == {nil, nil}
+    end
+
+    # T-3014 (class table): EVERY mutating tenant route x EVERY module's module-owned definition.
+    # The modules come from the catalog, not from a hand list. Each refused attempt answers 409,
+    # changes nothing and leaves an audit row with the caller as the actor.
+    @tag timeout: 120_000
+    test "class table: every mutating route refuses a module-owned definition of every module",
+         %{tenant: tenant, schema: schema} do
+      modules = Letflow.Modules.Catalog.entry_modules()
+      assert length(modules) >= 8
+
+      for mod <- modules do
+        owner = ManagedTypes.module_owner(mod)
+        id = owner.module_id
+        n = System.unique_integer([:positive])
+
+        make = fn name, version ->
+          assert {:ok, row} =
+                   Definitions.create_owned(
+                     %{
+                       name: name,
+                       version: version,
+                       graph: @graph,
+                       created_by: Ecto.UUID.generate()
+                     },
+                     [prefix: schema],
+                     owner
+                   )
+
+          row
+        end
+
+        active_name = "cls-#{id}-act-#{n}"
+        active = make.(active_name, "1.0.0")
+        assert {:ok, _} = Definitions.activate(active.id, prefix: schema)
+        draft = make.("cls-#{id}-draft-#{n}", "1.0.0")
+
+        dep = make.("cls-#{id}-dep-#{n}", "1.0.0")
+        assert {:ok, _} = Definitions.activate(dep.id, prefix: schema)
+
+        Letflow.Repo.update_all(
+          from(d in ProcessDefinition, where: d.id == ^dep.id),
+          [set: [status: :deprecated]],
+          prefix: schema
+        )
+
+        # a tenant draft of the module's ACTIVE name: activating it would retire the module's row
+        assert {:ok, tenant_draft} =
+                 Definitions.create(
+                   %{
+                     name: active_name,
+                     version: "9.0.0",
+                     graph: @graph,
+                     created_by: Ecto.UUID.generate()
+                   },
+                   prefix: schema
+                 )
+
+        Letflow.Repo.update_all(
+          from(d in ProcessDefinition, where: d.id == ^active.id),
+          [set: [needs_reactivation_at: DateTime.utc_now(), needs_reactivation_reason: "x"]],
+          prefix: schema
+        )
+
+        snapshot = fn ->
+          Repo.all(from(d in ProcessDefinition, order_by: d.id), prefix: schema)
+          |> Enum.map(
+            &{&1.id, &1.status, &1.updated_at, &1.description, &1.needs_reactivation_at}
+          )
+        end
+
+        before = snapshot.()
+        body = %{"description" => "x"}
+
+        attempts = [
+          {"DELETE", "/#{active.id}", nil},
+          {"DELETE", "/#{dep.id}", nil},
+          {"DELETE", "/#{draft.id}", nil},
+          {"POST", "/#{active.id}/deprecate", nil},
+          {"POST", "/#{active.id}/reactivate", nil},
+          {"POST", "/#{dep.id}/archive", nil},
+          {"POST", "/#{draft.id}/activate", nil},
+          {"POST", "/#{tenant_draft.id}/activate", nil},
+          {"PUT", "/#{draft.id}",
+           %{"name" => draft.name, "version" => "1.0.0", "graph" => @graph}},
+          {"PATCH", "/#{draft.id}", body},
+          {"POST", "/#{active_name}/rollback", %{"target_version" => "9.0.0"}}
+        ]
+
+        for {method, path, req_body} <- attempts do
+          conn = call(method, path, tenant, req_body, ["TENANT_ADMIN"])
+
+          assert conn.status in [403, 404, 409], "#{id} #{method} #{path}: #{conn.status}"
+          refute conn.status == 200
+        end
+
+        assert snapshot.() == before, "#{id}: a refused attempt changed state"
+      end
+
+      %{rows: [[refused]]} =
+        Ecto.Adapters.SQL.query!(
+          Repo,
+          ~s|SELECT count(*) FROM "#{schema}"."audit_entries" WHERE action LIKE '%.refused'|,
+          []
+        )
+
+      assert refused >= length(modules) * 10
+    end
+
+    test "tenant-owned definitions (and a tenant copy of a module definition) stay retirable",
+         %{tenant: tenant, schema: schema} do
+      plain = plain!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(plain.id, prefix: schema)
+
+      assert call("POST", "/#{plain.id}/deprecate", tenant, nil, ["TENANT_ADMIN"]).status == 200
+      assert call("POST", "/#{plain.id}/archive", tenant, nil, ["TENANT_ADMIN"]).status == 200
+
+      # the tenant's own copy of a module definition (export, import: lands unstamped)
+      row = stamped!(schema)
+      exported = call("GET", "/#{row.id}/export", tenant, nil).resp_body |> Jason.decode!()
+      imported = Map.put(exported, "name", "fork-#{System.unique_integer([:positive])}")
+      copy = call("POST", "/import", tenant, imported).resp_body |> Jason.decode!()
+
+      assert {:ok, %{definition: _}} = Definitions.activate(copy["id"], prefix: schema)
+      assert call("POST", "/#{copy["id"]}/deprecate", tenant, nil, ["TENANT_ADMIN"]).status == 200
+      assert call("POST", "/#{copy["id"]}/archive", tenant, nil, ["TENANT_ADMIN"]).status == 200
+      assert Repo.get!(ProcessDefinition, copy["id"], prefix: schema).status == :archived
     end
   end
 end
