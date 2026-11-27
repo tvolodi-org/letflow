@@ -53,7 +53,7 @@ defmodule Letflow.Scripts.Policy do
 
   @type operator :: %{
           required(:user_id) => Ecto.UUID.t(),
-          required(:credential) => :oidc | :api_token | nil,
+          required(:credential) => :oidc | :api_token | :platform_process | nil,
           optional(:trace_id) => String.t() | nil,
           required(:platform_prefix) => String.t() | nil
         }
@@ -384,7 +384,7 @@ defmodule Letflow.Scripts.Policy do
   @spec set_platform_kill_switch(String.t(), Ecto.UUID.t(), term(), term(), operator()) ::
           {:ok, ScriptPolicy.t()} | {:error, error()}
   def set_platform_kill_switch(prefix, tenant_id, on, reason, operator) do
-    with :ok <- require_interactive(operator),
+    with :ok <- require_platform_operator(operator),
          :ok <- boolean(on),
          {:ok, reason} <- Validation.reason(reason),
          platform_prefix when is_binary(platform_prefix) <-
@@ -754,7 +754,7 @@ defmodule Letflow.Scripts.Policy do
   @spec set_platform_solo_audited(String.t(), Ecto.UUID.t(), term(), term(), operator()) ::
           {:ok, ScriptPolicy.t()} | {:error, error()}
   def set_platform_solo_audited(prefix, tenant_id, allowed, reason, operator) do
-    with :ok <- require_interactive(operator),
+    with :ok <- require_platform_operator(operator),
          :ok <- boolean(allowed),
          {:ok, reason} <- Validation.reason(reason),
          platform_prefix when is_binary(platform_prefix) <-
@@ -866,6 +866,14 @@ defmodule Letflow.Scripts.Policy do
 
   defp require_interactive(%{credential: :oidc}), do: :ok
   defp require_interactive(_actor), do: {:error, :api_token_not_allowed}
+
+  # The two PLATFORM setters also accept `credential: :platform_process` (BP-PLATFORM-04 G1,
+  # Q1 option A): the platform step `tenant.set_script_policy` runs from a durable queue, and its
+  # `user_id` is the person who STARTED the instance, read by the body from the engine's own
+  # `INSTANCE_STARTED` event (never from a variable). No route builds this credential: a token or
+  # a request can not claim it. Every other writer keeps `require_interactive/1`.
+  defp require_platform_operator(%{credential: :platform_process}), do: :ok
+  defp require_platform_operator(operator), do: require_interactive(operator)
 
   defp boolean(on) when is_boolean(on), do: :ok
   defp boolean(_on), do: {:error, :invalid_state}
