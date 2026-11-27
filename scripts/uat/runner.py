@@ -2093,11 +2093,27 @@ class Runner:
                 break
         else:
             raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
-        lines, swept, gone = [], 0, 0
+        lines, swept, gone, left = [], 0, 0, 0
+        best_effort = spec.get("best_effort") is True  # T-3157: a leftover that cannot be deleted is reported, not a RED run
+        deadline = time.monotonic() + SWEEP_BEST_EFFORT_MAX_S
         for def_id, name, state in found:
             if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
                 raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            if best_effort and time.monotonic() >= deadline:
+                lines.append(f"sweep stopped after {SWEEP_BEST_EFFORT_MAX_S} s: the rest stays for the next run")
+                print(self.scrub(lines[-1]), file=self.out, flush=True)
+                break
             status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept and best_effort:
+                left += 1
+                line = f"sweep {def_id} {name} was {state}: LEFT, answered {status} (not deleted, not a failure of this run)"
+                lines.append(line)
+                print(self.scrub(line), file=self.out, flush=True)
+                if status in (401, 403):  # a re-login was already tried by request(): more calls would answer the same
+                    lines.append("sweep stopped: the credential is refused, the rest stays for the next run")
+                    print(self.scrub(lines[-1]), file=self.out, flush=True)
+                    break
+                continue
             if status not in accept:
                 raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
             outcome = "already gone" if status in (404, 409) else "swept"
@@ -2106,7 +2122,7 @@ class Runner:
             line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
             lines.append(line)
             print(self.scrub(line), file=self.out, flush=True)
-        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone" + (f", {left} left" if left else "")
         print(self.scrub(summary), file=self.out, flush=True)
         record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
         result = {"swept": swept, "already_gone": gone, "lines": lines}
@@ -3390,6 +3406,7 @@ def refuse_placeholders(text: str, source) -> None:
 
 
 SWEEP_ACCEPT = [200, 204, 404, 409]
+SWEEP_BEST_EFFORT_MAX_S = 60  # T-3157: a best-effort sweep gives up after this long (a 178 s sweep outlived the token)
 SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
 REPAIR_TENANTS = ("qoimeks-qa2",)  # T-3125: the QA fixture tenants whose dead-newest stock definition the run repairs
 REPAIR_NEVER_TENANTS = ("qoimeks-qa", "qoimeks-qa1", "qoimeks-client1-qa")
@@ -3504,8 +3521,8 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: repeat needs times of at least 2")
     elif kind == "sweep":
         spec = do["sweep"]
-        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
-            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept", "best_effort"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?, best_effort?}}")
         if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
                                             or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
             raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
