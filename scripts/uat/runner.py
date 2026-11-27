@@ -896,6 +896,7 @@ class Runner:
         self.records = []
         self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
         self._definition_seen = set()  # (kind, tenant) already taken
+        self.fixture_repairs = []  # T-3125: the loud lines of the dead-newest repairs of the run
         # T-3034: the admission counters of the node (read-only, public /health): at the start of
         # every tenant's leg and at every 503 whose body says capacity.
         self.admission_counters = []  # {"tenant", "kind", "path", "note"} of the counter reads of the run
@@ -1328,12 +1329,75 @@ class Runner:
         path = next((d["path"] for d in self.definition_reports
                      if d["tenant"] == self.tenant and d["kind"] == "before" and d["path"]), "-")
         started = time.monotonic()
+        repaired, why = self._repair_dead_newest(dead, path)
+        if repaired:
+            return True
+        if why:
+            dead_text = f"{why}; DEAD-NEWEST stock definition(s) on {self.tenant}: {', '.join(sorted(dead))} - report {path}"
+            record = {"process": process["id"], "phase": "step", "step": "definition-health", "actor": "-",
+                      "verdict": "fail", "error": dead_text}
+            self._finish(record, started, False)
+            print(f"definition health FAIL {self.tenant}: {dead_text}", file=self.out, flush=True)
+            return False
         record = {"process": process["id"], "phase": "step", "step": "definition-health", "actor": "-",
                   "verdict": "fail",
                   "error": f"DEAD-NEWEST stock definition(s) on {self.tenant}: {', '.join(sorted(dead))} - report {path}"}
         self._finish(record, started, False)
         print(f"definition health FAIL {self.tenant}: {record['error']}", file=self.out, flush=True)
         return False
+
+    def _repair_state_file(self):
+        root = getattr(self, "repair_state_dir", None) or Path(self.run_dir).parent / "fixture-state"
+        return Path(root) / f"definition-repairs-{self.tenant}.json"
+
+    def _repair_dead_newest(self, dead, report_path):
+        """T-3125: the dead-newest stock definition of a QA fixture tenant is repaired through the product's own path:
+        POST /api/v1/tenant/modules/stock/ensure-seeds as the tenant admin of THIS tenant, once, then the report is
+        read again. -> (True, None) repaired; (False, None) not applicable, the caller fails as T-3014 does;
+        (False, text) a failure the caller reports before the dead-newest text. Loud: the line is printed and kept in
+        the summary. A repair recorded for this tenant by an earlier run means the definition died AGAIN: a PRODUCT
+        defect, never repaired a second time."""
+        tenant = self.tenant
+        if tenant in REPAIR_NEVER_TENANTS or tenant not in REPAIR_TENANTS:
+            return False, None
+        try:
+            import definition_report
+            role = definition_report.admin_role(self.actors)
+            if not role:
+                return False, "fixture repair not done: no admin actor in the plan"
+            definition_report.guard(tenant, self.actor_spec(role).get("user") or "", self.base_url, sys.modules[__name__])
+        except Exception as err:  # noqa: BLE001 - a guard refusal is a reason, never a repair
+            return False, f"fixture repair refused: {err}"
+        state_file = self._repair_state_file()
+        if state_file.exists():
+            return False, (f"PRODUCT DEFECT: dead-newest AGAIN on {tenant} after a repair recorded in {state_file} "
+                           "(something archives it again); no second repair")
+        status, body, _ = self.request(role, "POST", REPAIR_PATH,
+                                       {"rationale": "UAT fixture repair of a dead-newest stock definition (T-3125)"})
+        if status != 200 or not isinstance(body, dict):
+            return False, f"fixture repair failed: ensure-seeds answered {status}"
+        listed = [str(x) for key in ("process_drafts", "process_activated") for x in (body.get(key) or [])]
+        missing = [n for n in sorted(dead) if not any(x == n or x.startswith(n + "@") for x in listed)]
+        if missing:
+            return False, ("fixture repair failed: ensure-seeds answered 200 but did not list "
+                           f"{', '.join(missing)} in process_drafts/process_activated")
+        try:
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text(json.dumps({"tenant": tenant, "repaired": sorted(dead), "report": report_path,
+                                              "at": datetime.now(timezone.utc).isoformat()}, indent=2), encoding="utf-8")
+        except OSError as err:
+            return False, f"fixture repair done but its record cannot be written ({err}): refused to go on"
+        self.dead_after_repair = list(dead)
+        self._definition_seen.discard(("repaired", tenant))
+        self._definition_report("repaired")
+        still = getattr(self, "dead_after_repair", None) or []
+        if still:
+            return False, f"fixture repair: ensure-seeds applied but still dead-newest: {', '.join(still)}"
+        self.dead_newest.pop(tenant, None)
+        line = f"fixture repair: ensure-seeds applied: {', '.join(sorted(dead))} re-activated"
+        self.fixture_repairs.append(line)
+        print(line, file=self.out, flush=True)
+        return True, None
 
     @staticmethod
     def _is_definition_not_active(status, body):
@@ -3240,6 +3304,13 @@ class Runner:
             lines += ["", "## Definition reports (read-only, T-2992)", ""]
             for d in self.definition_reports:
                 lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
+            try:
+                import definition_report
+                lines.append(f"- {definition_report.JOURNAL_NOTE}")
+            except Exception:  # noqa: BLE001
+                pass
+        for line in self.fixture_repairs:
+            lines += ["", f"> **{line}**"]
         if self.admission_counters:
             lines += ["", "## Admission counters (read-only, T-3034)", ""]
             for d in self.admission_counters:
@@ -3299,6 +3370,9 @@ def refuse_placeholders(text: str, source) -> None:
 SWEEP_ACCEPT = [200, 204, 404, 409]
 SWEEP_BEST_EFFORT_MAX_S = 60  # T-3157: a best-effort sweep gives up after this long (a 178 s sweep outlived the token)
 SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
+REPAIR_TENANTS = ("qoimeks-qa2",)  # T-3125: the QA fixture tenants whose dead-newest stock definition the run repairs
+REPAIR_NEVER_TENANTS = ("qoimeks-qa", "qoimeks-qa1", "qoimeks-client1-qa")
+REPAIR_PATH = "/api/v1/tenant/modules/stock/ensure-seeds"
 SHARED_ACCESS_SWEEP_TENANTS = ("qoimeks-qa2",)  # the QA tenants of the reviewed sweep list (T-2980)
 SWEEP_MAX_PAGES = 50
 SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-

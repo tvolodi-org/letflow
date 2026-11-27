@@ -163,6 +163,24 @@ Entries marked "comment only" appear only in a comment of the file and are not r
 |---|---|---|---|---|
 | Network join (T-2780) | `deploy/docker-compose.qa.yml`: service `app` is on `default` and `provisioner_callers`, the external network `tenant-provisioner-qa_callers` | `platform.register_tenant` must reach the tenant-provisioner (`http://10.203.118.2:8080`); inside the app container 127.0.0.1 is the container itself. No port is published, no host network; sign-up stays off | the external network belongs to infra (tenant-provisioner-qa); the compose lines belong to the product | remove the `networks:` lines of `app` and the top-level `provisioner_callers` block, then redeploy (`deploy/redeploy-qa.sh`) |
 
+### Dead-newest stock definition: repair (T-3125)
+
+A module-owned process definition (for example `stock_receipt`) can be left with no ACTIVE row and a newest row that is
+not a DRAFT ("dead-newest"); the stock routes then answer 409 `definition_not_active`. The path, by the tenant admin:
+
+1. Definition-health report of the tenant: `python3 -B scripts/uat/runner.py definition-report --tenant <slug> --admin <admin user>`
+   (read-only; one verdict per name; `dead-newest` is the case).
+2. If a name is `dead-newest`: `POST /api/v1/tenant/modules/stock/ensure-seeds` as the tenant admin of THAT tenant
+   (permission `ModulesManage`; optional body `{"rationale": "..."}`). The answer lists the repaired process in
+   `process_drafts` / `process_activated`.
+3. Run the report again: the name must be `ok`. If it is dead-newest again later, something archives it again: that
+   is a product defect, not a repair case.
+
+Production: `LETFLOW_MODULE_UPGRADE_ON_BOOT` stays unset (false). The module upgrade is an explicit, logged deploy step,
+not a boot side effect; step 2 is the repair path when it did not run or did not reach the tenant. On the QA tenants
+named in `REPAIR_TENANTS` of `scripts/uat/runner.py` the UAT runner does step 2 itself, once, only when the report
+after a deploy still shows dead-newest, and prints `fixture repair: ensure-seeds applied: ...`.
+
 ## Open owner questions
 
 No number is given here; each is the owner's to answer.
