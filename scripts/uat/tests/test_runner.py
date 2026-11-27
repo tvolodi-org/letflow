@@ -54,6 +54,28 @@ class ExpressionAndSubstitution(unittest.TestCase):
         with self.assertRaises(runner.Undefined):
             runner.substitute("${nope}", ctx)
 
+    def test_slice_and_hex(self):
+        ctx = {"uuid1": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "stored": "abcdef-123"}
+        out = runner.substitute("t-${uuid1|hex[0:20]}", ctx)
+        self.assertEqual(out, "t-0a1b2c3d4e5f6789abcd")
+        self.assertEqual(len(out) - 2, 20)
+        self.assertNotIn("-", out[2:])
+        self.assertEqual(runner.substitute("${uuid1[0:8]}", ctx), "0a1b2c3d")  # no filter: dashes stay
+        self.assertEqual(runner.substitute("${uuid1[-4:]}", ctx), "6789")
+        self.assertEqual(runner.substitute({"p": "/x/${stored|hex[:3]}"}, ctx), {"p": "/x/abc"})
+        self.assertEqual(runner.substitute("${stored|hex}", ctx), "abcdef123")
+        self.assertEqual(runner.referenced_names("${uuid1|hex[0:20]}"), {"uuid1"})
+
+    def test_slice_errors(self):
+        with self.assertRaises(runner.Undefined):
+            runner.substitute("${nope|hex[0:20]}", {})
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[50:60]}", {"v": "abc"})  # empty slice, never ""
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[0:1]}", {"v": {"a": 1}})
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[a:b]}", {"v": "abc"})  # not a slice: an arithmetic parse error
+
     def test_json_path(self):
         doc = {"a": {"b": [{"c": 1}, {"c": 2}]}, "k-1": True}
         self.assertEqual(runner.json_path(doc, "$.a.b[1].c"), (True, 2))

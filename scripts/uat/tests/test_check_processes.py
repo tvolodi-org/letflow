@@ -122,6 +122,22 @@ class Process(CheckCase):
             problems = self.check(self.mutated(change))
             self.assertTrue(any("${nope}" in p and "step s3" in p for p in problems), (where, problems))
 
+    def test_a_slice_placeholder_is_read_and_a_bad_one_is_caught(self):
+        def good(doc):
+            doc["steps"][2]["do"]["body"] = {"realm": "t-${run_id|hex[0:20]}"}
+
+        self.assertEqual(self.check(self.mutated(good)), [])
+
+        def undefined(doc):
+            doc["steps"][2]["do"]["body"] = {"realm": "${nope|hex[0:20]}"}
+
+        self.assertTrue(any("${nope}" in p for p in self.check(self.mutated(undefined))))
+
+        def bad(doc):
+            doc["steps"][2]["do"]["body"] = {"realm": "${run_id[0:x]}"}
+
+        self.assertTrue(any("not a valid slice" in p for p in self.check(self.mutated(bad))))
+
     def test_a_positional_index_into_an_api_list_is_caught_in_expect_and_save(self):
         for where in ("expect", "save"):
             def change(doc):
