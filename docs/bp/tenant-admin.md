@@ -29,7 +29,7 @@ The area `tenant-admin` has 48 process(es): 37 implemented, 11 partial. Executed
 | BP-TENANT-ADMIN-16 | Set company settings and appearance | The administrator reads and changes the company settings (branding colours, language, formats). | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-17 | Upload and remove the company logo | The administrator uploads a png, jpeg or webp logo, replaces it or deletes it; the web and mobile configuration show it. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-18 | Export and import the company configuration bundle | The administrator exports the company's configuration (settings, module settings, label overrides, notification templates) and imports it... | TENANT_ADMIN | implemented | direct | no | no | see report |
-| BP-TENANT-ADMIN-19 | Install, set up, upgrade and remove modules and solutions | The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivat... | TENANT_ADMIN | implemented | direct | no | no | see report |
+| BP-TENANT-ADMIN-19 | Install, set up, upgrade and remove modules and solutions | The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivat... | TENANT_ADMIN | implemented | direct | yes | no | see report |
 | BP-TENANT-ADMIN-20 | Switch the four-eyes rule per process step | The administrator reads the list of steps that carry the four-eyes rule and switches each on or off with a written reason. | TENANT_ADMIN | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-21 | Same person approving: separation of duties at claim and completion | When a step names other steps it must be done by a different person, the engine refuses the claim and the completion by the person who co... | TENANT_ADMIN, STOREKEEPER | implemented | direct | no | no | see report |
 | BP-TENANT-ADMIN-22 | Choose whether stock may go negative per ledger | The administrator reads and changes the negative-balance switch of each ledger registration. | TENANT_ADMIN | implemented | direct | no | no | see report |
@@ -670,7 +670,7 @@ The administrator exports the company's configuration (settings, module settings
 
 ## BP-TENANT-ADMIN-19 -- Install, set up, upgrade and remove modules and solutions
 
-The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough drafted at test/uat/processes/planned/BP-TENANT-ADMIN-19-install-and-upgrade-modules.draft.txt; it cannot enter the runner set until check_processes.py matches the route POST /api/v1/tenant/modules (its mount rule reads the router file name tenant_modules as /tenant-modules and skips the root route '/').
+The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough: test/uat/processes/BP-TENANT-ADMIN-19-install-and-upgrade-modules.json (module_installed fixture; install and upgrade plan refusals, storekeeper refused; no real upgrade, rollback or uninstall).
 
 **Actors and their permissions.**
 
@@ -708,13 +708,14 @@ The administrator installs a module or a solution (a set of modules, with a rati
 
 **Runner scenario.**
 
-- none yet
+- `test/uat/processes/BP-TENANT-ADMIN-19-install-and-upgrade-modules.json` (runner id `BP-TENANT-ADMIN-19`)
 
 **Status.**
 
 - implementation: `implemented`
-- UAT: planned -- no runner scenario yet.
+- UAT: scripted -- the runner scenario above runs this process.
 - security: no
+- automation: runner
 
 ## BP-TENANT-ADMIN-20 -- Switch the four-eyes rule per process step
 
@@ -1788,5 +1789,5 @@ A storekeeper or administrator opens My Tasks (the task inbox) on a tenant with 
 
 ## Gaps of the area
 
-- 36 process(es) have no runner scenario: BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-19, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41
+- 35 process(es) have no runner scenario: BP-TENANT-ADMIN-02, BP-TENANT-ADMIN-03, BP-TENANT-ADMIN-04, BP-TENANT-ADMIN-05, BP-TENANT-ADMIN-06, BP-TENANT-ADMIN-07, BP-TENANT-ADMIN-08, BP-TENANT-ADMIN-09, BP-TENANT-ADMIN-10, BP-TENANT-ADMIN-11, BP-TENANT-ADMIN-12, BP-TENANT-ADMIN-13, BP-TENANT-ADMIN-14, BP-TENANT-ADMIN-15, BP-TENANT-ADMIN-16, BP-TENANT-ADMIN-17, BP-TENANT-ADMIN-18, BP-TENANT-ADMIN-20, BP-TENANT-ADMIN-21, BP-TENANT-ADMIN-22, BP-TENANT-ADMIN-23, BP-TENANT-ADMIN-24, BP-TENANT-ADMIN-25, BP-TENANT-ADMIN-26, BP-TENANT-ADMIN-27, BP-TENANT-ADMIN-28, BP-TENANT-ADMIN-29, BP-TENANT-ADMIN-30, BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41
 - 11 process(es) are not implemented: BP-TENANT-ADMIN-31, BP-TENANT-ADMIN-33, BP-TENANT-ADMIN-34, BP-TENANT-ADMIN-35, BP-TENANT-ADMIN-36, BP-TENANT-ADMIN-37, BP-TENANT-ADMIN-38, BP-TENANT-ADMIN-40, BP-TENANT-ADMIN-41, BP-TENANT-ADMIN-44, BP-TENANT-ADMIN-47

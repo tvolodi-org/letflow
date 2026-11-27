@@ -1275,7 +1275,7 @@
     "id": "BP-TENANT-ADMIN-19",
     "area": "tenant-admin",
     "title": "Install, set up, upgrade and remove modules and solutions",
-    "description": "The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough drafted at test/uat/processes/planned/BP-TENANT-ADMIN-19-install-and-upgrade-modules.draft.txt; it cannot enter the runner set until check_processes.py matches the route POST /api/v1/tenant/modules (its mount rule reads the router file name tenant_modules as /tenant-modules and skips the root route '/').",
+    "description": "The administrator installs a module or a solution (a set of modules, with a rationale), changes module settings, uninstalls and reactivates, plans and applies an upgrade, rolls back, and re-runs seeds. The upgrade is POST /api/v1/tenant/modules/:module_id/upgrade after POST .../upgrade/plan (there is no PUT on the module collection); the install is create-only. Walkthrough: test/uat/processes/BP-TENANT-ADMIN-19-install-and-upgrade-modules.json (module_installed fixture; install and upgrade plan refusals, storekeeper refused; no real upgrade, rollback or uninstall).",
     "actors": [
       {
         "role": "TENANT_ADMIN",
@@ -1413,8 +1413,9 @@
       "the rationale is checked first, before the already-installed check: a blank rationale on an installed module is 422 (lib/letflow/modules/installs.ex:398)",
       "an upgrade whose plan_hash is not the current plan's, or when the module is up to date: 409 code plan_mismatch, nothing applied (lib/letflow/module_upgrade/apply.ex:253)"
     ],
-    "scenario": null,
-    "status": "implemented"
+    "scenario": "test/uat/processes/BP-TENANT-ADMIN-19-install-and-upgrade-modules.json",
+    "status": "implemented",
+    "automation": "runner"
   },
   {
     "id": "BP-TENANT-ADMIN-20",
