@@ -667,7 +667,7 @@ defmodule Letflow.Engine do
   The idempotent-replay comparison includes the node: the same key with a different node (or with
   none) is `:idempotency_key_reuse`.
 
-  ## Module-only definitions (T-2444)
+  ## Module-only definitions (T-2444, T-3094)
 
   A definition any node of which carries `module_writes` (`Letflow.Engine.WriteTargets.module_writes?/1`)
   is started only with `module_start: true` in `opts`, which the stock, assets and maintenance start code
@@ -675,6 +675,12 @@ defmodule Letflow.Engine do
   start (`POST /instances`, a scheduled job) answers `{:error, :definition_not_found}`, the answer for
   an unknown definition (INV-5), before the status case. A SUB_PROCESS child of such a definition is
   refused in `Letflow.Engine.SubProcess`. Reason: the write targets are read from the start variables.
+
+  T-3094 (pilot gap G-SUB-1): the definition's OWN graph is not the whole of it -- a SUB_PROCESS child
+  inherits the parent's start variables, so a parent whose (transitive) child is module-only is
+  module-only ITSELF: the caller that starts the parent chooses the child's write targets. The
+  children are read the way `gate_start_permission/2` reads them (the active version of each named
+  child, transitively), so the two fences see the same set.
 
   ## Module uninstall (decision 0066 D4, REQ-627)
 

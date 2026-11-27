@@ -43,6 +43,12 @@ defmodule Letflow.Engine.WriteTargets do
   (INV-5): this refuses every write-target key at once, so no per-key list is needed on the start side.
   No shipped pack declares a start-node input over a write key, so no exception exists.
 
+  T-3094 (pilot gap G-SUB-1): the test is over the definition's TRANSITIVE children too -- a parent
+  whose SUB_PROCESS child is module-only is module-only itself, because the child inherits the
+  parent's start variables and the caller who starts the parent chooses the child's write targets.
+  The children are read the way `gate_start_permission/2` reads them (the active version of each
+  named child, transitively).
+
   Pure and total (INV-8): a malformed attribute is read as "none declared" on the declaring side
   (so more is refused, never less) and as "reads nothing" on the reading side.
   """
