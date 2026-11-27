@@ -43,6 +43,7 @@ export interface DefinitionsMessages {
   activate: string
   archive: string
   archiveRefused: string
+  archiveOnlyDeprecated: string
   showTestRuns: string
   copyAsDraft: string
   copyFailed: string
@@ -103,8 +104,9 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Actions',
     activate: 'Activate',
     archive: 'Archive',
-    archiveRefused: 'This version could not be archived: the server refused it because the version is still in use. Make another version active first, or wait until its instances finish.',
-    showTestRuns: 'Show test-run versions (uat-)',
+    archiveRefused: 'Could not archive this version. Only a deprecated version can be archived, and archiving needs the archive permission.',
+    archiveOnlyDeprecated: 'Only a deprecated version can be archived.',
+    showTestRuns: 'Show test-run versions',
     copyAsDraft: 'Copy as draft',
     copyFailed: 'Could not copy the process',
     rollback: 'Rollback…',
@@ -162,8 +164,9 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Действия',
     activate: 'Активировать',
     archive: 'Архивировать',
-    archiveRefused: 'Версию не удалось архивировать: сервер отказал, потому что она ещё используется. Сначала сделайте активной другую версию или дождитесь завершения её экземпляров.',
-    showTestRuns: 'Показать версии тестовых прогонов (uat-)',
+    archiveRefused: 'Не удалось архивировать версию. Архивировать можно только устаревшую версию, и для этого нужно право на архивирование.',
+    archiveOnlyDeprecated: 'Архивировать можно только устаревшую версию.',
+    showTestRuns: 'Показать версии тестовых прогонов',
     copyAsDraft: 'Копировать как черновик',
     copyFailed: 'Не удалось скопировать процесс',
     rollback: 'Откатить…',
@@ -221,8 +224,9 @@ export const definitionsMessages: Record<UiLocale, DefinitionsMessages> = {
     colActions: 'Әрекеттер',
     activate: 'Белсендіру',
     archive: 'Мұрағаттау',
-    archiveRefused: 'Нұсқаны мұрағаттау мүмкін болмады: сервер бас тартты, себебі нұсқа әлі қолданыста. Алдымен басқа нұсқаны белсендіріңіз немесе экземплярлардың аяқталуын күтіңіз.',
-    showTestRuns: 'Сынақ нұсқаларын көрсету (uat-)',
+    archiveRefused: 'Нұсқаны мұрағаттау мүмкін болмады. Тек ескірген нұсқаны мұрағаттауға болады, ол үшін мұрағаттау құқығы қажет.',
+    archiveOnlyDeprecated: 'Тек ескірген нұсқаны мұрағаттауға болады.',
+    showTestRuns: 'Сынақ нұсқаларын көрсету',
     copyAsDraft: 'Жоба ретінде көшіру',
     copyFailed: 'Процесті көшіру мүмкін болмады',
     rollback: 'Кері қайтару…',

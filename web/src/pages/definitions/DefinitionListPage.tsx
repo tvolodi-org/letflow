@@ -16,6 +16,7 @@ import { formatDate } from '@/i18n/format'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { Button } from '@/components/ui/Button'
+import { Checkbox } from '@/components/ui/Checkbox'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { definitionLabel } from '@/pages/dashboard/definitionLabels'
@@ -272,7 +273,14 @@ export default function DefinitionListPage() {
             </Button>
           )}
           {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
-            <Button variant="secondary" size="sm" onClick={() => archive.mutate(def.id)} loading={archive.isPending}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => archive.mutate(def.id)}
+              loading={archive.isPending}
+              disabled={def.status !== 'DEPRECATED'}
+              title={def.status !== 'DEPRECATED' ? dm.archiveOnlyDeprecated : undefined}
+            >
               {dm.archive}
             </Button>
           )}
@@ -397,10 +405,7 @@ export default function DefinitionListPage() {
             <option value="ARCHIVED">{dm.archived}</option>
           </select>
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
-          <input type="checkbox" data-testid="show-test-runs" checked={showTestRuns} onChange={(e) => setShowTestRuns(e.target.checked)} />
-          {dm.showTestRuns}
-        </label>
+        <Checkbox data-testid="show-test-runs" checked={showTestRuns} onChange={setShowTestRuns} label={dm.showTestRuns} />
       </FilterBar>
 
       <QueryStateBoundary
@@ -421,7 +426,7 @@ export default function DefinitionListPage() {
       )}
 
       {archive.isError && (
-        <div role="alert" data-testid="archive-error" className="lf-banner lf-banner--danger" style={{ marginBottom: '.5rem' }}>
+        <div role="alert" data-testid="archive-error" className="lf-banner lf-banner--danger">
           {dm.archiveRefused}
         </div>
       )}

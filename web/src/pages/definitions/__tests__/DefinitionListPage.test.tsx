@@ -248,12 +248,21 @@ describe('T-2815 D5 runner residue and D8 archive refusal', () => {
     expect(screen.getByTestId('open-process-def-res')).toBeInTheDocument()
   })
 
+  it('disables archive of an active version and says why', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'designer')
+    const btn = screen.getByRole('button', { name: 'Archive' })
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveAttribute('title', 'Only a deprecated version can be archived.')
+  })
+
   it('says why when archive is refused', async () => {
     const { useArchiveDefinition } = await import('@/hooks/useDefinitions')
     vi.mocked(useArchiveDefinition).mockReturnValue({ mutate: vi.fn(), isPending: false, isError: true } as unknown as ReturnType<typeof useArchiveDefinition>)
     mockAuth()
     mockDefinitions([ACTIVE_DEF])
     renderWithAccess(<DefinitionListPage />, 'designer')
-    expect(screen.getByTestId('archive-error')).toHaveTextContent('could not be archived')
+    expect(screen.getByTestId('archive-error')).toHaveTextContent('Only a deprecated version can be archived')
   })
 })

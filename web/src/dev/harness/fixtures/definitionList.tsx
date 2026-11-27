@@ -21,7 +21,7 @@ const def = (id: string, name: string, version: string, status: ProcessDefinitio
   created_at: '2026-11-05T09:30:00Z',
   updated_at: '2026-11-05T09:30:00Z',
 })
-const ITEMS = [def('a1', 'purchase-request', '2', 'ACTIVE'), def('a2', 'purchase-request', '3', 'DRAFT'), def('a3', 'leave-approval', '1', 'DEPRECATED')]
+const ITEMS = [def('a1', 'purchase-request', '2', 'ACTIVE'), def('a2', 'purchase-request', '3', 'DRAFT'), def('a3', 'leave-approval', '1', 'DEPRECATED'), def('a4', 'platform.register_tenant', 'uat-20261125-ab12', 'DEPRECATED')]
 
 export const definitionListScreens: HarnessScreen[] = [
   {
