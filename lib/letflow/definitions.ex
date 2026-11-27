@@ -1035,6 +1035,7 @@ defmodule Letflow.Definitions do
         ecto_query =
           ProcessDefinition
           |> where_search_match(pattern)
+          |> where_status(Map.get(params, :status))
           |> select_with_rank(query, pattern)
           |> filter_by_search_cursor(query, pattern, cursor_seek)
           |> order_by_rank_paginated(query, pattern)

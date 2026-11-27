@@ -221,7 +221,9 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_grant_failed
     platform_call_hostname_mismatch
     platform_call_hostname_taken
+    platform_call_idp_unreachable
     platform_call_invalid_display_name
+    platform_call_invite_failed
     platform_call_invalid_email
     platform_call_invalid_slug
     platform_call_mapping_not_declared
@@ -234,6 +236,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_onboarding_failed
     platform_call_permission_required
     platform_call_provision_failed
+    platform_call_provisioner_not_configured
     platform_call_purge_failed
     platform_call_purge_not_eligible
     platform_call_purge_not_suspended
@@ -242,6 +245,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_reactivate_failed
     platform_call_realm_already_bound
     platform_call_realm_bind_failed
+    platform_call_realm_create_failed
     platform_call_script_policy_failed
     platform_call_signature_invalid
     platform_call_suspend_failed

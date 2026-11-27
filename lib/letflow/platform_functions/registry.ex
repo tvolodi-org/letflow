@@ -50,6 +50,8 @@ defmodule Letflow.PlatformFunctions.Registry do
     {"tenant.validate", {Letflow.PlatformFunctions.Impl.TenantValidate, :run, 1}},
     {"tenant.create", {Letflow.PlatformFunctions.Impl.TenantCreate, :run, 1}},
     {"tenant.provision", {Letflow.PlatformFunctions.Impl.TenantProvision, :run, 1}},
+    {"tenant.provision_realm_and_invite",
+     {Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite, :run, 1}},
     {"tenant.record_lifecycle", {Letflow.PlatformFunctions.Impl.TenantRecordLifecycle, :run, 1}},
     {"tenant.record_onboarding",
      {Letflow.PlatformFunctions.Impl.TenantRecordOnboarding, :run, 1}},

@@ -94,7 +94,7 @@ export const definitionsApi = {
 
   // ISS-0820: params corrected to match handle_search/1's actual reads (q, cursor, page_size).
   // limit and offset were dead params the backend silently ignored.
-  search: (params: { q: string; cursor?: string; page_size?: number }) =>
+  search: (params: { q: string; cursor?: string; page_size?: number; status?: string }) =>
     client.get<CursorPage<ProcessDefinition>>('/api/v1/definitions/search', params as Record<string, unknown>),
 
   /** Every version of the definition called `name` (newest first). The server's `name` filter is a substring match
