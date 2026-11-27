@@ -130,6 +130,71 @@ defmodule Letflow.Routers.InstancesTest do
     Repo.aggregate(InstanceProjection, :count, prefix: schema_name)
   end
 
+  # T-3052: a parent that starts a sub-process child -- START -> SUB_PROCESS(child) -> END. The
+  # child instance is created when the parent starts and its projection row carries the durable
+  # child->parent link (`instance_projections.parent_instance_id`, REQ-062).
+  defp graph_sub_process!(child_name) do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "sub",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => child_name}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "sub"},
+        %{"id" => "e2", "source" => "sub", "target" => "end"}
+      ]
+    }
+  end
+
+  defp active_definition_with_graph!(schema_name, graph) do
+    assert {:ok, definition} =
+             Definitions.create(
+               %{
+                 name: unique_name("t3052-def"),
+                 version: "1.0.0",
+                 graph: graph,
+                 created_by: Ecto.UUID.generate()
+               },
+               prefix: schema_name
+             )
+
+    assert {:ok, %{definition: activated}} =
+             Definitions.activate(definition.id, prefix: schema_name)
+
+    activated
+  end
+
+  # -> {parent instance id, child instance id, child definition id}
+  defp start_parent_with_child!(schema_name) do
+    child = active_definition_with_graph!(schema_name, graph_human_task_end())
+    parent = active_definition_with_graph!(schema_name, graph_sub_process!(child.name))
+
+    assert {:ok, result} =
+             Engine.create(
+               %{
+                 definition_id: parent.id,
+                 initial_variables: %{},
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: unique_idempotency_key("start")
+               },
+               prefix: schema_name
+             )
+
+    child_instance_id =
+      InstanceProjection
+      |> where([p], p.parent_instance_id == ^result.instance_id)
+      |> select([p], p.instance_id)
+      |> Repo.all(prefix: schema_name)
+      |> List.first()
+
+    {result.instance_id, child_instance_id, child.id}
+  end
+
   # ISS-0389: START -> TIMER -> END -- gives an instance exactly one real,
   # armed, force-fireable pending timer the moment it's created (REQ-187's
   # engine automatically arms a :TIMER node's timer on token arrival), for
@@ -1983,6 +2048,92 @@ defmodule Letflow.Routers.InstancesTest do
 
       assert conn.status == 422
       assert conn.resp_body =~ "tenant"
+    end
+  end
+
+  # ── T-3052 -- the children of one parent instance (a sub-process child) ──
+
+  describe "T-3052 -- GET /?parent_instance_id= lists the children of one parent instance" do
+    test "the sub-process child of a started parent is listed under its parent, and the parent's own row is not" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-parent")
+      {parent_id, child_id, child_definition_id} = start_parent_with_child!(tenant.schema_name)
+
+      conn =
+        build_conn("GET", "/?parent_instance_id=#{parent_id}", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      items = Jason.decode!(conn.resp_body)["items"]
+      assert Enum.map(items, & &1["instance_id"]) == [child_id]
+      assert hd(items)["definition_id"] == child_definition_id
+    end
+
+    test "a root instance is not a child of anything: its own id matches nothing" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-root")
+      {root_id, _definition} = start_instance!(tenant.schema_name)
+
+      conn =
+        build_conn("GET", "/?parent_instance_id=#{root_id}", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      assert Jason.decode!(conn.resp_body)["items"] == []
+    end
+
+    test "another tenant's parent id matches nothing (no existence oracle)" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-cross-a")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-cross-b")
+
+      {parent_id, _child_id, _child_definition_id} =
+        start_parent_with_child!(tenant_a.schema_name)
+
+      conn =
+        build_conn("GET", "/?parent_instance_id=#{parent_id}", tenant_b, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      assert Jason.decode!(conn.resp_body)["items"] == []
+    end
+
+    test "an unknown parent id matches nothing" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-unknown")
+
+      conn =
+        build_conn("GET", "/?parent_instance_id=#{Ecto.UUID.generate()}", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      assert Jason.decode!(conn.resp_body)["items"] == []
+    end
+
+    test "a malformed parent_instance_id is 422, not a 500 (INV-8)" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-bad-parent")
+
+      conn =
+        build_conn("GET", "/?parent_instance_id=not-a-uuid", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 422
+    end
+
+    test "a malformed definition_id is 422, not a 500 (INV-8)" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3052-bad-definition")
+
+      conn =
+        build_conn("GET", "/?definition_id=not-a-uuid", tenant, %{roles: ["PROCESS_OPERATOR"]})
+        |> dispatch()
+
+      assert conn.status == 422
     end
   end
 end
