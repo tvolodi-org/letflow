@@ -88,10 +88,13 @@ defmodule Letflow.Plugs.CorsTest do
 
       assert conn.status == 200
 
-      assert Jason.decode!(conn.resp_body) == %{
-               "status" => "ok",
-               "sha" => Letflow.BuildInfo.sha()
-             }
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert body["sha"] == Letflow.BuildInfo.sha()
+      # T-3034: the answer also carries the global admission counters (an aggregate
+      # figure of the node: no tenant identifier, no route, no tenant data). The
+      # CORS contract is about the headers, not about the body shape.
+      assert is_map(body["admission"])
 
       assert get_resp_header(conn, "access-control-allow-origin") == [@allowed_origin]
     end
@@ -135,10 +138,11 @@ defmodule Letflow.Plugs.CorsTest do
 
       assert conn.status == 200
 
-      assert Jason.decode!(conn.resp_body) == %{
-               "status" => "ok",
-               "sha" => Letflow.BuildInfo.sha()
-             }
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert body["sha"] == Letflow.BuildInfo.sha()
+      # T-3034: the third key of the answer (the global admission counters).
+      assert is_map(body["admission"])
     end
 
     test "an unlisted-origin request is not halted -- a 404 route still 404s normally" do
@@ -298,10 +302,11 @@ defmodule Letflow.Plugs.CorsTest do
 
       assert conn.status == 200
 
-      assert Jason.decode!(conn.resp_body) == %{
-               "status" => "ok",
-               "sha" => Letflow.BuildInfo.sha()
-             }
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert body["sha"] == Letflow.BuildInfo.sha()
+      # T-3034: the third key of the answer (the global admission counters).
+      assert is_map(body["admission"])
 
       assert get_resp_header(conn, "access-control-allow-origin") == []
       assert get_resp_header(conn, "vary") == []

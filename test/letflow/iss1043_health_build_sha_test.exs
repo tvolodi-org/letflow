@@ -11,6 +11,10 @@ defmodule Letflow.Iss1043HealthBuildShaTest do
     3. `config/runtime.exs` normalises `LETFLOW_BUILD_SHA` into `config :letflow, :build_sha`
        (evaluated for real with `Config.Reader`);
     4. `Letflow.Router`'s `GET /health` returns `%{status: "ok", sha: ...}` (Plug.Test).
+       T-3034 added a third key, `admission` (the global admission counters, an
+       aggregate figure of the node with no tenant identifier in it); the
+       ISS-1043 requirement itself -- the SHA is reported, `status` stays
+       exactly "ok" -- is unchanged.
 
   `async: false`: tests put `:build_sha` into the global application environment and
   `LETFLOW_BUILD_SHA` into the OS environment; both are restored in `on_exit`.
@@ -48,24 +52,33 @@ defmodule Letflow.Iss1043HealthBuildShaTest do
   end
 
   describe "GET /health reports the build SHA" do
-    test "sha is the configured build SHA, status is still exactly ok, no other key" do
+    test "sha is the configured build SHA, status is still exactly ok" do
       put_build_sha(@full_sha)
 
       assert {200, body} = health()
-      assert body == %{"status" => "ok", "sha" => @full_sha}
-      assert body |> Map.keys() |> Enum.sort() == ["sha", "status"]
+      assert body["status"] == "ok"
+      assert body["sha"] == @full_sha
+      # T-3034: the answer also carries the global admission counters. The
+      # deploy scripts read `status` only (deploy/redeploy-*.sh), so the extra
+      # key changes nothing for them; the ISS-1043 pin ("no other key") is the
+      # one thing this change moves, and it moves on purpose.
+      assert body |> Map.keys() |> Enum.sort() == ["admission", "sha", "status"]
+      assert is_map(body["admission"])
     end
 
     test "a short (7-hex) SHA is reported as configured" do
       put_build_sha("e60c9cb")
-      assert {200, %{"status" => "ok", "sha" => "e60c9cb"}} = health()
+      assert {200, body} = health()
+      assert body["status"] == "ok"
+      assert body["sha"] == "e60c9cb"
     end
 
     test "sha is JSON null when no build SHA is configured" do
       put_build_sha(:unset)
 
       assert {200, body} = health()
-      assert body == %{"status" => "ok", "sha" => nil}
+      assert body["status"] == "ok"
+      assert body["sha"] == nil
       # The key is present (null), not dropped, so callers can tell "no SHA" apart
       # from an old build that predates the field.
       assert Map.has_key?(body, "sha")
@@ -73,10 +86,12 @@ defmodule Letflow.Iss1043HealthBuildShaTest do
 
     test "sha is JSON null when the app env holds a malformed value (re-normalised on read)" do
       put_build_sha("not a sha; DROP TABLE tenants")
-      assert {200, %{"status" => "ok", "sha" => nil}} = health()
+      assert {200, body} = health()
+      assert body["sha"] == nil
 
       put_build_sha(String.upcase(@full_sha))
-      assert {200, %{"status" => "ok", "sha" => nil}} = health()
+      assert {200, body} = health()
+      assert body["sha"] == nil
     end
   end
 

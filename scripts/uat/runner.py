@@ -833,6 +833,12 @@ class Runner:
         self.records = []
         self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
         self._definition_seen = set()  # (kind, tenant) already taken
+        # T-3034: the admission counters of the node (read-only, public /health): at the start of
+        # every tenant's leg and at every 503 whose body says capacity.
+        self.admission_counters = []  # {"tenant", "kind", "path", "note"} of the counter reads of the run
+        self._admission_counter_files = set()  # the names already written (the cap of ten per run)
+        self._admission_counter_tenants = set()  # the tenants whose leg start was already read
+        self._admission_503_seq = 0  # the number of the capacity refusals read so far
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
         self.replay = False
@@ -1191,6 +1197,8 @@ class Runner:
             status, body, response = calls[0]
             if any(self._is_definition_not_active(c[0], c[1]) for c in calls):
                 self._definition_report("after")
+            # T-3034: a capacity refusal gets the counters of the node saved next to it.
+            self._admission_counters_on_capacity(calls)
             results = self._assert_calls(step, do, calls, secret_step)
             record["status"] = status
             record["asserted"] = results
@@ -1252,6 +1260,53 @@ class Runner:
     def _is_definition_not_active(status, body):
         return status == 409 and isinstance(body, dict) and "definition_not_active" in (
             body.get("reason"), body.get("error"), body.get("limit"), body.get("detail"))
+
+    # -- the admission counters (T-3034) ------------------------------------------------------
+
+    def _leg_tenant(self):
+        """The tenant of the leg that runs now: the tenant of the current process (a chain entry may run on
+        its own tenant), else the tenant of the run."""
+        return self.process_tenants.get((self.process or {}).get("id"), self.tenant)
+
+    def _admission_counter(self, kind):
+        """T-3034: the admission counters of the node, saved in the run dir. A failure is a note in the
+        summary and never changes the verdict of the run."""
+        if self.replay:
+            return
+        tenant = self._leg_tenant()
+        try:
+            import admission_counter
+            path, note = admission_counter.capture(self, kind, tenant)
+        except Exception as err:  # noqa: BLE001 - never a verdict
+            path, note = None, f"{tenant}: admission counter ({kind}) failed: {err}"
+        self.admission_counters.append({"tenant": tenant, "kind": kind, "path": path, "note": note})
+        print(f"admission counter ({kind}) {tenant}: {path or note}", file=self.out, flush=True)
+
+    def _admission_counter_start(self, tenant=None):
+        """The counters at the START of this tenant's leg (once per tenant of the run)."""
+        tenant = tenant or self._leg_tenant()
+        if tenant in self._admission_counter_tenants:
+            return
+        self._admission_counter_tenants.add(tenant)
+        self._admission_counter("start")
+
+    def _admission_counters_on_capacity(self, calls):
+        """Every 503 whose body says capacity gets the counters of the node saved next to it: the file
+        says what the budget looked like at the moment of the refusal."""
+        for status, body, _text in calls:
+            if status == 503 and self._says_capacity(body):
+                self._admission_counter("503")
+
+    @staticmethod
+    def _says_capacity(body) -> bool:
+        """Whether a 503 body is the admission refusal (its detail names the capacity)."""
+        if not isinstance(body, dict):
+            return False
+        for key in ("detail", "error", "reason", "title", "message"):
+            value = body.get(key)
+            if isinstance(value, str) and "capacity" in value.lower():
+                return True
+        return False
 
     def _blocked_line(self, record, started, step, why):
         """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
@@ -2282,6 +2337,9 @@ class Runner:
                     return False
                 if "/modules/stock" in json.dumps(process):
                     self._definition_report("before")
+                # T-3034: the counters at the start of this tenant's leg (a chain process may have
+                # a tenant of its own; the leg's tenant is the one of the process).
+                self._admission_counter_start(self._leg_tenant())
                 self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
@@ -2877,6 +2935,8 @@ class Runner:
             self._summary(started_at, sha_start, None, False, True, False)
             print(f"{self.label}: FAIL (preflight; run dir {self.run_dir})", file=self.out, flush=True)
             return 1
+        # T-3034: the counters of the node at the start of the run's own tenant leg.
+        self._admission_counter_start(self.tenant)
         results = {}
         stopped = False
         cleanup_ok = True
@@ -3082,6 +3142,10 @@ class Runner:
         if self.definition_reports:
             lines += ["", "## Definition reports (read-only, T-2992)", ""]
             for d in self.definition_reports:
+                lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
+        if self.admission_counters:
+            lines += ["", "## Admission counters (read-only, T-3034)", ""]
+            for d in self.admission_counters:
                 lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
         lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
                   "|---|---|---|---|---|---|---|"]
