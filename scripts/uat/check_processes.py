@@ -313,6 +313,40 @@ def check_platform_residue(doc, name, problems, defined):
                 problems.append(f"{name}: platform_residue.{key}: ${{{ref}}} is not an input and no step saves it")
 
 
+POSITIONAL = re.compile(r"\$\.items\[\d+\]")
+
+
+def positional_reads(value) -> list:
+    """Every JSON path in a step that indexes an API list answer by position (`$.items[3].name`).
+    `$[0]` and `$.rows[0]` read a database answer, not an API list, and are not this rule."""
+    found = []
+    if isinstance(value, str):
+        found.extend(POSITIONAL.findall(value))
+    elif isinstance(value, dict):
+        for key, sub in value.items():
+            found.extend(positional_reads(key))
+            found.extend(positional_reads(sub))
+    elif isinstance(value, list):
+        for sub in value:
+            found.extend(positional_reads(sub))
+    return found
+
+
+def check_positional(step, where, problems):
+    """No positional index into a list that can grow: assert by name/key (`$.items[?name=x].field`).
+
+    A list that is sorted by contract, or holds exactly one row by its own filter, is exempted by the step key
+    `positional_ok` with the reason as text (T-3105: a catalogue grew and moved `$.items[12]`)."""
+    reads = positional_reads({k: v for k, v in step.items() if k != "positional_ok"})
+    if not reads:
+        return
+    reason = step.get("positional_ok")
+    if isinstance(reason, str) and reason.strip():
+        return
+    problems.append(f"{where}positional index {reads[0]!r}: assert by name/key ($.items[?name=x].field), "
+                    "or give the step a positional_ok reason (a list sorted by contract or filtered to one row)")
+
+
 def check_wait_mail(step, where, problems):
     """The wait_mail step (G18): a recipient, a subject and a time the runner can read.
 
@@ -376,6 +410,7 @@ def check_process(doc, name, roles, routes, available, strict, problems, in_chai
                            platform_route=step.get("platform_route") is True)
             if "wait_mail" in (step.get("do") or {}):
                 check_wait_mail(step, where(sid), problems)
+            check_positional(step, where(sid), problems)
             defined |= saves(step)
     outputs = doc.get("outputs") or {}
     for out_name, expr in outputs.items():

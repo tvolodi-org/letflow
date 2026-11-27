@@ -44,6 +44,7 @@ FUNCTIONS = [
     "tenant.reactivate",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
+    "tenant.set_script_policy",
     "tenant.suspend",
     "tenant.validate",
 ]
@@ -65,10 +66,21 @@ def registry():
     return {"items": [{"name": n, "inputs": [{"name": "x"}], "outputs": [{"name": "y"}]} for n in FUNCTIONS]}
 
 
+# the compiled template catalogue of today (Letflow.NotificationTemplates.Registry)
+TEMPLATES = {
+    "asset_expiry_reminder": ["asset_name", "asset_code", "expiry_date", "responsible_name", "tenant_name"],
+    "exam_assigned": ["exam_title", "candidate_name", "deadline", "tenant_name"],
+    "exam_reminder": ["exam_title", "candidate_name", "deadline", "tenant_name"],
+    "exam_result": ["exam_title", "candidate_name", "result_status", "score_percent", "tenant_name"],
+    "password_reset_hint": ["user_name", "tenant_name"],
+    "problem_report_status": ["user_name", "report_number", "status_text", "reply_text", "tenant_name"],
+    "task_assigned": ["task_name", "process_name", "assignee_name", "due_date", "tenant_name"],
+    "tenant_registered": ["tenant_name", "tenant_slug", "registered_by"],
+}
+
+
 def templates():
-    keys = ["asset_expiry_reminder", "exam_assigned", "exam_reminder", "exam_result", "password_reset_hint",
-            "problem_report_status", "task_assigned", "tenant_registered"]
-    return {"items": [{"template_key": k, "placeholders": ["tenant_name", "tenant_slug", "registered_by"]} for k in keys]}
+    return {"items": [{"template_key": k, "placeholders": list(v)} for k, v in sorted(TEMPLATES.items())]}
 
 
 class StepA(unittest.TestCase):
@@ -132,8 +144,34 @@ class StepA(unittest.TestCase):
         self.assertFalse(self.verdict("A3a", {"items": []}))
         self.assertFalse(self.verdict("A3b", {"items": []}))
         t = templates()
-        t["items"][7]["placeholders"] = []
+        for item in t["items"]:
+            if item["template_key"] == "tenant_registered":
+                item["placeholders"] = []
         self.assertFalse(self.verdict("A3b", t))
+
+    def test_a3a_names_the_functions_of_the_graph_and_not_a_position(self):
+        """T-3105: the catalogue is compiled and grows; an assertion by position goes red for
+        a reason that has nothing to do with the scenario (a new entry shifts every index)."""
+        catalogue = registry()
+        self.assertEqual(14, len(catalogue["items"]))  # the compiled catalogue of today
+        self.assertTrue(self.verdict("A3a", catalogue))
+        # the order of the catalogue is no part of the answer
+        self.assertTrue(self.verdict("A3a", {"items": list(reversed(catalogue["items"]))}))
+        # a catalogue without a function the graph calls is a defect
+        without = {"items": [i for i in catalogue["items"] if i["name"] != "tenant.validate"]}
+        self.assertFalse(self.verdict("A3a", without))
+        # a function without inputs is a defect too
+        no_inputs = {"items": [dict(i, inputs=[]) if i["name"] == "tenant.bind_realm" else i
+                                for i in catalogue["items"]]}
+        self.assertFalse(self.verdict("A3a", no_inputs))
+
+    def test_a3b_names_the_template_key_and_not_a_position(self):
+        """T-3105: the template catalogue is compiled too and grows the same way."""
+        catalogue = templates()
+        self.assertTrue(self.verdict("A3b", catalogue))
+        self.assertTrue(self.verdict("A3b", {"items": list(reversed(catalogue["items"]))}))
+        without = {"items": [i for i in catalogue["items"] if i["template_key"] != "tenant_registered"]}
+        self.assertFalse(self.verdict("A3b", without))
 
 
 class StepsBToH(unittest.TestCase):

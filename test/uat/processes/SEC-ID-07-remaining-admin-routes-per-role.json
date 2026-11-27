@@ -38,6 +38,7 @@
     },
     {
       "id": "s4",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "admin",
       "do": {"api": "GET", "path": "/api/v1/identity/roles"},
       "expect": {"status": 200},
@@ -119,7 +120,7 @@
       "id": "s17",
       "actor": "admin",
       "do": {"api": "GET", "path": "/api/v1/identity/roles"},
-      "expect": {"status": 200, "json": {"$.items[0].id": "${first_role_before}"}}
+      "expect": {"status": 200, "json": {"$.items[?id=${first_role_before}]": {"exists": true}}}
     }
   ],
   "outputs": {},

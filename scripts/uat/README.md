@@ -113,6 +113,12 @@ Remember the id of the document as `doc_id`."*
     with a value that is not null.
   * T-3107: `exists` used to mean only "the path was found", so a null passed. The audit of every `exists` in
     `test/uat/processes` and the fix are in `docs/uat/exists-matcher-audit.md`.
+  A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the first item whose
+  `name` is `tenant.validate` (several fields at once: `$.items[?definition_name=x&node_id=y]`). Name the item
+  of a list the server owns (a compiled catalogue): an assertion by position goes red when the server adds
+  an entry, for a reason that has nothing to do with the scenario (T-3105).
+  `check_processes.py` refuses `$.items[<number>]` in a step (T-3105). A list sorted by contract, or filtered to the
+  rows of this run, is exempted by the step key `"positional_ok": "<reason>"`; the reason is required.
 * `save`: remember something from the answer: `"doc_id": "$.id"`. `{"pick": "$.rows[0].quantity", "default": "0"}`
   remembers the first balance row or `0` when there is none. `{"api": "GET", "path": "...", "pick": "$.x"}` reads
   something else as the same actor and remembers it.

@@ -375,11 +375,18 @@ def terminal_instance(body) -> bool:
 
 # -- JSON path and assertions -------------------------------------------------------------------
 
-_PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]")
+_PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]|\[\?([^\]]+)\]")
 
 
 def json_path(doc, path: str):
-    """`$.a.b[0].c` -> (found, value). `$` is the whole document."""
+    """`$.a.b[0].c` -> (found, value). `$` is the whole document.
+
+    A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the
+    first item whose `name` is `tenant.validate` (T-3105). An assertion by position breaks
+    when the server owns the list and adds to it: a new catalogue entry shifts every index
+    after it, and the scenario goes red for a reason that has nothing to do with it. Several
+    fields may be named at once (`[?definition_name=x&node_id=y]`): the item must match all
+    of them."""
     if not path.startswith("$"):
         raise RunnerError(f"path {path!r} must start with $")
     rest = path[1:]
@@ -390,8 +397,12 @@ def json_path(doc, path: str):
         if not match:
             raise RunnerError(f"path {path!r}: cannot read {rest[pos:]!r}")
         pos = match.end()
-        key, index, quoted = match.groups()
-        if index is not None:
+        key, index, quoted, selector = match.groups()
+        if selector is not None:
+            cur = item_by_field(cur, parse_selector(selector))
+            if cur is None:
+                return False, None
+        elif index is not None:
             if not isinstance(cur, list) or int(index) >= len(cur):
                 return False, None
             cur = cur[int(index)]
@@ -401,6 +412,40 @@ def json_path(doc, path: str):
                 return False, None
             cur = cur[key]
     return True, cur
+
+
+def parse_selector(selector: str):
+    """`name=tenant.validate&node_id=work` -> [("name", "tenant.validate"), ("node_id", "work")]."""
+    pairs = []
+    for part in selector.split("&"):
+        field, _, value = part.partition("=")
+        if not field or not value:
+            raise RunnerError(f"path selector {selector!r} must read like name=tenant.validate")
+        pairs.append((field, value))
+    return pairs
+
+
+def item_by_field(items, pairs):
+    """The first item of a list whose fields are the wanted pairs (T-3105), or None.
+
+    The text of the path is a string, so a number of the answer compares as a number."""
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if all(field_matches(item.get(field), value) for field, value in pairs):
+            return item
+    return None
+
+
+def field_matches(value, wanted) -> bool:
+    """The value of the field is the wanted text (a number of the answer compares as a number)."""
+    if value is None:
+        return False
+    if value == wanted:
+        return True
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and values_equal(value, wanted)
 
 
 def numbers_equal(actual, expected):
@@ -544,7 +589,8 @@ def set_assertions(expect: dict, body) -> list:
 def run_assertions(expect: dict, status: int, body, text=None, mask=False) -> list:
     """expect = {status: 200 | [200, 201], json: {"$.a.b": matcher, "key": matcher}} or
     {refused: {status, code}} (the expect_refused sugar). mask: a step that handles a secret
-    never shows an actual value."""
+    never shows an actual value. A path names a list item with `$.items[?name=x]` (T-3105):
+    the assertion then holds whatever the order of the list is."""
     if "refused" in expect:
         return refused_results(expect["refused"], status, body, text)
     results = []
