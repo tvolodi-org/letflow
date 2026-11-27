@@ -605,7 +605,12 @@ defmodule Letflow.Routers.Definitions do
     with {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       q = Map.get(query, "q") || ""
-      params = %{cursor: Map.get(query, "cursor"), page_size: page_size}
+
+      params = %{
+        cursor: Map.get(query, "cursor"),
+        page_size: page_size,
+        status: parse_status(Map.get(query, "status"))
+      }
 
       render_search_result(conn, Definitions.search_paginated(q, params, opts))
     else
