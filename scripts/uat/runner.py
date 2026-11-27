@@ -340,6 +340,39 @@ def wait_time_ok(value) -> bool:
         return False
 
 
+# The statuses an instance never leaves on its own: `Letflow.EventStore.InstanceProjection.terminal?/1`
+# names exactly COMPLETED and CANCELLED (R-Co's event-store invariant 10 -- an :error instance is NOT
+# terminal, a dead-letter retry can still move it).
+TERMINAL_INSTANCE_STATUSES = ("COMPLETED", "CANCELLED")
+
+
+def is_instance_item(item) -> bool:
+    """An instance as the API renders it: the list item carries instance_id, definition_id and started_at.
+    A TASK item carries an instance_id too, but no definition_id -- so this tells the two apart without
+    guessing from the endpoint."""
+    return (isinstance(item, dict)
+            and isinstance(item.get("instance_id"), str)
+            and isinstance(item.get("definition_id"), str)
+            and isinstance(item.get("started_at"), str))
+
+
+def terminal_instance(body) -> bool:
+    """True when the answer carries exactly ONE instance and that instance is terminal: its answer will not
+    change any more, so a poll that reads it is not asked again (T-3052).
+
+    A page of SEVERAL instances is not a terminal answer: the step may be waiting for one of the others to
+    appear, and the list is sorted by started_at DESC -- the newest first, so the one the step waits for is
+    the one that lands first."""
+    if not isinstance(body, dict):
+        return False
+    if is_instance_item(body):
+        return body.get("status") in TERMINAL_INSTANCE_STATUSES
+    items = body.get("items")
+    if isinstance(items, list) and len(items) == 1 and is_instance_item(items[0]):
+        return items[0].get("status") in TERMINAL_INSTANCE_STATUSES
+    return False
+
+
 # -- JSON path and assertions -------------------------------------------------------------------
 
 _PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]")
@@ -1671,13 +1704,19 @@ class Runner:
     def _poll_call(self, step, do, role, spec, http_as, info, record, extra=None):
         """A GET step with `poll`: the same read again until its `expect` holds or `within_s` ran out (the engine
         runs the steps of an instance after the start answer, so a read right after it cannot be final). The last
-        answer is the one the step is judged on; `polls` says how often the read ran."""
+        answer is the one the step is judged on; `polls` says how often the read ran.
+
+        A read of a TERMINAL instance stops the loop (T-3052): that instance will not change any more, so the
+        window is not waited out -- a step whose expectation can never hold fails on the answer it already has
+        instead of burning its whole window."""
         conf = substitute(step["poll"], self.ctx)
         within = self._wait_time(conf, "within_s", 60)
         interval = self.poll_interval if self.poll_interval is not None else self._wait_time(conf, "interval_s", 2)
         deadline = time.monotonic() + within
         polls = 1
         while not all(r["ok"] for r in self._assert_calls(step, do, [info["result"]], False)):
+            if terminal_instance(info["result"][1]):
+                break
             if time.monotonic() >= deadline:
                 break
             time.sleep(interval)
