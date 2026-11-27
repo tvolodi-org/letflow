@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup, fireEvent } from '@testing-library/react'
+import { screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 expect.extend(jestDomMatchers)
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ vi.mock('@/api/definitions', () => ({
 }))
 
 import { useAuth } from '@/auth/AuthContext'
-import { useDefinitions, useCreateDefinition } from '@/hooks/useDefinitions'
+import { useDefinitions, useCreateDefinition, useDefinitionSearch } from '@/hooks/useDefinitions'
 import DefinitionListPage from '@/pages/definitions/DefinitionListPage'
 import { renderWithAccess } from '@/auth/access/testing'
 
@@ -232,6 +232,39 @@ describe('DefinitionListPage — friendly names (T-1511)', () => {
     expect(screen.getByTestId('def-key-def-wo')).toHaveTextContent('assets_writeoff')
     expect(screen.getByTestId(`def-name-${ACTIVE_DEF.id}`)).toHaveTextContent('approvals')
     expect(screen.queryByTestId(`def-key-${ACTIVE_DEF.id}`)).toBeNull()
+  })
+})
+
+describe('T-3161 search combined with the status filter', () => {
+  it('passes the chosen status to the search, so the word + status gives the active row', async () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    fireEvent.change(screen.getByTestId('status-filter-select'), { target: { value: 'ACTIVE' } })
+    fireEvent.change(screen.getByTestId('definition-search'), { target: { value: 'register' } })
+    await waitFor(() =>
+      expect(vi.mocked(useDefinitionSearch)).toHaveBeenCalledWith(
+        'register',
+        expect.objectContaining({ status: 'ACTIVE' }),
+      ),
+    )
+  })
+})
+
+describe('T-3161 rendered row', () => {
+  it('shows the active row the search answers for word + status Active', async () => {
+    mockAuth()
+    mockDefinitions([])
+    vi.mocked(useDefinitionSearch).mockImplementation(
+      (q: string, o?: { status?: string }) =>
+        (q === 'register' && o?.status === 'ACTIVE'
+          ? { data: { items: [{ definition: ACTIVE_DEF, rank: 1 }] }, isLoading: false, isFetching: false }
+          : { data: undefined, isLoading: false, isFetching: false }) as unknown as ReturnType<typeof useDefinitionSearch>,
+    )
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    fireEvent.change(screen.getByTestId('status-filter-select'), { target: { value: 'ACTIVE' } })
+    fireEvent.change(screen.getByTestId('definition-search'), { target: { value: 'register' } })
+    expect(await screen.findByTestId(`open-process-${ACTIVE_DEF.id}`)).toBeInTheDocument()
   })
 })
 

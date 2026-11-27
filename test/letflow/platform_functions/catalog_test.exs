@@ -41,6 +41,7 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.validate",
     "tenant.create",
     "tenant.provision",
+    "tenant.provision_realm_and_invite",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
     "tenant.bind_realm",

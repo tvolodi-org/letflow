@@ -30,7 +30,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    mem_limit: 2560m
+    mem_limit: 3584m
     restart: unless-stopped
 networks:
   # Owned by infra (tenant-provisioner-qa); the app reaches the provisioner on it (T-2780).
