@@ -1,14 +1,12 @@
 {
   "id": "BP-PLATFORM-02-self-service-signup",
   "bp_entry": "BP-PLATFORM-02",
-  "title": "Self-service sign-up: a stranger asks for a workspace, with no manual or infra step",
-  "description": "The owner's acceptance scenario (T-2749, G10b, acceptance map item 11 'self-service demo tenant'). The runner calls the PUBLIC sign-up routes without a token (actor 'anonymous'), with a throwaway address in the mail trap (Mailpit) and a uat-tmp-* company name. Part 1 (this file, runs on today's build): S1 the sign-up is switched on and its config is public; S2 a request without accepted terms is refused 422 invalid_request naming terms_accepted; S3 a request with a malformed address is refused 422; S4 a good request is answered 202 check_your_mail; S5 the verification mail reaches the trap (wait_mail: the body and the token never reach the log). Part 2 (see later_steps) needs the sign-up fields slug, user name and password of T-2748 and the one-time provisioner wiring on QA: until they exist the whole file is blocked_by them and the runner reports it as NOT RUN, never as a pass and never as a failure. D-195: the scenario goes from the sign-up to a signed-in tenant admin with no step that waits for a human; a step that does is a defect and a red scenario, named in the verdict line. No qoimeks-qa or qoimeks-client1-qa tenant is touched. The verification link is opened by the SPA page, so the runner does not read the body of the mail. Part 2 is executable: S6 posts the full sign-up (company name, user name, password from the input signup_password, slug uat-tmp-<run_id>) and expects 202 with the tenant URL; a closed refusal such as demo_cap_reached (409 limit, the cap reached) fails S6 and the verdict line names it (the cap is never filled on purpose; the regression test drives S6 with that answer). S7 the platform administrator reads the registry entry and expects status active with no human step (D-195). S8 slug taken and S9 reserved slug are refused. S10 signs in as the NEW tenant admin (password grant in the new realm uat-tmp-<run_id>; the token is a secret, never logged) and S11 reads GET /api/v1/me/access with that token and expects the role TENANT_ADMIN. The cleanup deactivates ONLY the tenant uat-tmp-<run_id> and always runs (200 or 404 when the sign-up made nothing), so a sign-up that created the tenant but failed an assertion is still reconciled; the platform residue check (actor admin on the platform tenant) fails the run on a leftover active uat-tmp-* tenant. Removing blocked_by is an acceptance line of T-2748 / T-2728 and the provisioner wiring: the task that builds the last piece removes it. The realm is read from the registry entry (idp_realm_id), never derived from the slug.",
-  "later_steps": [
-    "L5b: purge of the tenant after the deactivation, only when T-2747 exists"
-  ],
+  "title": "Self-service sign-up (route 4): sign-up, first credential mail, forced password change, first sign-in, one stock call, cleanup",
+  "description": "T-3152, route 4 of the tenant-creation routes (PM 27 Nov, item 11). Route 3 needs an existing realm; the sign-up creates it and mails the first credential (signup/provisioning.ex send_credential -> Messages.first_credential). Expectations come from the code: the sign-up form takes no password (config password_required=false; the interim is a mailed temporary password), POST /api/signup answers 202 check_your_mail and nothing else, the tenant is made only after POST /api/signup/verify with the token of the verification mail, and the first-credential mail (subject 'Your workspace account') carries the temporary password and the forced change at first sign-in. The runner address is uat-tmp-<run_id>@uat.letflow.internal (mail trap); synthetic names only; no qoimeks tenant is touched. S1-S5 and S11 run today (S1 is RED when the sign-up is switched off, as on QA on 2026-11-26: 'sign-up not enabled'). S6-S10 are blocked_by the one step the runner cannot do (take the token of the verification mail and open the link; owner: operator, a runner task); each reports NOT RUN, never a pass. The cleanup deactivates and then purges only the tenant uat-tmp-<run_id> (200, or 404 when nothing was made); the platform residue check fails the run on a leftover active uat-tmp-* tenant. The file is NOT in test/uat/pilot-scenarios.txt until it is green on QA.",
+  "later_steps": [],
   "tenant": "${tenant}",
   "inputs": [
-    "signup_password"
+    "verify_token"
   ],
   "dry_run": {
     "tenant": "bpm-default",
@@ -20,9 +18,8 @@
       }
     },
     "inputs": {
-      "signup_password": "<set by the starter at run time>"
-    },
-    "blocked_by": "T-2748 (sign-up screens and fields), T-2728 (platform routes 3/4) and the QA provisioner wiring (infra draft, owner's go): the task that builds the last piece removes this marker and the scenario goes green in the same PR"
+      "verify_token": "<taken from the verification mail by the runner step that does not exist yet>"
+    }
   },
   "outputs": {},
   "steps": [
@@ -53,7 +50,7 @@
         "path": "/api/signup",
         "body": {
           "company_name": "uat-tmp-${run_id}",
-          "email": "uat-tmp-${run_id}@example.test",
+          "email": "uat-tmp-${run_id}@uat.letflow.internal",
           "language": "en",
           "terms_accepted": false
         }
@@ -91,7 +88,7 @@
         "path": "/api/signup",
         "body": {
           "company_name": "uat-tmp-${run_id}",
-          "email": "uat-tmp-${run_id}@example.test",
+          "email": "uat-tmp-${run_id}@uat.letflow.internal",
           "language": "en",
           "terms_accepted": true
         }
@@ -109,7 +106,7 @@
       "says": "The verification mail reaches the throwaway address in the mail trap, with no human step. Only recipient, subject and message id are read.",
       "do": {
         "wait_mail": {
-          "recipient": "uat-tmp-${run_id}@example.test",
+          "recipient": "uat-tmp-${run_id}@uat.letflow.internal",
           "subject": "Confirm your e-mail address",
           "within_s": 60,
           "interval_s": 2
@@ -123,41 +120,37 @@
     {
       "id": "S6",
       "actor": "anonymous",
-      "says": "The full sign-up: company name, user name, password, desired slug. Answered 202 with the tenant URL of the new workspace. A red here, once unblocked, means the build lacks the sign-up fields (T-2748) or the provisioner is not configured.",
+      "blocked_by": "owner: operator (runner task): no runner step takes the token out of the verification mail and POSTs /api/signup/verify (wait_mail never reads a body; the SPA page does it for a person). Until it exists the tenant is never created and every step after the mail is NOT RUN, never a pass",
+      "says": "Open the verification link: POST /api/signup/verify with the token of the mail (routers/signup.ex 'verify': 200 verified, 400 invalid_or_expired_link, 409 slug_taken). Verifying starts the tenant creation (Provisioning.start_async) with the slug as host label.",
       "do": {
         "api": "POST",
-        "path": "/api/signup",
+        "path": "/api/signup/verify",
         "body": {
-          "company_name": "uat-tmp-${run_id}",
-          "user_name": "uat-tmp-admin",
-          "email": "uat-tmp-${run_id}@example.test",
-          "password": "${signup_password}",
-          "slug": "uat-tmp-${run_id}",
-          "language": "en",
-          "terms_accepted": true
+          "token": "${verify_token}"
         }
       },
       "expect": {
-        "status": 202,
+        "status": 200,
         "json": {
-          "$.status": "check_your_mail",
-          "$.tenant_url": {
-            "regex": "uat-tmp-"
-          }
+          "$.status": "verified"
         }
       },
       "save": {
-        "signup_made": "yes",
-        "tenant_url": "$.tenant_url"
+        "signup_made": "yes"
       }
     },
     {
       "id": "S7",
       "actor": "admin",
-      "says": "With no human step the new tenant exists and is active (the platform administrator reads the registry entry). D-195: if it waits for a person it is RED.",
+      "blocked_by": "owner: operator (runner task): no runner step takes the token out of the verification mail and POSTs /api/signup/verify (wait_mail never reads a body; the SPA page does it for a person). Until it exists the tenant is never created and every step after the mail is NOT RUN, never a pass",
+      "says": "With no human step the new tenant becomes active (the provisioner makes the realm and the tenant after the verification; the read repeats until it holds). D-195: if it waits for a person it is RED. The realm is read from the registry, never derived from the slug.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/uat-tmp-${run_id}"
+      },
+      "poll": {
+        "within_s": 120,
+        "interval_s": 5
       },
       "expect": {
         "status": 200,
@@ -175,56 +168,16 @@
     {
       "id": "S8",
       "actor": "anonymous",
-      "says": "The slug is taken: a second sign-up for the same slug is refused with the code slug_taken.",
+      "blocked_by": "owner: operator (runner task): no runner step takes the token out of the verification mail and POSTs /api/signup/verify (wait_mail never reads a body; the SPA page does it for a person). Until it exists the tenant is never created and every step after the mail is NOT RUN, never a pass",
+      "says": "The first administrator signs in with the temporary password of the first-credential mail (subject 'Your workspace account'; only the runner reads the body, in memory, never in the log), does the forced password change at the identity provider with a password made in memory, and takes the token of the new realm.",
       "do": {
-        "api": "POST",
-        "path": "/api/signup",
-        "body": {
-          "company_name": "uat-tmp-${run_id}",
-          "user_name": "uat-tmp-admin",
-          "email": "uat-tmp-2-${run_id}@example.test",
-          "password": "${signup_password}",
-          "slug": "uat-tmp-${run_id}",
-          "language": "en",
-          "terms_accepted": true
-        }
-      },
-      "expect_refused": "slug_taken",
-      "requires": [
-        "signup_made"
-      ]
-    },
-    {
-      "id": "S9",
-      "actor": "anonymous",
-      "says": "A reserved word as the slug is refused 422.",
-      "do": {
-        "api": "POST",
-        "path": "/api/signup",
-        "body": {
-          "company_name": "uat-tmp-${run_id}",
-          "user_name": "uat-tmp-admin",
-          "email": "uat-tmp-3-${run_id}@example.test",
-          "password": "${signup_password}",
-          "slug": "admin",
-          "language": "en",
-          "terms_accepted": true
-        }
-      },
-      "expect_refused": {
-        "status": 422,
-        "code": "invalid_request"
-      }
-    },
-    {
-      "id": "S10",
-      "actor": "anonymous",
-      "says": "Sign in as the NEW tenant admin in the realm the registry names (the provisioner issues it, it is not the slug), with the password given at sign-up and no step by a person (D-195). No token in the log.",
-      "do": {
-        "login": {
+        "first_signin": {
           "realm": "${tenant_realm}",
-          "username": "uat-tmp-admin",
-          "password": "${signup_password}"
+          "recipient": "uat-tmp-${run_id}@uat.letflow.internal",
+          "subject": "Your workspace account",
+          "within_s": 120,
+          "interval_s": 3,
+          "as": "new_admin"
         }
       },
       "expect": {
@@ -239,10 +192,10 @@
       ]
     },
     {
-      "id": "S11",
+      "id": "S9",
       "actor": "anonymous",
-      "bearer": "session",
-      "bearer_base": "tenant_url",
+      "bearer": "new_admin",
+      "blocked_by": "owner: operator (runner task): no runner step takes the token out of the verification mail and POSTs /api/signup/verify (wait_mail never reads a body; the SPA page does it for a person). Until it exists the tenant is never created and every step after the mail is NOT RUN, never a pass",
       "says": "The tenant opens for its new administrator: the access list answers 200 with the role TENANT_ADMIN.",
       "do": {
         "api": "GET",
@@ -257,8 +210,47 @@
         }
       },
       "requires": [
-        "signup_made"
+        "signup_made",
+        "tenant_realm"
       ]
+    },
+    {
+      "id": "S10",
+      "actor": "anonymous",
+      "bearer": "new_admin",
+      "blocked_by": "owner: operator (runner task): no runner step takes the token out of the verification mail and POSTs /api/signup/verify (wait_mail never reads a body; the SPA page does it for a person). Until it exists the tenant is never created and every step after the mail is NOT RUN, never a pass",
+      "says": "ONE stock call as that admin: the stock document list answers 200, which proves the new tenant is runnable. A 404 means the sign-up path installs no stock module: a finding of the first red run.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/modules/stock/documents"
+      },
+      "expect": {
+        "status": 200
+      },
+      "requires": [
+        "signup_made",
+        "tenant_realm"
+      ]
+    },
+    {
+      "id": "S11",
+      "actor": "anonymous",
+      "says": "A reserved word as the slug is refused 422 (slug_taken is only answered at verification; a repeated sign-up is accepted neutrally).",
+      "do": {
+        "api": "POST",
+        "path": "/api/signup",
+        "body": {
+          "company_name": "uat-tmp-${run_id}",
+          "email": "uat-tmp-r-${run_id}@uat.letflow.internal",
+          "slug": "admin",
+          "language": "en",
+          "terms_accepted": true
+        }
+      },
+      "expect_refused": {
+        "status": 422,
+        "code": "invalid_request"
+      }
     }
   ],
   "cleanup": [
@@ -274,6 +266,22 @@
         "status": [
           200,
           404
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "actor": "admin",
+      "says": "Purge the throwaway tenant after its deactivation (200), or nothing to purge (404).",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/uat-tmp-${run_id}/purge"
+      },
+      "expect": {
+        "status": [
+          200,
+          404,
+          409
         ]
       }
     }
