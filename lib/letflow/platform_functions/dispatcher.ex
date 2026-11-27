@@ -242,6 +242,7 @@ defmodule Letflow.PlatformFunctions.Dispatcher do
     platform_call_reactivate_failed
     platform_call_realm_already_bound
     platform_call_realm_bind_failed
+    platform_call_script_policy_failed
     platform_call_signature_invalid
     platform_call_suspend_failed
     platform_call_tenant_create_failed

@@ -84,9 +84,11 @@ defmodule Letflow.Instances do
   `#{inspect(@valid_statuses)}` -- validated before any query runs, never
   passed through to an `Ecto.Enum` cast failure.
 
-  Filters: `status`, `definition_id`, `correlation_key`, `started_after`/
-  `started_before` (a Letflow addition beyond the original filter set of
-  `status`/`definition_id` -- see the design doc). Sorted
+  Filters: `status`, `definition_id`, `correlation_key`, `parent_instance_id`
+  (the sub-process children of one parent instance -- REQ-062's durable
+  child->parent link, `instance_projections.parent_instance_id`),
+  `started_after`/`started_before` (a Letflow addition beyond the original
+  filter set of `status`/`definition_id` -- see the design doc). Sorted
   `started_at` DESC, `instance_id` DESC (keyset pagination), same shape as
   `Letflow.Tasks.list_tasks/2`'s `(inserted_at, id)` cursor key.
   """
@@ -105,6 +107,7 @@ defmodule Letflow.Instances do
         |> filter_by_status(Map.get(params, :status))
         |> filter_by_definition_id(Map.get(params, :definition_id))
         |> filter_by_correlation_key(Map.get(params, :correlation_key))
+        |> filter_by_parent_instance_id(Map.get(params, :parent_instance_id))
         |> filter_by_started_after(Map.get(params, :started_after))
         |> filter_by_started_before(Map.get(params, :started_before))
         |> filter_by_list_cursor(cursor_seek)
@@ -516,6 +519,17 @@ defmodule Letflow.Instances do
 
   defp filter_by_correlation_key(query, correlation_key) do
     from(p in query, where: p.correlation_key == ^correlation_key)
+  end
+
+  # The sub-process children of one parent instance. The column is written
+  # only by `Letflow.Engine.SubProcess` (a child instance), so a root
+  # instance's id matches nothing -- an empty page, the same answer an
+  # unknown id gets (INV-5: no existence oracle). The query runs in the
+  # tenant's own schema, so a parent of another tenant matches nothing too.
+  defp filter_by_parent_instance_id(query, nil), do: query
+
+  defp filter_by_parent_instance_id(query, parent_instance_id) do
+    from(p in query, where: p.parent_instance_id == ^parent_instance_id)
   end
 
   defp filter_by_started_after(query, nil), do: query

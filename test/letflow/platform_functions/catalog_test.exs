@@ -43,7 +43,8 @@ defmodule Letflow.PlatformFunctions.CatalogTest do
     "tenant.notify_admin",
     "tenant.suspend",
     "tenant.reactivate",
-    "tenant.purge"
+    "tenant.purge",
+    "tenant.set_script_policy"
   ]
 
   @entry_map_keys [

@@ -103,7 +103,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       :error
     end
   rescue
-    _error -> :error
+    error ->
+      log_refusal(:rescued, prefix, name, "exception=#{inspect(error.__struct__)}")
+      :error
   end
 
   defp ensure_locked(prefix, name, activator) do
@@ -119,7 +121,12 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
     case Enum.find(rows, &(&1.status == :active)) do
       %ProcessDefinition{} = active ->
-        if stock_stamped?(active), do: :ok, else: Repo.rollback(:foreign_definition)
+        if stock_stamped?(active) do
+          :ok
+        else
+          log_refusal(:foreign, prefix, name, row_facts(active))
+          Repo.rollback(:foreign_definition)
+        end
 
       nil ->
         with [draft | _] <- rows,
@@ -135,9 +142,35 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
             Repo.rollback(:activation_refused)
 
           _refused ->
+            log_not_activated(rows, prefix, name)
             Repo.rollback(:activation_refused)
         end
     end
+  end
+
+  defp log_not_activated([], prefix, name),
+    do: log_refusal(:no_row, prefix, name, "rows=0")
+
+  defp log_not_activated([newest | _] = rows, prefix, name) do
+    reason = if Enum.all?(rows, &stock_stamped?/1), do: :not_activatable, else: :foreign
+    log_refusal(reason, prefix, name, row_facts(newest))
+  end
+
+  # Ids, statuses and stamp owner only: no document content, user data or secret (QueryLogFilter rule).
+  defp row_facts(row) do
+    owner =
+      case OwnerStamp.from_row(row) do
+        {:ok, %{module_id: module_id}} -> module_id
+        _ -> "none"
+      end
+
+    "newest_status=#{row.status} activated=#{row.status == :active} owner_stamp=#{owner}"
+  end
+
+  defp log_refusal(reason, prefix, name, facts) do
+    Logger.warning(
+      "stock definition_not_active reason=#{reason} definition=#{name} tenant=#{prefix} #{facts}"
+    )
   end
 
   defp activation_authority(prefix, activator) do
