@@ -149,6 +149,10 @@ write_target | tenant.record_lifecycle:requested_tenant_id | write_target=refuse
 write_target | tenant.record_lifecycle:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.record_onboarding:hostname | write_target=refused write_target_exception=allowed
 write_target | tenant.record_onboarding:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.set_script_policy:reason | write_target=refused write_target_exception=allowed
+write_target | tenant.set_script_policy:setting | write_target=refused write_target_exception=allowed
+write_target | tenant.set_script_policy:tenant_id | write_target=refused write_target_exception=allowed
+write_target | tenant.set_script_policy:value | write_target=refused write_target_exception=allowed
 write_target | tenant.suspend:request_id | write_target=refused write_target_exception=allowed
 write_target | tenant.suspend:slug | write_target=refused write_target_exception=allowed
 write_target | tenant.validate:name | write_target=refused write_target_exception=allowed
