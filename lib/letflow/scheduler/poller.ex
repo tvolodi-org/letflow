@@ -78,10 +78,11 @@ defmodule Letflow.Scheduler.Poller do
 
   Two concurrency-bound classes (design §3):
 
-    * The six Admission-gated sweeps (poll-and-fire, retention, alert
-      detection, ordering cycle/sweeper/metrics) use
-      `Letflow.Admission.global_cap/0`'s LIVE return value, read fresh inside
-      `run_sweep/4` every tick, never cached or hoisted -- exactly the same
+    * The Admission-gated sweeps (poll-and-fire, retention, alert
+      detection, ordering cycle/sweeper/metrics) use `sweep_concurrency/0`
+      (T-3055: `min(4, cap div 4)` by default, never above `cap - reserve`),
+      which derives from `Letflow.Admission.global_cap/0`'s LIVE return value,
+      read fresh at every call site every tick, never cached or hoisted -- exactly the same
       "read the real accessor live" convention `maybe_refresh_active_instances/1`
       already uses for `reserved_headroom/0` below (design §3a/§3c, corrected
       per `handoffs/WF03-ISS0421-20260904/step-04-reviewer.json`: a hardcoded
@@ -177,8 +178,8 @@ defmodule Letflow.Scheduler.Poller do
   every tick from `Application.get_env(:letflow, :deadline_sweep, [])`, never
   cached in `state`, exactly like every other config-gated sweep here
   (`:ordering`, `:alert_hooks`). Each configured rule runs as its own
-  `run_sweep/4` call, bounded by the same live `Admission.global_cap/0` value
-  read inside `maybe_run_deadline_sweep/1` on every call, and wrapped in
+  `run_sweep/4` call, bounded by `sweep_concurrency/0` (derived from the live
+  `Admission.global_cap/0`) read inside `maybe_run_deadline_sweep/1` on every call, and wrapped in
   `with_admission/3` plus an inline `try/rescue -> :ok`, matching
   `maybe_run_ordering_cycle/1`'s exact shape -- one tenant raising does not
   stop the sweep for the others. This module carries no vertical-specific
@@ -255,6 +256,11 @@ defmodule Letflow.Scheduler.Poller do
 
   @impl true
   def init(state) do
+    Logger.info(
+      "scheduler sweep concurrency bound: sweep_concurrency=#{sweep_concurrency()} " <>
+        "global_cap=#{Admission.global_cap()}"
+    )
+
     Process.send_after(self(), :tick, 0)
     {:ok, state}
   end
@@ -281,7 +287,7 @@ defmodule Letflow.Scheduler.Poller do
     new_state =
       case fetch_tenant_schemas() do
         {:ok, schemas} ->
-          run_sweep(schemas, :poll_and_fire, Admission.global_cap(), fn schema_name ->
+          run_sweep(schemas, :poll_and_fire, sweep_concurrency(), fn schema_name ->
             try do
               with_admission(schema_name, :poll_and_fire, fn ->
                 Scheduler.poll_and_fire(schema_name)
@@ -364,6 +370,35 @@ defmodule Letflow.Scheduler.Poller do
   # responsible for its own admission/rescue handling; this helper only
   # bounds concurrency and surfaces exits that escape `fun` anyway (a
   # timeout, which no rescue inside `fun` can catch).
+  @doc """
+  T-3055: the ONE concurrency bound of every per-tenant sweep. A sweep task
+  holds one global admission unit, so passing `Admission.global_cap/0` let a
+  single tick take every unit a user request needs (QA 503 "server at
+  capacity" wave). The bound is the `:sweep_concurrency` setting of the
+  `:letflow, Letflow.Scheduler.Poller` env (default `min(4, cap div 4)`),
+  never above `cap - reserve`.
+  """
+  @spec sweep_concurrency() :: pos_integer()
+  def sweep_concurrency do
+    env = Application.get_env(:letflow, Letflow.Scheduler.Poller, [])
+    configured = if is_list(env), do: Keyword.get(env, :sweep_concurrency)
+
+    sweep_concurrency(Admission.global_cap(), configured)
+  end
+
+  @doc """
+  Pure form of `sweep_concurrency/0`. `reserve` (units always left free for
+  user requests) is half the cap, at least 1 when the cap allows it.
+  """
+  @spec sweep_concurrency(pos_integer(), pos_integer() | nil) :: pos_integer()
+  def sweep_concurrency(cap, configured) when is_integer(cap) and cap >= 1 do
+    reserve = max(1, div(cap, 2))
+    ceiling = max(1, cap - reserve)
+    default = max(1, min(4, div(cap, 4)))
+    wanted = if is_integer(configured) and configured >= 1, do: configured, else: default
+    min(wanted, ceiling)
+  end
+
   @spec run_sweep(list(String.t()), atom(), pos_integer(), (String.t() -> any())) :: :ok
   defp run_sweep(schemas, op, max_concurrency, fun) do
     schemas
@@ -412,7 +447,7 @@ defmodule Letflow.Scheduler.Poller do
   # this tick's timer-poll loop above -- not queried a second time.
   defp maybe_run_retention_sweep(schemas, state) do
     if Scheduler.retention_enabled?() and Scheduler.retention_due?(state.last_retention_run_at) do
-      run_sweep(schemas, :retention_sweep, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :retention_sweep, sweep_concurrency(), fn schema_name ->
         try do
           with_admission(schema_name, :retention_sweep, fn ->
             Scheduler.run_retention_sweep(schema_name)
@@ -437,7 +472,7 @@ defmodule Letflow.Scheduler.Poller do
   defp maybe_run_partition_maintenance(schemas, state) do
     if Scheduler.partition_maintenance_enabled?() and
          Scheduler.partition_maintenance_due?(state.last_partition_maintenance_run_at) do
-      run_sweep(schemas, :partition_maintenance, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :partition_maintenance, sweep_concurrency(), fn schema_name ->
         try do
           with_admission(schema_name, :partition_maintenance, fn ->
             Scheduler.run_partition_maintenance_sweep(schema_name)
@@ -461,7 +496,7 @@ defmodule Letflow.Scheduler.Poller do
     cfg = Application.get_env(:letflow, :alert_hooks, [])
 
     if Keyword.get(cfg, :enabled, false) do
-      run_sweep(schemas, :alert_detection, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :alert_detection, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :alert_detection, fn ->
           try do
             Alerts.build_context_and_detect(schema_name, observed_lag_ms, last_tick_started_at)
@@ -483,7 +518,7 @@ defmodule Letflow.Scheduler.Poller do
     rules = Keyword.get(cfg, :rules, [])
 
     Enum.each(rules, fn rule ->
-      run_sweep(schemas, :deadline_sweep, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :deadline_sweep, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :deadline_sweep, fn ->
           try do
             RecordDeadlineSweep.run(schema_name, rule)
@@ -500,7 +535,7 @@ defmodule Letflow.Scheduler.Poller do
   # with_admission, inline try/rescue.
   defp maybe_run_scheduled_job_sweep(schemas) do
     if ScheduledJobs.enabled?() do
-      run_sweep(schemas, :scheduled_job_sweep, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :scheduled_job_sweep, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :scheduled_job_sweep, fn ->
           try do
             ScheduledJobSweep.run(schema_name)
@@ -515,7 +550,7 @@ defmodule Letflow.Scheduler.Poller do
   # C12: asset expiry reminders. Flag read fresh each tick; off (the default) means nothing is queried.
   defp maybe_run_asset_expiry_sweep(schemas) do
     if Letflow.Modules.Catalog.asset_expiry_enabled?() do
-      run_sweep(schemas, :asset_expiry_sweep, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :asset_expiry_sweep, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :asset_expiry_sweep, fn ->
           try do
             Letflow.Modules.Catalog.asset_expiry_sweep(schema_name)
@@ -606,7 +641,7 @@ defmodule Letflow.Scheduler.Poller do
     cfg = Application.get_env(:letflow, :ordering, [])
 
     if Keyword.get(cfg, :enabled, true) do
-      run_sweep(schemas, :ordering_cycle, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :ordering_cycle, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :ordering_cycle, fn ->
           try do
             Letflow.Ordering.run_cycle(schema_name, prefix: schema_name)
@@ -623,7 +658,7 @@ defmodule Letflow.Scheduler.Poller do
     cfg = Application.get_env(:letflow, :ordering, [])
 
     if Keyword.get(cfg, :enabled, true) do
-      run_sweep(schemas, :ordering_sweeper, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :ordering_sweeper, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :ordering_sweeper, fn ->
           try do
             Letflow.Ordering.sweep_gaps(schema_name, prefix: schema_name)
@@ -640,7 +675,7 @@ defmodule Letflow.Scheduler.Poller do
     cfg = Application.get_env(:letflow, :ordering, [])
 
     if Keyword.get(cfg, :enabled, true) do
-      run_sweep(schemas, :ordering_metrics, Admission.global_cap(), fn schema_name ->
+      run_sweep(schemas, :ordering_metrics, sweep_concurrency(), fn schema_name ->
         with_admission(schema_name, :ordering_metrics, fn ->
           try do
             Letflow.Ordering.emit_lag_metrics(schema_name, prefix: schema_name)
