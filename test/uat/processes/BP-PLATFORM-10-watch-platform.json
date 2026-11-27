@@ -41,6 +41,7 @@
     },
     {
       "id": "s2",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "platform-admin",
       "says": "The platform dashboard reads the list of companies: 200 and at least the platform company itself.",
       "do": {

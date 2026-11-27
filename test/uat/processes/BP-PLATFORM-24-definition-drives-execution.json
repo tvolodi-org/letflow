@@ -306,6 +306,7 @@
     },
     {
       "id": "A5",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "1. The instance of A stops at the hold: one PENDING task of node 'hold'.",
       "do": {

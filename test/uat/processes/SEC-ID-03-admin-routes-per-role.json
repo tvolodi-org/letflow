@@ -16,6 +16,7 @@
   "steps": [
     {
       "id": "s1",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "admin",
       "do": {
         "api": "GET",
@@ -36,6 +37,7 @@
     },
     {
       "id": "s2",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "admin",
       "do": {
         "api": "GET",

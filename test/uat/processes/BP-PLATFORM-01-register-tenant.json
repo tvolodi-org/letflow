@@ -377,6 +377,7 @@
     },
     {
       "id": "C4",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "C. Fresh tenant plus module install (G14 finding): the platform.register_tenant definition (the name filter keeps a draft of any other definition out of this check) is not left as a draft; the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
       "do": {
@@ -397,6 +398,7 @@
     },
     {
       "id": "C5",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "C. The same tenant has at least one ACTIVE shipped definition (the previous step is not green by an empty install).",
       "do": {
@@ -504,6 +506,7 @@
     },
     {
       "id": "E4",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "E. The failure is in the dead-letter list of the platform tenant.",
       "do": {
