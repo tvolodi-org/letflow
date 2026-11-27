@@ -5,7 +5,7 @@
      The gate `python3 scripts/bp/bp_doc.py --check` fails when this file
      differs from the render. -->
 
-The area `platform` has 25 process(es): 18 implemented, 7 partial. Executed by: 23 direct, 0 definition, 2 n/a.
+The area `platform` has 26 process(es): 18 implemented, 8 partial. Executed by: 23 direct, 0 definition, 3 n/a.
 
 ## The processes of the area
 
@@ -36,6 +36,7 @@ The area `platform` has 25 process(es): 18 implemented, 7 partial. Executed by: 
 | BP-PLATFORM-23 | Check a certificate by its public handle (no login) | Anyone holding the one-time public handle of an issued certificate (printed or sent by the exam application, BP-EXAM) opens the public pa... | anyone (no login) | partial | direct | no | no | see report |
 | BP-PLATFORM-24 | Prove that the process definition drives execution (reordered, removed, added and re-addressed steps) | A platform administrator can trust that a platform process is executed by its stored definition and not by a fixed chain of functions in... | platform administrator | partial | n/a | yes | no | see report |
 | BP-PLATFORM-25 | The process designer without a browser: export/import round trip, instances, step log and dead-letter retry | The platform administrator's designer work that the runner can do through the API: export a definition, import the document and compare t... | platform administrator | partial | n/a | yes | no | see report |
+| BP-PLATFORM-26 | No bypass: every tenant-creating route starts an instance of platform.register_tenant | The platform administrator (and the provisioner and a sign-up visitor) can ask for a tenant through four routes. | platform administrator | partial | n/a | yes | no | see report |
 
 ## BP-PLATFORM-01 -- Register a tenant (company) directly and look it up
 
@@ -1010,6 +1011,41 @@ The platform administrator's designer work that the runner can do through the AP
 
 - D1..D4 are not run by the runner (owners: infra, the Playwright designer specs, the editor guide vitest); the failing run uses an invalid start slug, not a provisioner failure
 
+## BP-PLATFORM-26 -- No bypass: every tenant-creating route starts an instance of platform.register_tenant
+
+The platform administrator (and the provisioner and a sign-up visitor) can ask for a tenant through four routes. None of them creates the tenant itself: each starts an instance of the platform.register_tenant process and answers 202 with the instance id. The runner scenario plays routes 1 and 2 on throwaway tenants (uat-tmp-*) and marks routes 3 and 4 as blocked with an owner.
+
+**Actors and their permissions.**
+
+- `platform administrator` -- TenantsManage, InstancesStart, InstancesRead (platform tenant)
+
+**Steps.**
+
+1. **platform administrator**: call `POST /api/v1/onboarding`, `POST /api/v1/tenants`, `POST /admin/v1/tenants`, `POST /api/signup`, `GET /api/v1/instances/:id`, `GET /api/v1/instances/:id/history`, `GET /api/v1/instances/:id/timeline`, function `Letflow.PlatformProcesses.start_register_tenant`
+   Result: 202 with an instance id; the instance is of platform.register_tenant; its history opens with INSTANCE_STARTED
+
+**Refusals.**
+
+- a 201 or a tenant answered at once from any of the four routes is the direct path: a defect
+
+**Tests.**
+
+- `scripts/uat/tests/test_bp_platform_26.py`
+
+**Runner scenario.**
+
+- `test/uat/processes/BP-PLATFORM-26-no-bypass.json` (runner id `BP-PLATFORM-26-no-bypass`)
+
+**Status.**
+
+- implementation: `partial`
+- UAT: runner scenario BP-PLATFORM-26 (routes 1 and 2 run; 3 and 4 blocked_by with an owner); a proof experiment, not a business process of a tenant
+- security: no
+
+**Gaps.**
+
+- route 3 needs a provisioner credential the runner does not hold; route 4 needs the mailed verify link; 'no tenant row before the first step is armed' is proved in code only
+
 ## Orphans (docs/bp/orphans-platform.md)
 
 | function | file:line | what it does | history | why it exists | proposed action |
@@ -1019,4 +1055,4 @@ The platform administrator's designer work that the runner can do through the AP
 ## Gaps of the area
 
 - 6 process(es) have no runner scenario: BP-PLATFORM-18, BP-PLATFORM-19, BP-PLATFORM-20, BP-PLATFORM-21, BP-PLATFORM-22, BP-PLATFORM-23
-- 7 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-14, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24, BP-PLATFORM-25
+- 8 process(es) are not implemented: BP-PLATFORM-09, BP-PLATFORM-14, BP-PLATFORM-15, BP-PLATFORM-22, BP-PLATFORM-23, BP-PLATFORM-24, BP-PLATFORM-25, BP-PLATFORM-26
