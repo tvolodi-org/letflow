@@ -23,7 +23,10 @@ GH-2032), `RESERVED_HEADROOM` default 2 in the same file. The global cap is deri
 Points that are easy to get wrong:
 
 - The global cap is shared by every tenant and also by the `Letflow.Scheduler.Poller` sweeps, which
-  use the same budget (`lib/letflow/admission.ex`, ISS-0421).
+  use the same budget (`lib/letflow/admission.ex`, ISS-0421). The sweeps hold at most
+  `min(4, cap div 4)` units at once (4 at cap 28), never above `cap - cap div 2`; the key is
+  `config :letflow, Letflow.Scheduler.Poller, sweep_concurrency: N` and the boot log line
+  "scheduler sweep concurrency bound" shows the effective value (T-3055).
 - **"Tracked tenants", not "active tenants".** The divisor is the number of tenants that have made at
   least one admitted-or-refused request since the app last started (an entry is created lazily on the
   first request of a tenant). It is dropped only when a tenant is deactivated
