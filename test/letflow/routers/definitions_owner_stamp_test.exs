@@ -266,14 +266,58 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
       assert conn.resp_body =~ "DRAFT"
     end
 
+    # T-3014 (class test): EVERY tenant-API path that retires a definition refuses a module-owned
+    # version and leaves the row untouched -- the incident was DELETE answering 200 and archiving
+    # the module's ACTIVE stock_receipt on a QA tenant.
+    test "DELETE, deprecate and archive of a stamped ACTIVE or DEPRECATED row answer 409 and write nothing",
+         %{tenant: tenant, schema: schema} do
+      active = stamped!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(active.id, prefix: schema)
+
+      dep = stamped!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(dep.id, prefix: schema)
+
+      Letflow.Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^dep.id),
+        [set: [status: :deprecated]],
+        prefix: schema
+      )
+
+      for {row, status} <- [{active, :active}, {dep, :deprecated}],
+          {method, path} <- [
+            {"DELETE", "/#{row.id}"},
+            {"POST", "/#{row.id}/deprecate"},
+            {"POST", "/#{row.id}/archive"}
+          ] do
+        conn = call(method, path, tenant, nil, ["TENANT_ADMIN"])
+
+        assert conn.status == 409,
+               "#{method} #{path} (#{status}): #{conn.status} #{conn.resp_body}"
+
+        assert conn.resp_body =~ "module-owned"
+        reloaded = Letflow.Repo.get!(ProcessDefinition, row.id, prefix: schema)
+        assert reloaded.status == status
+        assert is_nil(reloaded.archived_at)
+      end
+
+      assert {:error, :module_owned_definition} = Definitions.deprecate(active.id, prefix: schema)
+      assert {:error, :module_owned_definition} = Definitions.archive(dep.id, prefix: schema)
+
+      # control: a tenant-made row is still retired by DELETE
+      plain = plain!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(plain.id, prefix: schema)
+      assert call("DELETE", "/#{plain.id}", tenant, nil, ["TENANT_ADMIN"]).status == 200
+    end
+
     test "activate, deprecate, archive and rollback responses carry no hash and no stamp keys",
          %{tenant: tenant, schema: schema} do
       name = "gh2590-r2-life-#{System.unique_integer([:positive])}"
       v1 = stamped!(schema, name)
 
-      for action <- ["activate", "deprecate", "archive"] do
+      # T-3014: deprecate and archive of a stamped row are refused (409), activate is not
+      for {action, status} <- [{"activate", 200}, {"deprecate", 409}, {"archive", 409}] do
         conn = call("POST", "/#{v1.id}/#{action}", tenant, nil, ["TENANT_ADMIN"])
-        assert conn.status == 200, "#{action}: #{conn.resp_body}"
+        assert conn.status == status, "#{action}: #{conn.resp_body}"
         refute conn.resp_body =~ v1.owner_manifest_hash
         refute conn.resp_body =~ v1.owner_body_hash
         refute conn.resp_body =~ "owner_manifest_hash"

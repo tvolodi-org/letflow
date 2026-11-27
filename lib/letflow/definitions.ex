@@ -919,6 +919,7 @@ defmodule Letflow.Definitions do
           {:ok, ProcessDefinition.t()}
           | {:error, :not_found}
           | {:error, :invalid_status_transition}
+          | {:error, :module_owned_definition}
           | common_error()
   def deprecate(id, opts) when is_list(opts) do
     transition(id, opts, :active, :deprecated)
@@ -927,12 +928,15 @@ defmodule Letflow.Definitions do
   @doc """
   Transitions a DEPRECATED process definition to ARCHIVED (PD-04), stamping
   `archived_at`. Every other current status is rejected as
-  `{:error, :invalid_status_transition}`; a missing `id` is `{:error, :not_found}`.
+  `{:error, :invalid_status_transition}`; a missing `id` is `{:error, :not_found}`. A
+  module-owned (stamped) version is refused as `{:error, :module_owned_definition}`
+  (T-3014).
   """
   @spec archive(id :: Ecto.UUID.t(), opts :: opts()) ::
           {:ok, ProcessDefinition.t()}
           | {:error, :not_found}
           | {:error, :invalid_status_transition}
+          | {:error, :module_owned_definition}
           | common_error()
   def archive(id, opts) when is_list(opts) do
     transition(id, opts, :deprecated, :archived)
@@ -3779,8 +3783,10 @@ defmodule Letflow.Definitions do
           before = Repo.get(ProcessDefinition, id, prefix: prefix)
           set = transition_set(to_status, now, seq)
 
+          # T-3014: a module-shipped (stamped) version is never retired through the tenant
+          # API -- the guarded UPDATE matches an UNSTAMPED row only (see fallback_lookup/2).
           ProcessDefinition
-          |> where([d], d.id == ^id and d.status == ^from_status)
+          |> where([d], d.id == ^id and d.status == ^from_status and is_nil(d.owner_module))
           |> select([d], d)
           |> Repo.update_all([set: set], prefix: prefix)
           |> case do
@@ -3818,8 +3824,14 @@ defmodule Letflow.Definitions do
 
   defp fallback_lookup(id, prefix) do
     case Repo.get(ProcessDefinition, id, prefix: prefix) do
-      nil -> Repo.rollback(:not_found)
-      %ProcessDefinition{} -> Repo.rollback(:invalid_status_transition)
+      nil ->
+        Repo.rollback(:not_found)
+
+      %ProcessDefinition{owner_module: owner} when is_binary(owner) ->
+        Repo.rollback(:module_owned_definition)
+
+      %ProcessDefinition{} ->
+        Repo.rollback(:invalid_status_transition)
     end
   end
 

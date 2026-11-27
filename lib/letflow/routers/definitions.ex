@@ -1127,6 +1127,9 @@ defmodule Letflow.Routers.Definitions do
   defp render_delete(conn, {:error, :invalid_status_transition}),
     do: Response.conflict(conn, "definition status changed concurrently; retry")
 
+  defp render_delete(conn, {:error, :module_owned_definition}),
+    do: Response.conflict(conn, "a module-owned definition version cannot be retired")
+
   defp render_delete(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
   # ── POST /definitions/:id/activate (REQ-082, design §"write routes"/activate) ──
@@ -1338,6 +1341,10 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_transition(conn, {:error, :invalid_status_transition}, conflict_detail),
     do: Response.conflict(conn, conflict_detail)
+
+  # T-3014: a module-shipped version is never retired through the tenant API.
+  defp render_transition(conn, {:error, :module_owned_definition}, _conflict_detail),
+    do: Response.conflict(conn, "a module-owned definition version cannot be retired")
 
   defp render_transition(conn, {:error, _common_error}, _conflict_detail),
     do: Response.internal_error(conn)
