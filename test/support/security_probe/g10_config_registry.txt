@@ -146,6 +146,7 @@ app_env|:letflow:Letflow.Plugs.ProvisionerAuth|provisioner|platform|runtime|plai
 app_env|:letflow:Letflow.Plugs.ReportExportAuth|operations|platform|runtime|plain|none|yes|none|Hashes a report export is authorised against.
 app_env|:letflow:Letflow.Repo|operations|platform|runtime|plain|none|no|none|Connection settings of the tenant database.
 app_env|:letflow:Letflow.Routers.LoginDiscovery|identity|platform|runtime|plain|none|no|none|Switch of the login discovery router, off until a deployment turns it on.
+app_env|:letflow:Letflow.Scheduler.Poller|scheduler|platform|runtime|plain|none|no|none|How many tenant sweeps may hold a global admission unit at once.
 app_env|:letflow:Letflow.Signup|signup|platform|runtime|plain|none|no|none|Settings of the public tenant sign-up, its switch and its caps.
 app_env|:letflow:Letflow.Signup.RealmUsers|signup|platform|runtime|plain|none|no|none|Settings of the realm user provisioning of a signed-up tenant.
 app_env|:letflow:Letflow.TenantProvisioner|provisioner|platform|runtime|plain|none|yes|none|Settings of the tenant provisioner, its credential and its demo caps.
