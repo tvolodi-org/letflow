@@ -21,7 +21,7 @@
     {
       "id": "s1",
       "actor": "platform-admin",
-      "says": "The operator lists the rollouts (a small page): 200 with the rollouts list; the id of the first one is remembered when there is one.",
+      "says": "The operator lists the rollouts (a small page): 200 with the rollouts list; the id of the first one is remembered when there is one. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a rollout.",
       "do": {
         "api": "GET",
         "path": "/api/v1/platform-module-rollouts?page_size=5"
@@ -30,7 +30,7 @@
         "status": 200,
         "json": {
           "$.rollouts": {
-            "exists": true
+            "present": true
           }
         }
       },
