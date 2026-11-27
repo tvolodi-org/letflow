@@ -130,6 +130,26 @@ class Sweep(FakeServerCase):
         self.assertEqual(self.row()["verdict"], "pass")
         self.assertIn("2 swept, 2 already gone", self.out.getvalue())
 
+    def test_best_effort_reports_a_401_and_stops_without_failing(self):  # T-3157
+        self.handler.answers = {"d1": 401}
+        self.run_it(sweep_step(best_effort=True))
+        row = self.row()
+        self.assertEqual(row["verdict"], "pass")
+        self.assertEqual(self.handler.deleted, ["d1", "d1"])  # request() re-logs in once
+        self.assertIn("LEFT, answered 401", self.out.getvalue())
+        self.assertIn("1 left", self.out.getvalue())
+
+    def test_best_effort_continues_after_a_500(self):  # T-3157
+        self.handler.answers = {"d1": 500}
+        self.run_it(sweep_step(best_effort=True))
+        self.assertEqual(self.row()["verdict"], "pass")
+        self.assertEqual(sorted(self.handler.deleted), ["d1", "d2", "d6", "d7"])
+
+    def test_a_401_fails_the_step_without_best_effort(self):  # T-3157
+        self.handler.answers = {"d1": 401}
+        self.run_it(sweep_step())
+        self.assertEqual(self.row()["verdict"], "error")
+
     def test_a_500_fails_the_step(self):
         self.handler.answers = {"d2": 500}
         self.run_it(sweep_step())

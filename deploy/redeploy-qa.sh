@@ -117,8 +117,8 @@ STAGING_DIR="$APP_DIR/web-dist-staging-${TIMESTAMP}"
 
 echo "--- Building frontend bundle (throwaway node:22 container) ---"
 docker run --rm \
-  -v "$APP_DIR/web:/work" \
-  -w /work \
+  -v "$APP_DIR:/work" \
+  -w /work/web \
   -e VITE_OIDC_AUTHORITY="$VITE_OIDC_AUTHORITY" \
   -e VITE_OIDC_CLIENT_ID="$VITE_OIDC_CLIENT_ID" \
   node:22 \
@@ -128,6 +128,13 @@ docker run --rm \
 # web-dist directory -- never building directly into the path nginx is
 # currently serving from. This separation is what the atomic swap below
 # depends on.
+# T-3160: the designer guide is imported raw from docs/ (a sibling of web/), so the whole repo is mounted
+# above. Fail the deploy if the built bundle lacks the three guide documents (an empty map shows
+# "The guide is not available" in every language).
+for h in "Designer guide: the business process editor" "Руководство дизайнера: редактор бизнес-процессов" "Дизайнер нұсқаулығы: бизнес-процестер өңдегіші"; do
+  grep -rqF -- "$h" "$APP_DIR/web/dist/assets" || { echo "ERROR: built bundle lacks guide heading: $h" >&2; exit 1; }
+done
+
 mkdir -p "$STAGING_DIR"
 cp -r "$APP_DIR/web/dist/." "$STAGING_DIR/"
 
