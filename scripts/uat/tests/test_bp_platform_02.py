@@ -67,7 +67,10 @@ class Signup(unittest.TestCase):
         self.assertEqual(422, self.steps["S9"]["expect_refused"]["status"])
 
     def test_cleanup_touches_only_the_throwaway_tenant_and_needs_the_mark(self):
-        self.assertEqual(1, len(self.process["cleanup"]))
+        self.assertEqual(2, len(self.process["cleanup"]))  # the deactivate and (T-3210) the purge of the same slug
+        purge = self.process["cleanup"][1]
+        self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/purge", purge["do"]["path"])
+        self.assertEqual([200, 404], purge["expect"]["status"])
         c = self.process["cleanup"][0]
         self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/deactivate", c["do"]["path"])
         # failure path: no "requires", so a sign-up that made the tenant and then failed an assertion is reconciled;

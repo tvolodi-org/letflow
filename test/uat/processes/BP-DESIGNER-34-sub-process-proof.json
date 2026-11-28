@@ -103,6 +103,26 @@
       ]
     },
     {
+      "id": "A2s",
+      "positional_ok": "the list is filtered by this step's own query (the run's unique definition name and status=active) to one row; the first row is the one asked for",
+      "actor": "admin",
+      "says": "1. The list search with the word and status=active finds C, the same row as the word alone (T-3161): the status filter must not drop the active version.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/definitions/search?q=uat-tmp-subproof-${run_id}-1&status=active"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
+          "$.items[0].definition.name": "uat-tmp-subproof-${run_id}-1",
+          "$.items[0].definition.status": "ACTIVE"
+        }
+      },
+      "requires": [
+        "defC"
+      ]
+    },
+    {
       "id": "A3",
       "actor": "admin",
       "says": "1. Parent P: START, a SUB_PROCESS node 'call' naming C, interface inputs [order_no], outputs [child_result], END.",

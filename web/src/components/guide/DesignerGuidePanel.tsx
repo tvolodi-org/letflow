@@ -21,6 +21,11 @@ const SOURCES = import.meta.glob('../../../../docs/designer-guide*.md', { query:
   () => Promise<string>
 >
 
+/** The locales whose guide document the build bundled (T-3160: an empty list means a broken build context). */
+export function guideLocalesInBundle(): string[] {
+  return ['en', 'ru', 'kk'].filter((l) => loaderFor(l) !== undefined)
+}
+
 function loaderFor(locale: string): (() => Promise<string>) | undefined {
   const suffix = locale === 'en' ? '' : `.${locale}`
   const key = Object.keys(SOURCES).find((k) => k.endsWith(`/designer-guide${suffix}.md`))
