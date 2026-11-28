@@ -42,7 +42,10 @@ defmodule Letflow.Modules.EnsureSeeds do
   It never overwrites or deletes a row and never touches records. A definition the tenant modified
   (a stamp whose hash no longer matches its graph) or created (any row of the name not owned by this
   module) is never superseded: the old row keeps its place, the new draft stays DRAFT and the answer
-  lists it under `process_activation_needed` for a user with `DefinitionsActivate`.
+  lists it under `process_activation_needed`. The list is a report, not a tenant action: the draft
+  is module-stamped, so a tenant request to activate it is refused with 409, also for a user with
+  `DefinitionsActivate` (T-3014, `Definitions.tenant_may_mutate?/2`). No tenant route activates it.
+  A pristine draft that was refused by a validator is retried by the next run of this step.
   A tenant-created definition of the same name is left alone (never listed as created).
 
   Every item created writes one audit entry (`module.seed_created`; a document type writes its own

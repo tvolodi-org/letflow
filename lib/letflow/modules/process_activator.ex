@@ -15,8 +15,8 @@ defmodule Letflow.Modules.ProcessActivator do
   `Letflow.Modules.Stock.Documents.Posting`) hand it to `Letflow.Definitions.activate/2` only after
   their own closed checks (module-owned stamp, unmodified graph, no tenant-created version of the
   name), and the ordinary activation validators and `definition.activate` audit still run.
-  A definition activated by this actor is tied to it (`activated_by`), not to a human; a later
-  `needs_reactivation` flag on it is cleared by a user holding `DefinitionsActivate`.
+  A definition activated by this actor is tied to it (`activated_by`), not to a human; a tenant
+  request to reactivate a module-owned row is refused (T-3014).
   """
 
   alias Letflow.Audit

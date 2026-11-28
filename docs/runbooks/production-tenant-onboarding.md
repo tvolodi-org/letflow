@@ -316,16 +316,19 @@ NEVER the `<slug>-setup` account.
 reversal, count_posting, opening, quick_count). The first use of each activates its untouched module-owned draft
 through a tenant-local system activator that never expires, so the handover in step 13 does not flag it
 `needs_reactivation`; the activation is audited (`definition.activate`) and runs once. The same holds after
-every FIRST install; after a stock module UPGRADE the old versions stay ACTIVE beside new DRAFTs, and the first use does not activate a draft over an active one: the tenant admin activates each draft (`stock-counts.md`, "After a module upgrade", 10 drafts on qoimeks-qa2 0.21.0 -> 0.22.0). A definition the tenant created or
-changed, or a deprecated one, is never touched: the post answers 409 `definition_not_active`; the company admin
-reviews it and activates it by `POST /api/v1/definitions/<id>/activate`. Details: `stock-counts.md`, "Stock
-process activation".
+every FIRST install; a stock module UPGRADE activates the new drafts of unmodified definitions itself, and a name it
+could not activate is listed under `process_activation_needed` (`stock-counts.md`, "After a module upgrade"). A
+definition the tenant created or changed is never touched by the product, and a post that finds no usable active
+definition answers 409 `definition_not_active`. A tenant request to activate a module-owned draft is refused with
+409 `a module-owned definition cannot be changed by a tenant` (T-3014): report it to the operator. Details:
+`stock-counts.md`, "Stock process activation".
 
 **Existing tenant (for example one installed before T-2253, no walk yet):** run nothing by hand either: the
 first post activates the drafts. To have them active earlier, post one receipt and one issue with a
 STOREKEEPER token after the dump. Verify with `GET /api/v1/definitions` (status `active`, `needs_reactivation_at`
 null) and with the step 8 report (`OK process ...`). A definition that an admin activated by hand and that was
-flagged `needs_reactivation` stays that way: reactivate it with `POST /api/v1/definitions/<id>/reactivate`.
+flagged `needs_reactivation` stays that way: reactivate it with `POST /api/v1/definitions/<id>/reactivate` (refused
+with 409 for a module-owned definition, T-3014: report that one to the operator).
 
 **Check:** `GET /api/v1/definitions` lists the 10 stock definitions as active, and `needs_reactivation_at` is
 null on each; one known-item post succeeds. `stock_opening` and `stock_quick_count` stay DRAFT until their first
