@@ -68,6 +68,7 @@ defmodule Letflow.SecurityProbe.G02WriterStartInventoryTest do
     {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :record_refused_attempt},
     {"lib/letflow/routers/promotions.ex", "Letflow.Definitions", :record_refused_attempt},
     {"lib/letflow/routers/tenants.ex", "Letflow.Definitions", :record_refused_attempt},
+    {"lib/letflow/routers/solution_packs.ex", "Letflow.Definitions", :record_refused_attempt},
     {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :rollback_definition_version},
     {"lib/letflow/routers/definitions.ex", "Letflow.Definitions", :update},
     {"lib/letflow/routers/definitions.ex", "Letflow.Definitions.ExportImport",
