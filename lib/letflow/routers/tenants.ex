@@ -172,7 +172,9 @@ defmodule Letflow.Routers.Tenants do
     partial state, not silently retried or rolled back here.
     Followed up as ISS-0230/GH#468, resolved by scoping the recovery path into
     `REQ-076` (tenant onboarding) rather than building it here. The rollback
-    stays absent deliberately — adding one makes the state *worse*, since
+    stays absent from THIS route deliberately (T-3233 added the compensation of
+    the registration chain, `Letflow.PlatformFunctions.CreationCompensation`; this
+    route has no chain, and recovery stays `recover_provisioning/1`) — adding one makes the state *worse*, since
     deleting the `tenants` row after `provision_tenant_schema/1` already
     succeeded orphans a real Postgres schema. "Operationally recoverable" is
     now a measured claim rather than an assumption: re-invoking both
