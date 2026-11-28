@@ -313,13 +313,16 @@ tenant-local system actor `__stock_process_activator__` (no role, no password; t
 validators run and `definition.activate` is audited, which deprecates the old version; running instances
 stay on their version), writes one `module.seed_activated` audit entry (module, `"key@version"`,
 superseded version, actor) and lists it under `process_activated`. The activation is tied to the system
-actor, not a human; a later `needs_reactivation` flag is cleared by a user with `DefinitionsActivate`.
+actor, not a human. A tenant request to reactivate a module-owned definition is refused with 409 (T-3014).
 A definition the tenant MODIFIED (stamp hash no longer equal to its graph), or any process name that has a
 tenant-created or retired version, is never touched: the active row keeps its place, the new graph stays a
 DRAFT and the process is listed under `process_activation_needed` (name, active version, new version) on every
-call until a user with `DefinitionsActivate` activates the draft (`POST /api/v1/definitions/:id/activate`
-with the draft's id). A draft the validators refuse to activate is also left and listed; the upgrade
-does not fail. A repeat call activates a pristine draft an earlier run left and otherwise changes nothing.
+call. A tenant cannot activate that draft: it is stamped as stock's, so
+`POST /api/v1/definitions/:id/activate` answers 409 `a module-owned definition cannot be changed by a tenant`,
+also for a user with `DefinitionsActivate` (T-3014; the refusal is audited as `definition.activate.refused`).
+There is no tenant-side way to activate it today (open product gap). A draft the validators refuse to
+activate is also left and listed; the upgrade does not fail. A repeat call activates a pristine draft an
+earlier run left (when the cause of the refusal is gone) and otherwise changes nothing.
 
 Stock's permissions and role grants come from the compiled manifest; its install hook seeds no
 permission or role-binding rows to replay. Module-specific install seeds belong in the additive
@@ -328,53 +331,54 @@ permission or role-binding rows to replay. Module-specific install seeds belong 
 Readiness check after the call (tenant schema): the `document_types` row with key `stock_quick_count`
 exists (owner `stock`), both `entity_stock_quick_count*` tables exist, and process `stock_quick_count`
 has the build's `owner_module_version` and is active (a draft remains only when listed under
-`process_activation_needed`). Complete any
-`process_activation_needed` action through the activation route before the QA count walk
+`process_activation_needed`). Do not start the QA count walk with a
+non-empty `process_activation_needed`: report it to the operator (see the section below)
 (`Letflow.Release.tenant_onboarding_check/2` reports the document type and the process definitions; the tables are read
 in the tenant schema with `\dt entity_stock_quick_count*`). Then issue a quick count through the
 normal screen/API. If the type is absent, requests still answer 409 `definition_not_active` without taking
 a number; call the route and read its answer.
 
-## After a module upgrade: activate the new drafts, then run the readiness check (T-2352)
+## After a module upgrade: check the activations, then run the readiness check (T-2352)
 
-Observed on qoimeks-qa2 on 2026-11-20, stock 0.21.0 -> 0.22.0. Do these steps in this order after every
-stock upgrade; they are done by the tenant administrator (`DefinitionsActivate`), not by the engine.
+Do these steps in this order after every stock upgrade. The upgrade step itself activates each new draft of an
+unmodified stock process (T-2353, section above); the tenant administrator does not activate module drafts.
 
 1. **List what is waiting.** The answer of the upgrade apply (`POST /api/v1/tenant/modules/stock/upgrade`, key
    `seeds`) or of `POST /api/v1/tenant/modules/stock/ensure-seeds` carries `process_drafts` (`"key@version"`, what
-   was just created) and `process_activation_needed` (`name`, `active_version`, new version; repeated on every call
-   until the draft is activated). Calling `ensure-seeds` again is safe: it creates nothing more.
-2. **Activate each new draft** as the tenant admin: `GET /api/v1/definitions?name=<name>&status=draft` for the
-   draft's id (its version looks like `1.0.0-0.22.0`), then `POST /api/v1/definitions/:id/activate` with `{}`.
-   Expect HTTP 200 for each. The old ACTIVE version of that name becomes superseded; instances already running stay on
-   their version.
-3. **Expected counts (qoimeks-qa2, 0.21.0 -> 0.22.0).** 10 stock definitions: `stock_count_posting`,
-   `stock_handover`, `stock_issue`, `stock_opening`, `stock_quick_count`, `stock_receipt`, `stock_return`,
-   `stock_reversal`, `stock_transfer`, `stock_writeoff`. Before activation: 10 ACTIVE 0.21.0 + 10 new DRAFT 0.22.0
-   (20 rows, `process_activation_needed` has 10 entries). After activating all 10 drafts: 10 ACTIVE 0.22.0, one
-   ACTIVE version per name, `process_activation_needed` is `[]` on the next `ensure-seeds` call. A different
-   count means a definition was tenant-created or changed (see the last paragraph) or one activation failed:
-   read its answer, do not repeat blindly.
+   was just created), `process_activated` (what the step activated) and `process_activation_needed` (`name`,
+   `active_version`, new version; repeated on every call while the older version is still the active one). Calling
+   `ensure-seeds` again is safe.
+2. **When `process_activation_needed` is not empty**, call `ensure-seeds` once more: it retries a pristine draft
+   that a validator or the unavailable system activator refused. A name that stays listed cannot be activated by
+   the tenant: `POST /api/v1/definitions/:id/activate` answers 409 for a module-owned draft (T-3014), and a name
+   with a tenant-created or tenant-modified version is never superseded. Do not work around the refusal; report
+   the name, both versions and the server warning `module seed activation refused` (if present) to the operator.
+   The old ACTIVE version keeps serving.
+3. **Expected counts (stock's ten processes: `stock_count_posting`, `stock_handover`, `stock_issue`,
+   `stock_opening`, `stock_quick_count`, `stock_receipt`, `stock_return`, `stock_reversal`, `stock_transfer`,
+   `stock_writeoff`).** On a tenant that changed none of them: one ACTIVE version of the new build per name,
+   instances already running stay on their version, and `process_activation_needed` is `[]`. A different result
+   means a definition was tenant-created or changed (see the last paragraph) or an activation was refused: read
+   the answer, do not repeat blindly.
 4. **Run the readiness check** (`Letflow.Release.tenant_onboarding_check/2`, see `production-tenant-onboarding.md`,
    step 8): every `process <name>` line must read `OK`, `active=true`.
 
-**Is there an outage in the gap, while the drafts are not yet activated?** The evidence says no, with one part not
-exercised:
+**Is there an outage while a process stays listed?** The evidence says no, with one part not exercised:
 
-- (a) Observed state: the old definitions stay `active` beside the new drafts (10 + 10 rows above).
-- (b) Test `QC-T2217c` in `test/letflow/modules/stock/quick_count_test.exs`: after the upgrade the rows are exactly
-  one `:active` (unchanged, equal to the row before) and one `:draft`; a second call creates nothing; only the
-  admin's activation makes the draft active.
+- (a) Observed on qoimeks-qa2 on 2026-11-20 (stock 0.21.0 -> 0.22.0, before T-2353): the old definitions stayed
+  `active` beside the new drafts (10 + 10 rows).
+- (b) Test `QC-T2353b` in `test/letflow/modules/stock/quick_count_test.exs`: for a tenant-modified ACTIVE
+  definition the rows are exactly one `:active` (unchanged, equal to the row before) and one `:draft`; a second
+  call creates nothing; the tenant's activation of the draft is refused with 409.
 - (c) Code: `Letflow.Engine` resolves a start by name through `Definitions.get_active_by_name/2` (`engine.ex`,
   `resolve_definition/2`), which selects only `status == :active` and never a draft; and the stock posting path,
   `Posting.ensure_locked/3` (`lib/letflow/modules/stock/documents/posting.ex`), returns `:ok` at once when an
-  active stock-stamped row exists. So while a draft exists the old active version is the one used by a post. A
-  post started in the gap runs the OLD graph, not the new one.
-- NOT exercised by a walk on QA: the operator activated within minutes and no posting ran in between. Item (c) is
-  a code reading plus (b) a test of the state, not a recorded post in the gap. At the next upgrade run the check:
-  after the apply and before step 2, post one receipt (STOREKEEPER) and confirm it succeeds and its instance
-  shows the old version; then activate. Until that is done, treat the claim as "proven by code, not walked" and
-  activate at once.
+  active stock-stamped row exists. So while a draft exists the old active version is the one used by a post: it
+  runs the OLD graph, not the new one.
+- NOT exercised by a walk on QA: no posting ran while a draft was waiting. Item (c) is a code reading plus (b) a
+  test of the state, not a recorded post. If a name stays listed after an upgrade, post one receipt (STOREKEEPER)
+  and confirm it succeeds and its instance shows the old version. Until that is done, treat the claim as "proven
+  by code, not walked".
 
 The upgrade never overrides a tenant-modified definition: a definition the tenant created or changed keeps its row;
 the step only creates a draft beside an active stock-stamped one, and a tenant-created definition of the same
