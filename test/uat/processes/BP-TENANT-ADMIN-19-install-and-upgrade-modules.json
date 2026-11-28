@@ -1,0 +1,93 @@
+{
+  "id": "BP-TENANT-ADMIN-19",
+  "bp_entry": "BP-TENANT-ADMIN-19",
+  "title": "A tenant administrator installs a module and reads the upgrade plan; a storekeeper cannot; wrong requests are refused",
+  "description": "The module 'org' is made present by the module_installed fixture (installed if absent, nothing changed if present; a module install is never removed by a test). The administrator then installs it a second time: 409 'module already installed' and nothing changes. The installed-module list of the administrator and of the storekeeper (any signed-in user) answers 200. The administrator installs an unknown module name: 404 (the plain not-found). The administrator installs with a blank rationale: 422 'rationale is required', and this check comes before the already-installed check. The administrator reads the upgrade plan of 'org': 200 for a module of this tenant, and the plan says whether the module is up to date. The administrator applies an upgrade with a plan hash that is not the plan's: 409 code plan_mismatch, nothing applied. The storekeeper, who does not hold the module-management permission, is refused 403 on the install and on the upgrade plan. Not played here (no safe undo on a shared tenant, so only the map names them): installing a further module, a module whose dependency is missing (422 'missing dependency'), applying a real upgrade, rollback, uninstall and reactivate (uninstall is behind a release flag and would break the other scenarios that need the module). Leaves nothing: no record of the process is created.",
+  "tenant": "${tenant}",
+  "inputs": [],
+  "defaults": {
+    "module": "org",
+    "unknown_module": "uat_no_such_module",
+    "zero_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "fixtures": [
+    {"fixture": "module_installed", "module": ["org"]}
+  ],
+  "dry_run": {
+    "tenant": "qoimeks-qa2",
+    "actors": {
+      "admin": "qoimeks-qa2-admin",
+      "storekeeper": "qoimeks-qa2-storekeeper"
+    },
+    "inputs": {}
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me/modules"},
+      "expect": {"status": 200, "json": {"$.installed_modules[0].module_id": {"exists": true}}}
+    },
+    {
+      "id": "s2",
+      "actor": "storekeeper",
+      "do": {"api": "GET", "path": "/api/v1/me/modules"},
+      "expect": {"status": 200, "json": {"$.installed_modules[0].module_id": {"exists": true}}}
+    },
+    {
+      "id": "s3",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules",
+             "body": {"module_id": "${module}", "rationale": "UAT ${run_id}: second install must be refused"}},
+      "expect": {"status": 409, "json": {"$.detail": "module already installed"}}
+    },
+    {
+      "id": "s4",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules",
+             "body": {"module_id": "${unknown_module}", "rationale": "UAT ${run_id}: unknown module"}},
+      "expect": {"status": 404, "json": {"$.title": "Not Found"}}
+    },
+    {
+      "id": "s5",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules",
+             "body": {"module_id": "${module}", "rationale": "   "}},
+      "expect": {"status": 422, "json": {"$.detail": "rationale is required"}}
+    },
+    {
+      "id": "s6",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules/${module}/upgrade/plan", "body": {}},
+      "expect": {"status": 200, "json": {"$.module_id": "org", "$.up_to_date": {"exists": true}}}
+    },
+    {
+      "id": "s7",
+      "actor": "admin",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules/${module}/upgrade",
+             "body": {"rationale": "UAT ${run_id}: wrong plan hash", "plan_hash": "${zero_hash}"}},
+      "expect_refused": {"status": 409, "code": "plan_mismatch"}
+    },
+    {
+      "id": "s8",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules",
+             "body": {"module_id": "${module}", "rationale": "UAT ${run_id}: storekeeper must not install"}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s9",
+      "actor": "storekeeper",
+      "do": {"api": "POST", "path": "/api/v1/tenant/modules/${module}/upgrade/plan", "body": {}},
+      "expect_refused": {"status": 403}
+    },
+    {
+      "id": "s10",
+      "actor": "admin",
+      "do": {"api": "GET", "path": "/api/v1/me/modules"},
+      "expect": {"status": 200, "json": {"$.installed_modules[0].module_id": {"exists": true}}}
+    }
+  ],
+  "outputs": {},
+  "cleanup": []
+}
