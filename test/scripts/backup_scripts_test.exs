@@ -191,12 +191,21 @@ defmodule Letflow.Scripts.BackupScriptsTest do
       s = set_dir(root, src)
       o = set_dir(root, other)
 
+      # the Letflow database: one file per schema (public + the registered tenant) + globals + manifest
+      for f <- ["public.dump", "tenant_a.dump", "globals.sql"] do
+        assert File.exists?(Path.join(s, f)), f
+        assert File.read!(Path.join(s, f <> ".sha256")) =~ f
+        assert mode(Path.join(s, f)) == 0o600
+      end
+
+      refute File.exists?(Path.join(s, "#{src}.dump"))
+      assert File.exists?(Path.join(o, "#{other}.dump"))
+      assert File.read!(Path.join(o, "#{other}.dump.sha256")) =~ "#{other}.dump"
+
       for {dir, db} <- [{s, src}, {o, other}] do
-        assert File.exists?(Path.join(dir, "#{db}.dump"))
-        assert File.read!(Path.join(dir, "#{db}.dump.sha256")) =~ "#{db}.dump"
-        assert mode(Path.join(dir, "#{db}.dump")) == 0o600
         assert mode(dir) == 0o700
         assert {:ok, _} = File.read_link(Path.join(Path.dirname(dir), "LATEST"))
+        assert db != ""
       end
 
       manifest = File.read!(Path.join(s, "manifest.txt"))
@@ -237,8 +246,9 @@ defmodule Letflow.Scripts.BackupScriptsTest do
 
       dump!(env)
       dir = set_dir(root, src)
-      assert File.exists?(Path.join(dir, "#{src}.dump.gpg"))
-      refute File.exists?(Path.join(dir, "#{src}.dump"))
+      assert File.exists?(Path.join(dir, "tenant_a.dump.gpg"))
+      assert File.exists?(Path.join(dir, "public.dump.gpg"))
+      refute File.exists?(Path.join(dir, "tenant_a.dump"))
 
       {plain, 0} =
         System.cmd(
@@ -250,7 +260,7 @@ defmodule Letflow.Scripts.BackupScriptsTest do
             "--passphrase",
             "",
             "--decrypt",
-            Path.join(dir, "#{src}.dump.gpg")
+            Path.join(dir, "tenant_a.dump.gpg")
           ],
           env: gpg_env,
           stderr_to_stdout: false
@@ -275,7 +285,7 @@ defmodule Letflow.Scripts.BackupScriptsTest do
       assert code == 3
       st = status(root, "dump")
       assert st["ok"] == false and st["exit"] == 3 and st["job"] == "dump"
-      assert st["detail"] =~ "dump_failed"
+      assert st["detail"] =~ ~r/dump_failed|registry_unreadable/
       # no half set and no temp status file is left behind
       assert Path.wildcard(Path.join(root, "dump/*/.tmp-*")) == []
       assert Path.wildcard(Path.join(root, "status/.*.json.*")) == []
@@ -605,7 +615,7 @@ defmodule Letflow.Scripts.BackupScriptsTest do
 
     test "R5 a flipped byte in the dump is exit 4", %{root: root, env: env, src: src} do
       dump!(env)
-      file = Path.join(set_dir(root, src), "#{src}.dump")
+      file = Path.join(set_dir(root, src), "tenant_a.dump")
       bin = File.read!(file)
       mid = div(byte_size(bin), 2)
       <<a::binary-size(^mid), b, rest::binary>> = bin
@@ -667,6 +677,192 @@ defmodule Letflow.Scripts.BackupScriptsTest do
       assert db_exists?(c, src)
       assert psql!(c, src, "select count(*) from tenant_a.events") == "2"
       assert File.dir?(root)
+    end
+  end
+
+  # ── T-3149: per-schema dump from the tenant registry (fake registry of 30 schemas) ─────────
+
+  describe "per-schema backup (T-3149)" do
+    # A PG_EXEC shim: logs every client call (one line, argv joined by spaces) and runs it in the container.
+    setup %{tmp_dir: tmp, container: c, env: env} do
+      log = Path.join(tmp, "pg_calls.log")
+      shim = Path.join(tmp, "pgshim")
+
+      File.write!(shim, """
+      #!/usr/bin/env bash
+      printf '%s\\n' "$*" >>"#{log}"
+      exec docker exec -i -e PGUSER=letflow #{c} "$@"
+      """)
+
+      File.chmod!(shim, 0o755)
+      {:ok, env: put_env(env, "PG_EXEC", shim), calls: log}
+    end
+
+    defp tenant_names(n), do: for(i <- 1..n, do: "tenant_" <> String.pad_leading("#{i}", 3, "0"))
+
+    # 30 synthetic schemas: more than the lock slots one schema may take; the proof is on the commands
+    # issued (one -n per call, never a call without -n), not on the server lock table.
+    defp fake_registry!(c, db, n) do
+      sql =
+        tenant_names(n)
+        |> Enum.map_join("\n", fn t ->
+          "create schema #{t}; create table #{t}.events(id int); insert into #{t}.events values (1);" <>
+            " insert into tenant_schemas values ('#{t}');"
+        end)
+
+      psql_file!(c, db, sql)
+    end
+
+    defp pg_calls(log), do: log |> File.read!() |> String.split("\n", trim: true)
+
+    test "T1 30 registered schemas: one pg_dump -n per call, none without -n, manifest rows", %{
+      root: root,
+      env: env,
+      container: c,
+      src: src,
+      calls: calls
+    } do
+      fake_registry!(c, src, 30)
+      {_, 0} = run(env, "backup.sh", ["dump"], [{"BACKUP_PRUNE", "0"}, {"BACKUP_JOBS", "3"}])
+
+      dumps = pg_calls(calls) |> Enum.filter(&(&1 =~ ~r/(^|\s)pg_dump(\s|$)/))
+      src_dumps = Enum.filter(dumps, &(&1 =~ "-d #{src}"))
+      # 31 tenants + public: every call has exactly one -n and it names one schema
+      assert length(src_dumps) == 32
+
+      for d <- src_dumps do
+        assert [_] = Regex.scan(~r/(^|\s)-n\s+\S+/, d), d
+        refute d =~ "--schema=", d
+      end
+
+      named = for d <- src_dumps, [_, n] <- Regex.scan(~r/-n\s+(\S+)/, d), do: n
+      assert Enum.sort(named) == Enum.sort(["public", "tenant_a" | tenant_names(30)])
+      # the other database (no registry) is a plain dump of that database; globals have no -n
+      assert Enum.any?(pg_calls(calls), &(&1 =~ "pg_dumpall --globals-only"))
+
+      refute Enum.any?(
+               pg_calls(calls),
+               &(&1 =~ ~r/pg_dump\s/ and &1 =~ "-d #{src}" and not (&1 =~ "-n "))
+             )
+
+      dir = set_dir(root, src)
+
+      [header | rows] =
+        dir |> Path.join("manifest.tsv") |> File.read!() |> String.split("\n", trim: true)
+
+      assert header ==
+               "schema\tfile\tbytes\tsha256\ttimestamp\tformat\tpg_version\tschema_version\tmodules_digest"
+
+      cols = Enum.map(rows, &String.split(&1, "\t"))
+
+      assert Enum.sort(Enum.map(cols, &hd/1)) ==
+               Enum.sort(["globals", "public", "tenant_a" | tenant_names(30)])
+
+      for [schema, file, bytes, sha, ts, fmt, pgv, _sv, _mods] <- cols do
+        path = Path.join(dir, file)
+        assert File.stat!(path).size == String.to_integer(bytes), schema
+        assert sha == :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)
+        assert ts =~ ~r/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/
+        assert fmt == if(schema == "globals", do: "sql", else: "custom")
+        assert pgv =~ ~r/^\d+$/
+      end
+
+      assert File.read!(Path.join(dir, "manifest.txt")) =~ "tenant_030.events=1"
+    end
+
+    test "T2 a registered tenant without a schema fails loudly with a named list", %{
+      root: root,
+      env: env,
+      container: c,
+      src: src
+    } do
+      psql!(c, src, "insert into tenant_schemas values ('tenant_ghost')")
+      {out, code} = run_err(env, "backup.sh", ["dump"], [{"BACKUP_PRUNE", "0"}])
+      assert code == 3
+      assert out =~ "registered without a schema: [tenant_ghost]"
+      assert status(root, "dump")["detail"] =~ "registry_mismatch"
+      assert Path.wildcard(Path.join(root, "dump/#{src}/*")) == []
+    end
+
+    test "T3 a tenant-looking schema that is not in the registry fails loudly", %{
+      env: env,
+      container: c,
+      src: src
+    } do
+      psql!(c, src, "create schema tenant_rogue")
+      {out, code} = run_err(env, "backup.sh", ["dump"], [{"BACKUP_PRUNE", "0"}])
+      assert code == 3
+      assert out =~ "tenant schema not in the registry: [tenant_rogue]"
+    end
+
+    test "T4 a registry name that is not a plain tenant schema is refused before any dump", %{
+      env: env,
+      container: c,
+      src: src,
+      calls: calls
+    } do
+      psql!(c, src, "insert into tenant_schemas values ('public')")
+      {_, code} = run(env, "backup.sh", ["dump"], [{"BACKUP_PRUNE", "0"}])
+      assert code == 3
+      refute Enum.any?(pg_calls(calls), &(&1 =~ ~r/(^|\s)pg_dump\s/))
+    end
+
+    test "T5 one-tenant restore: public first, then only that tenant; others never created", %{
+      root: root,
+      env: env,
+      container: c,
+      src: src,
+      calls: calls
+    } do
+      fake_registry!(c, src, 5)
+      dump!(env)
+      File.rm!(calls)
+      {out, code} = run(env, "restore_test.sh", ["--tenant", "tenant_003"])
+      assert code == 0, out
+      assert out =~ ~r/^restore_test PASS .* tenants=1 .* tenant=tenant_003 /
+
+      restores =
+        pg_calls(calls)
+        |> Enum.filter(&(&1 =~ "pg_restore"))
+
+      # one pg_restore for public and one for the tenant, nothing else
+      assert length(restores) == 2
+      assert scratch_dbs(c) == "0"
+      # a one-tenant drill does not verify the set
+      refute File.exists?(Path.join(set_dir(root, src), "VERIFIED"))
+      # the source is untouched
+      assert psql!(c, src, "select count(*) from tenant_schemas") == "6"
+      {_, 3} = run(env, "restore_test.sh", ["--tenant", "tenant_999"])
+      {_, 2} = run(env, "restore_test.sh", ["--tenant", "public"])
+    end
+
+    test "T6 the one-tenant restore sees only that tenant in the scratch database", %{
+      env: env,
+      container: c,
+      src: src,
+      tmp_dir: tmp
+    } do
+      fake_registry!(c, src, 3)
+      dump!(env)
+      probe = Path.join(tmp, "probe.sh")
+
+      File.write!(probe, """
+      #!/usr/bin/env bash
+      set -e
+      q1="select string_agg(nspname, ',' order by nspname) from pg_namespace where nspname ~ '^tenant_'"
+      q2="select string_agg(schema_name, ',' order by schema_name) from public.tenant_schemas"
+      docker exec -i -e PGUSER=letflow #{c} psql -X -At -d "$RESTORE_DB_NAME" -c "$q1" -c "$q2" >"#{tmp}/seen.txt" 2>"#{tmp}/seen.err"
+      """)
+
+      {out, code} =
+        run(env, "restore_test.sh", ["--tenant", "tenant_002"], [
+          {"RESTORE_SMOKE_CMD", "bash '#{probe}'"}
+        ])
+
+      assert code == 0, out
+      assert File.read!(Path.join(tmp, "seen.txt")) =~ "tenant_002"
+      refute File.read!(Path.join(tmp, "seen.txt")) =~ "tenant_001"
+      refute File.read!(Path.join(tmp, "seen.txt")) =~ "tenant_003"
     end
   end
 

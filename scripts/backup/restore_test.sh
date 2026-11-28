@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# T-1568 -- restore_test.sh [--set DIR]: restore the latest dump set of LETFLOW_DATABASE into a
-# THROWAWAY database and check it. Prints exactly one line on stdout; everything else goes to
+# T-1568 -- restore_test.sh [--set DIR] [--tenant SCHEMA]: restore the latest dump set of
+# LETFLOW_DATABASE into a THROWAWAY database and check it. The set is per schema (T-3149): public
+# first, then the tenant schemas. With --tenant only that ONE tenant schema is restored (public/platform
+# first, then the tenant, then the registry rows are reconciled to that tenant); no other tenant's
+# schema is ever created in the scratch database. Prints exactly one line on stdout; everything else goes to
 # stderr. Interface and environment: scripts/backup/README.md.
 #
 #   restore_test PASS env=qa db=letflow_qa set=20261109T014500Z tenants=3 ledger_pairs=12 replay_diff=0 modules=ok smoke=ok seconds=41
@@ -18,14 +21,19 @@ set +x
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 SET_DIR=""
+TENANT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --set)
       SET_DIR="${2:-}"
       shift 2 || true
       ;;
+    --tenant)
+      TENANT="${2:-}"
+      shift 2 || true
+      ;;
     *)
-      log "usage: restore_test.sh [--set DIR]"
+      log "usage: restore_test.sh [--set DIR] [--tenant SCHEMA]"
       exit 2
       ;;
   esac
@@ -55,7 +63,7 @@ cleanup_and_report() {
   [[ -z "$WORK" ]] || rm -rf -- "$WORK"
   local line
   if [[ "$STATUS_RC" -eq 0 ]]; then
-    line="restore_test PASS env=${BACKUP_ENV:-unknown} db=${LETFLOW_DATABASE:-unknown} set=$SET_NAME tenants=$REPORT_TENANTS ledger_pairs=$REPORT_PAIRS replay_diff=$REPORT_DIFF modules=$REPORT_MODULES smoke=$REPORT_SMOKE seconds=$SECONDS"
+    line="restore_test PASS env=${BACKUP_ENV:-unknown} db=${LETFLOW_DATABASE:-unknown} set=$SET_NAME tenants=$REPORT_TENANTS ledger_pairs=$REPORT_PAIRS replay_diff=$REPORT_DIFF modules=$REPORT_MODULES smoke=$REPORT_SMOKE${TENANT:+ tenant=$TENANT} seconds=$SECONDS"
   else
     line="restore_test FAIL step=$STEP exit=$STATUS_RC detail=${STATUS_DETAIL:-unknown}"
   fi
@@ -97,15 +105,27 @@ MAX_AGE_HOURS="${BACKUP_MAX_AGE_HOURS:-30}"
 [[ "$MAX_AGE_HOURS" =~ ^[0-9]{1,5}$ ]] || die 2 "max_age_invalid" "BACKUP_MAX_AGE_HOURS must be a number"
 age_s=$(($(date -u +%s) - $(stamp_epoch "$SET_NAME")))
 [[ "$age_s" -le $((MAX_AGE_HOURS * 3600)) ]] || die 3 "no_fresh_backup" "newest set is older than $MAX_AGE_HOURS hours"
-DUMP_FILE="$LETFLOW_DATABASE.dump"
-if [[ -f "$SET_DIR/$DUMP_FILE.gpg" ]]; then DUMP_FILE="$DUMP_FILE.gpg"; fi
-for f in "$DUMP_FILE" "$DUMP_FILE.sha256" manifest.txt; do
+for f in manifest.tsv manifest.txt; do
   [[ -s "$SET_DIR/$f" ]] || die 3 "incomplete_set" "set is missing $f"
 done
+if [[ -n "$TENANT" ]]; then
+  [[ "$TENANT" =~ ^[a-z_][a-z0-9_]{0,62}$ && "$TENANT" != public ]] || die 2 "tenant_invalid" "--tenant must be a plain tenant schema name"
+  awk -F'\t' -v t="$TENANT" 'NR > 1 && $1 == t { f = 1 } END { exit !f }' "$SET_DIR/manifest.tsv" ||
+    die 3 "tenant_not_in_set" "the set has no dump of that tenant schema"
+fi
+# file names of the restore, in order: public first, then the tenants (the globals file is only checked)
+mapfile -t ALL_FILES < <(awk -F'\t' 'NR > 1 { print $1 "\t" $2 "\t" $4 }' "$SET_DIR/manifest.tsv")
+[[ "${#ALL_FILES[@]}" -ge 2 ]] || die 3 "incomplete_set" "manifest.tsv lists no schema dump"
 
-# ---- 2. checksum
+# ---- 2. checksum: every file of the set against the sha256 of the manifest
 STEP="checksum"
-(cd "$SET_DIR" && sha256sum -c --quiet "$DUMP_FILE.sha256") >/dev/null 2>&1 || die 4 "checksum_mismatch" "sha256 check failed: the backup file is damaged"
+for row in "${ALL_FILES[@]}"; do
+  IFS=$'\t' read -r _schema fname fsum <<<"$row"
+  [[ "$fname" =~ ^[A-Za-z0-9_.-]+$ ]] || die 3 "incomplete_set" "manifest names an unsafe file"
+  [[ -s "$SET_DIR/$fname" ]] || die 3 "incomplete_set" "set is missing $fname"
+  (cd "$SET_DIR" && printf '%s  %s\n' "$fsum" "$fname" | sha256sum -c --quiet) >/dev/null 2>&1 ||
+    die 4 "checksum_mismatch" "sha256 check failed: the backup file is damaged"
+done
 
 # ---- 3. throwaway target
 STEP="target"
@@ -167,32 +187,60 @@ have_ver="$(rx psql -X -At -d "$SCRATCH" -c 'SHOW server_version_num' </dev/null
 want_ver="$(sed -n 's/^pg_version=//p' "$SET_DIR/manifest.txt" | head -n1)"
 [[ -z "$want_ver" || "$have_ver" == "$want_ver" ]] || die 2 "pg_version_mismatch" "restore server is version $have_ver, the dump is from $want_ver"
 
-# ---- 4. restore
+# ---- 4. restore: public first, then the tenant schemas (or the one tenant)
 STEP="restore"
-rc=0
-if [[ "$DUMP_FILE" == *.gpg ]]; then
-  need_tool gpg
-  [[ -z "${RESTORE_GPG_HOME:-}" ]] || export GNUPGHOME="$RESTORE_GPG_HOME"
-  { gpg --batch --decrypt <"$SET_DIR/$DUMP_FILE" 2>/dev/null | rx pg_restore --exit-on-error --no-owner -d "$SCRATCH"; } 2>"$WORK/err.log" || rc=$?
-else
-  rx pg_restore --exit-on-error --no-owner -d "$SCRATCH" <"$SET_DIR/$DUMP_FILE" 2>"$WORK/err.log" || rc=$?
-fi
-if [[ "$rc" -ne 0 ]]; then
-  filter_secrets <"$WORK/err.log" | head -n 5 >&2
-  die 5 "pg_restore_failed" "pg_restore failed"
+restore_file() {
+  local f="$1" rc=0
+  if [[ "$f" == *.gpg ]]; then
+    need_tool gpg
+    [[ -z "${RESTORE_GPG_HOME:-}" ]] || export GNUPGHOME="$RESTORE_GPG_HOME"
+    { gpg --batch --decrypt <"$SET_DIR/$f" 2>/dev/null | rx pg_restore --exit-on-error --no-owner -d "$SCRATCH"; } 2>"$WORK/err.log" || rc=$?
+  else
+    rx pg_restore --exit-on-error --no-owner -d "$SCRATCH" <"$SET_DIR/$f" 2>"$WORK/err.log" || rc=$?
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    filter_secrets <"$WORK/err.log" | head -n 5 >&2
+    die 5 "pg_restore_failed" "pg_restore failed"
+  fi
+}
+# the scratch database is ours and empty: its own `public` is replaced by the dump's
+rx psql -X -q -d "$SCRATCH" -v ON_ERROR_STOP=1 -c 'DROP SCHEMA IF EXISTS public CASCADE' </dev/null >/dev/null 2>"$WORK/err.log" ||
+  die 5 "scratch_prepare_failed" "cannot prepare the scratch database"
+for row in "${ALL_FILES[@]}"; do
+  IFS=$'\t' read -r schema fname _sum <<<"$row"
+  [[ "$schema" != globals ]] || continue
+  if [[ "$schema" == public ]] || [[ -z "$TENANT" ]] || [[ "$schema" == "$TENANT" ]]; then
+    restore_file "$fname"
+  fi
+done
+if [[ -n "$TENANT" ]]; then
+  # reconcile the registry rows: the scratch holds the one restored tenant, so the other rows point nowhere
+  rx psql -X -q -d "$SCRATCH" -v ON_ERROR_STOP=1 -v "t=$TENANT" <<<"DELETE FROM public.tenant_schemas WHERE schema_name <> :'t';" >/dev/null 2>"$WORK/err.log" ||
+    die 5 "reconcile_failed" "cannot reconcile the registry rows"
+  [[ "$(rx psql -X -At -d "$SCRATCH" -v "t=$TENANT" <<<"SELECT count(*) FROM public.tenant_schemas WHERE schema_name = :'t';")" == 1 ]] ||
+    die 1 "registry_row_missing" "the registry has no row for the restored tenant"
+  [[ "$(rx psql -X -At -d "$SCRATCH" -v "t=$TENANT" <<<"SELECT count(*) FROM pg_namespace WHERE nspname ~ '^tenant_' AND nspname <> :'t';")" == 0 ]] ||
+    die 1 "other_tenant_schema_present" "a schema of another tenant is in the scratch database"
 fi
 
 # ---- 5. content checks: the manifest query on the restored copy against the one taken with the dump
 STEP="content"
-rx psql -X -At -d "$SCRATCH" -v ON_ERROR_STOP=1 -f - <"$SCRIPT_DIR/manifest.sql" >"$WORK/restored.txt" 2>"$WORK/err.log" ||
+rx psql -X -At -d "$SCRATCH" -v ON_ERROR_STOP=1 -v "only=$TENANT" -f - <"$SCRIPT_DIR/manifest.sql" >"$WORK/restored.txt" 2>"$WORK/err.log" ||
   die 5 "manifest_query_failed" "manifest query failed on the restored copy"
 grep -vE '^(format|source_db|pg_version)=' "$SET_DIR/manifest.txt" | LC_ALL=C sort >"$WORK/expected.txt"
+if [[ -n "$TENANT" ]]; then
+  # one tenant: its own keys only (the public counts and the other tenants are not restored)
+  grep "^$TENANT\\." "$WORK/expected.txt" >"$WORK/e1.txt" || true
+  mv "$WORK/e1.txt" "$WORK/expected.txt"
+  [[ -s "$WORK/expected.txt" ]] || die 3 "tenant_not_in_set" "the manifest has no lines for that tenant"
+fi
 LC_ALL=C sort "$WORK/restored.txt" >"$WORK/got.txt"
 if ! cmp -s "$WORK/expected.txt" "$WORK/got.txt"; then
   keys="$({ diff "$WORK/expected.txt" "$WORK/got.txt" || true; } | sed -n 's/^[<>] \([^=]*\)=.*/\1/p' | LC_ALL=C sort -u | head -n 3 | paste -sd: -)"
   die 1 "manifest_differs:$keys" "restored data differs from the manifest taken with the dump"
 fi
 REPORT_TENANTS="$(sed -n 's/^public\.tenants=//p' "$WORK/got.txt")"
+[[ -z "$TENANT" ]] || REPORT_TENANTS="1"
 REPORT_PAIRS="$(sum_values ledger_pairs "$WORK/got.txt")"
 REPORT_DIFF="$(sum_values ledger_replay_diff "$WORK/got.txt")"
 # The replay checksum is also checked absolutely: a backup of an already inconsistent ledger fails.
@@ -221,5 +269,6 @@ else
 fi
 
 # ---- 7. verified: prune.sh never deletes the newest verified set
-date -u +%Y-%m-%dT%H:%M:%SZ >"$SET_DIR/VERIFIED" 2>/dev/null || true
+# a one-tenant drill does not verify the set
+[[ -n "$TENANT" ]] || date -u +%Y-%m-%dT%H:%M:%SZ >"$SET_DIR/VERIFIED" 2>/dev/null || true
 STEP="done"

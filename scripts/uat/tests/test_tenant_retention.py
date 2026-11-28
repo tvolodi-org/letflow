@@ -1,6 +1,6 @@
 """Tests of the tenant retention step (T-3203): a fake tenant registry and a fake platform.tenant_lifecycle process.
 Young tenant kept, old matching tenant purged through the process, every excluded tenant kept, dry run purges nothing,
-a batch cap, a lock, a not-eligible purge is LEFT. No network, no model.
+a batch cap, a lock, a not-eligible purge is a loud FAILED line. No network, no model.
 
 Run: python3 -B -m unittest -v scripts/uat/tests/test_tenant_retention.py   (from the repository root)
 """
@@ -124,11 +124,53 @@ class Retention(unittest.TestCase):
         lock.release()
         self.assertTrue(tr.Lock("uat-tmp-a", self.locks).acquire())  # released locks are free; unrelated locks are freed after a run
 
-    def test_not_eligible_purge_is_left_not_failed(self):
+    def test_not_eligible_purge_is_kept(self):
         fake = FakePlatform([row("uat-tmp-wait", 9, status="inactive")], not_eligible=["uat-tmp-wait"])
         result = self.go(fake)
-        self.assertEqual((result["purged"], result["left"]), (0, 1))
+        self.assertEqual((result["purged"], result["failed"]), (0, 1))
         self.assertIn("uat-tmp-wait", fake.tenants)
+
+    def test_deactivated_non_runner_tenant_is_excluded_by_name_even_at_retention_0(self):
+        fake = FakePlatform([row("acme-test", 90, status="inactive"), row("req384-x", 90, status="inactive")])
+        self.go(fake)
+        self.assertEqual(fake.started, [])
+        self.assertEqual(set(fake.tenants), {"acme-test", "req384-x"})
+
+    def test_active_old_runner_tenant_is_deactivated_then_purged_in_order(self):
+        fake = FakePlatform([row("uat-tmp-act", 3)])
+        result = self.go(fake)
+        self.assertEqual(fake.started, [("uat-tmp-act", "suspend"), ("uat-tmp-act", "purge")])
+        self.assertEqual((result["purged"], result["failed"], fake.tenants), (1, 0, {}))
+
+    def test_active_runner_tenant_younger_than_a_day_is_untouched(self):
+        fake = FakePlatform([row("uat-tmp-new", 0.9)])
+        self.go(fake)
+        self.assertEqual(fake.started, [])
+        self.assertEqual(fake.tenants["uat-tmp-new"]["status"], "active")
+
+    def test_purge_is_never_started_when_deactivate_fails(self):
+        fake = FakePlatform([row("uat-tmp-stuck", 3)])
+        real_post = fake.__call__
+
+        def failing(method, path, body=None):
+            r = real_post(method, path, body)
+            if method == "POST" and body["initial_variables"]["action"] == "suspend":
+                fake.instances[r[1]["instance_id"]] = "ERROR"
+            return r
+        result = self.go(failing)
+        self.assertEqual(fake.started, [("uat-tmp-stuck", "suspend")])
+        self.assertEqual(result["left"], 1)
+
+    def test_not_eligible_is_a_loud_named_failure_and_not_retried(self):
+        fake = FakePlatform([row("uat-tmp-a", 9, status="inactive"), row("uat-tmp-b", 8, status="inactive")],
+                            not_eligible=["uat-tmp-a", "uat-tmp-b"])
+        result = self.go(fake)
+        self.assertEqual((result["failed"], result["purged"]), (1, 0))
+        self.assertEqual(fake.started, [("uat-tmp-a", "purge")])
+        failed = [l for l in self.out if l.startswith("FAILED")]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("uat-tmp-a", failed[0])
+        self.assertIn("LETFLOW_PROVISIONER_RETENTION_DAYS", failed[0])
 
     def test_extra_allow_entry_is_taken_but_only_when_listed(self):
         fake = FakePlatform([row("leftover-one", 9, status="inactive"), row("leftover-two", 9, status="inactive")])

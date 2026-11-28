@@ -104,6 +104,7 @@
     },
     {
       "id": "A2s",
+      "positional_ok": "the list is filtered by this step's own query (the run's unique definition name and status=active) to one row; the first row is the one asked for",
       "actor": "admin",
       "says": "1. The list search with the word and status=active finds C, the same row as the word alone (T-3161): the status filter must not drop the active version.",
       "do": {
