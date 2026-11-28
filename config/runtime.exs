@@ -695,6 +695,21 @@ config :letflow,
          System.get_env("LETFLOW_SHARED_STOCK_ACCESS_TENANTS")
        )
 
+# T-3259: the PLATFORM value of the outbound send caps per channel (T-2592). OPTIONAL
+# LETFLOW_OUTBOUND_CAP_PER_HOUR / LETFLOW_OUTBOUND_CAP_PER_DAY: positive integers; unset = the
+# defaults 60 per hour and 500 per day. A tenant may only lower its own cap below this value.
+# An invalid, zero or negative value stops the boot, naming the variable and not the value.
+outbound_cap_env = fn name ->
+  case Letflow.Identity.Tenant.parse_outbound_cap_env(name, System.get_env(name)) do
+    {:ok, value} -> value
+    {:error, message} -> raise message
+  end
+end
+
+config :letflow, :outbound_caps,
+  per_hour: outbound_cap_env.("LETFLOW_OUTBOUND_CAP_PER_HOUR"),
+  per_day: outbound_cap_env.("LETFLOW_OUTBOUND_CAP_PER_DAY")
+
 # T-1951 (maintenance slice 3): server error capture. OFF unless LETFLOW_ERROR_CAPTURE_ENABLED is "true".
 # OPTIONAL LETFLOW_ERROR_GROWTH_ALERT_PER_HOUR: a positive integer; anything else keeps the default (20).
 error_capture_cfg = Application.get_env(:letflow, :error_capture, [])

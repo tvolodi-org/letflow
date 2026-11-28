@@ -4,6 +4,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    # QA only (T-3259): infra may set LETFLOW_OUTBOUND_CAP_PER_HOUR / LETFLOW_OUTBOUND_CAP_PER_DAY in .env
+    # (platform send caps per channel; unset = 60 per hour, 500 per day). Production keeps the defaults.
     env_file: .env
     depends_on:
       db:
