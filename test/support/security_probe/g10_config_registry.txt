@@ -63,6 +63,8 @@ env|LETFLOW_MODULE_ROLLOUT_HALT_AFTER|operations|platform|runtime|plain|none|no|
 env|LETFLOW_MODULE_UPGRADE_ON_BOOT|operations|platform|runtime|flag|false|no|none|Switch that lets the application upgrade the installed modules while it starts.
 env|LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS|operations|platform|runtime|plain|none|no|none|Number of records one module upgrade transaction may rewrite.
 env|LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS|identity|platform|runtime|flag|false|yes|none|Switch that lets an administrator bind a realm that was never verified.
+env|LETFLOW_OUTBOUND_CAP_PER_DAY|notifications|platform|runtime|plain|500|yes|none|Platform ceiling of outbound sends per channel per day, a positive integer; unset means 500 and a bad value stops the boot.
+env|LETFLOW_OUTBOUND_CAP_PER_HOUR|notifications|platform|runtime|plain|60|yes|none|Platform ceiling of outbound sends per channel per hour, a positive integer; unset means 60 and a bad value stops the boot.
 env|LETFLOW_OWNER_LIST_SHA256|operations|platform|runtime|plain|none|yes|none|Hash of the owner list a report export is authorised against.
 env|LETFLOW_PLATFORM_ACTIVATOR_USER_ID|platform|platform|runtime|plain|none|no|none|User id the platform definition seed names as the actor of the definitions it writes.
 env|LETFLOW_PLATFORM_TENANT_ID|identity|platform|runtime|plain|none|yes|none|Identifier of the tenant that holds the platform authority.
@@ -223,6 +225,7 @@ app_env|:letflow:oidc_admin_bind_unverified_realms|identity|platform|runtime|fla
 app_env|:letflow:oidc_claim_mapping|identity|platform|runtime|plain|none|no|none|Map of the token claims onto the roles and the tenant of a caller.
 app_env|:letflow:oidc_jit_provisioning|identity|platform|runtime|plain|none|no|none|Roles a just in time provisioned user of a realm receives.
 app_env|:letflow:oidc_realm_probe|identity|platform|runtime|plain|module|no|none|Probe that checks whether a realm is reachable.
+app_env|:letflow:outbound_caps|notifications|platform|runtime|plain|module|yes|none|Platform ceilings of outbound sends per hour and per day, set from the two environment variables at boot.
 app_env|:letflow:old_app_count_between|stock|module|runtime|plain|none|no|none|Bound of the rows the old stock application may still write.
 app_env|:letflow:ordering|platform|platform|runtime|plain|none|no|none|Order in which the instances and the tasks are handed out.
 app_env|:letflow:platform_admin_token_max_ttl_days|identity|platform|runtime|plain|none|no|none|Upper bound on the lifetime of a platform administrator token.

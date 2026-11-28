@@ -463,6 +463,24 @@ defmodule Letflow.Identity.TenantTest do
       assert changeset.valid?
     end
 
+    test "T-3259 CAP-5: defaults 60 and 500 with the env unset" do
+      assert Application.get_env(:letflow, :outbound_caps, []) |> Keyword.get(:per_hour) == nil
+      assert Tenant.outbound_cap_ceiling() == %{per_hour: 60, per_day: 500}
+      assert Tenant.outbound_caps(%{}) == {60, 500}
+    end
+
+    test "T-3259 CAP-7: env values are parsed; bad values are refused naming the variable" do
+      assert {:ok, nil} = Tenant.parse_outbound_cap_env("V", nil)
+      assert {:ok, nil} = Tenant.parse_outbound_cap_env("V", "")
+      assert {:ok, 1000} = Tenant.parse_outbound_cap_env("V", "1000")
+
+      for bad <- ["0", "-5", "abc", "10x", "1.5", " 7"] do
+        assert {:error, msg} = Tenant.parse_outbound_cap_env("LETFLOW_X", bad)
+        assert msg =~ "LETFLOW_X"
+        refute msg =~ bad
+      end
+    end
+
     test "T-2592 CAP-4: the caps a tenant asks for are clamped to the ceiling" do
       ceiling = Tenant.outbound_cap_ceiling()
 

@@ -78,7 +78,9 @@ defmodule Letflow.Identity.Tenant do
   # T-2592 (pilot gap G4): the platform CEILING of the tenant's outbound send
   # cap -- the most sends a tenant may make on one channel in an hour and in a
   # day. A tenant may lower its own cap with the two settings; it may never
-  # raise it above this ceiling.
+  # raise it above this ceiling. T-3259: these are the DEFAULTS of the platform
+  # value; `LETFLOW_OUTBOUND_CAP_PER_HOUR` / `LETFLOW_OUTBOUND_CAP_PER_DAY`
+  # (config/runtime.exs, `:letflow, :outbound_caps`) override them per platform.
   @outbound_cap_per_hour 60
   @outbound_cap_per_day 500
 
@@ -456,8 +458,40 @@ defmodule Letflow.Identity.Tenant do
   the read side (`outbound_caps/1`) share one number.
   """
   @spec outbound_cap_ceiling() :: %{per_hour: pos_integer(), per_day: pos_integer()}
-  def outbound_cap_ceiling,
-    do: %{per_hour: @outbound_cap_per_hour, per_day: @outbound_cap_per_day}
+  def outbound_cap_ceiling do
+    env = Application.get_env(:letflow, :outbound_caps, [])
+
+    %{
+      per_hour: positive_or(Keyword.get(env, :per_hour), @outbound_cap_per_hour),
+      per_day: positive_or(Keyword.get(env, :per_day), @outbound_cap_per_day)
+    }
+  end
+
+  defp positive_or(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_or(_value, default), do: default
+
+  @doc """
+  Parses the platform cap override of one environment variable (T-3259).
+
+  Unset or empty gives `{:ok, nil}` (the default stays); a positive integer gives
+  `{:ok, n}`; anything else (zero, negative, text, a trailing character) gives
+  `{:error, message}` naming the variable and never the value (INV-4). The
+  release calls this at boot and refuses to start on an error.
+  """
+  @spec parse_outbound_cap_env(String.t(), String.t() | nil) ::
+          {:ok, pos_integer() | nil} | {:error, String.t()}
+  def parse_outbound_cap_env(_name, value) when value in [nil, ""], do: {:ok, nil}
+
+  def parse_outbound_cap_env(name, value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} when n > 0 ->
+        {:ok, n}
+
+      _other ->
+        {:error,
+         "environment variable #{name} must be a positive integer. The value is not echoed."}
+    end
+  end
 
   @doc """
   The caps a tenant's settings ask for, each clamped to the platform ceiling.
@@ -467,11 +501,16 @@ defmodule Letflow.Identity.Tenant do
   """
   @spec outbound_caps(map() | nil) :: {pos_integer(), pos_integer()}
   def outbound_caps(settings) when is_map(settings) do
-    {clamp_cap(Map.get(settings, "notifications.outbound_cap_per_hour"), @outbound_cap_per_hour),
-     clamp_cap(Map.get(settings, "notifications.outbound_cap_per_day"), @outbound_cap_per_day)}
+    ceiling = outbound_cap_ceiling()
+
+    {clamp_cap(Map.get(settings, "notifications.outbound_cap_per_hour"), ceiling.per_hour),
+     clamp_cap(Map.get(settings, "notifications.outbound_cap_per_day"), ceiling.per_day)}
   end
 
-  def outbound_caps(_settings), do: {@outbound_cap_per_hour, @outbound_cap_per_day}
+  def outbound_caps(_settings) do
+    ceiling = outbound_cap_ceiling()
+    {ceiling.per_hour, ceiling.per_day}
+  end
 
   defp clamp_cap(value, ceiling) when is_integer(value) and value > 0 and value <= ceiling,
     do: value
