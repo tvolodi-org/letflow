@@ -69,7 +69,7 @@ defmodule Letflow.SignupTenantCreateTest do
     )
   end
 
-  defp row!(attrs \\ []) do
+  defp row!(attrs) do
     tenant_id = Keyword.get(attrs, :tenant_id) || Ecto.UUID.generate()
     track_tenant(tenant_id)
 
