@@ -16,6 +16,7 @@ import check_processes  # noqa: E402
 import runner  # noqa: E402
 
 FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-02-self-service-signup.json"
+LIFECYCLE_FILE = HERE.parents[2] / "test" / "uat" / "processes" / "BP-PLATFORM-02-tenant-lifecycle-process.json"
 
 
 class Signup(unittest.TestCase):
@@ -66,7 +67,10 @@ class Signup(unittest.TestCase):
         self.assertEqual(422, self.steps["S9"]["expect_refused"]["status"])
 
     def test_cleanup_touches_only_the_throwaway_tenant_and_needs_the_mark(self):
-        self.assertEqual(1, len(self.process["cleanup"]))
+        self.assertEqual(2, len(self.process["cleanup"]))  # the deactivate and (T-3210) the purge of the same slug
+        purge = self.process["cleanup"][1]
+        self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/purge", purge["do"]["path"])
+        self.assertEqual([200, 404], purge["expect"]["status"])
         c = self.process["cleanup"][0]
         self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/deactivate", c["do"]["path"])
         # failure path: no "requires", so a sign-up that made the tenant and then failed an assertion is reconciled;
@@ -287,6 +291,27 @@ class Signup(unittest.TestCase):
             except SystemExit:
                 pass
         self.assertNotIn("actors missing", err.getvalue() + out.getvalue())
+
+
+class TenantLifecycle(unittest.TestCase):
+    """T-3105: the lifecycle scenario names the three lifecycle functions of the compiled
+    catalogue; an assertion by position went red when the catalogue grew."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.process = json.loads(LIFECYCLE_FILE.read_text())
+        cls.steps = {s["id"]: s for s in cls.process["steps"]}
+
+    def ok(self, step_id, body, status=200):
+        rows = runner.run_assertions(self.steps[step_id]["expect"], status, body)
+        return all(r["ok"] for r in rows)
+
+    def test_the_lifecycle_functions_are_named_and_not_counted(self):
+        catalogue = {"items": [{"name": "tenant.purge"}, {"name": "tenant.reactivate"}, {"name": "tenant.suspend"},
+                                {"name": "tenant.set_script_policy"}]}
+        self.assertTrue(self.ok("A2", catalogue))
+        self.assertTrue(self.ok("A2", {"items": list(reversed(catalogue["items"]))}))
+        self.assertFalse(self.ok("A2", {"items": [{"name": "tenant.purge"}]}))
 
 
 if __name__ == "__main__":

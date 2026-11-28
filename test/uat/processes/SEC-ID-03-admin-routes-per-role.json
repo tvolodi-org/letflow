@@ -16,6 +16,7 @@
   "steps": [
     {
       "id": "s1",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "admin",
       "do": {
         "api": "GET",
@@ -36,6 +37,7 @@
     },
     {
       "id": "s2",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "admin",
       "do": {
         "api": "GET",
@@ -319,8 +321,9 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].definition_name": "${rule_definition}",
-          "$.items[0].node_id": "${rule_node}"
+          "$.items[?definition_name=${rule_definition}&node_id=${rule_node}]": {
+            "exists": true
+          }
         }
       }
     },
@@ -334,8 +337,7 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].registration": "${ledger_registration}",
-          "$.items[0].allow_negative": "${ledger_allow_negative}"
+          "$.items[?registration=${ledger_registration}].allow_negative": "${ledger_allow_negative}"
         }
       }
     }

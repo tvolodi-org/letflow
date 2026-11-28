@@ -25,9 +25,19 @@ defmodule Letflow.Modules.EnsureSeeds do
   call, and running instances stay pinned to their version. One `module.seed_activated` audit entry
   per activation names the module, `"key@version"`, the superseded version and the system actor.
   The activation is tied to the system actor, not to a human; a `needs_reactivation` flag raised
-  later on that definition is cleared by a user with `DefinitionsActivate` (`reactivate/2`).
+  later on that definition is cleared by the module seed itself; a tenant `reactivate/2` of a
+  module-owned row is refused (T-3014).
   An activation that is refused (validator, system actor unavailable) never fails the upgrade: the
   draft stays and is listed.
+
+  Dead-newest repair (T-3014): when every row of a process name is this module's, no row is ACTIVE
+  and the module's CURRENT version (same graph hash, same module version) exists only as a
+  DEPRECATED or ARCHIVED row, the process is dead for the tenant (the stock routes answer 409
+  `definition_not_active`). The step then seeds a fresh stamped draft of the current graph under the
+  version `"<pack version>-repair-<n>"`, logs a warning and activates it by the same rule as step 5.
+  A tenant administrator can no longer retire a module-owned version (`Definitions.deprecate/2` and
+  `archive/2` refuse it), so a dead current version is never a tenant decision. A name with a
+  tenant-created row, an ACTIVE row or a pending pristine draft is left alone.
 
   It never overwrites or deletes a row and never touches records. A definition the tenant modified
   (a stamp whose hash no longer matches its graph) or created (any row of the name not owned by this
@@ -206,6 +216,17 @@ defmodule Letflow.Modules.EnsureSeeds do
              [prefix: prefix, draft_suffix: manifest.version],
              owner
            ),
+         {:ok, repaired} <-
+           repair_dead_newest(
+             document,
+             packed,
+             module_id,
+             manifest.version,
+             actor_id,
+             prefix,
+             owner
+           ),
+         drafts = drafts ++ repaired,
          {:ok, activated} <-
            activate_pristine(packed, module_id, manifest.version, actor_id, prefix) do
       {_selection, needed} =
@@ -213,6 +234,49 @@ defmodule Letflow.Modules.EnsureSeeds do
 
       {:ok, drafts, activated, needed}
     end
+  end
+
+  # T-3014: see the moduledoc, "Dead-newest repair".
+  defp repair_dead_newest(document, packed, module_id, module_version, actor_id, prefix, owner) do
+    rows = load_rows(packed, prefix)
+
+    Enum.reduce_while(packed, {:ok, []}, fn {key, version, hash}, {:ok, acc} ->
+      held = Map.get(rows, key, [])
+
+      if dead_newest?(held, module_id, module_version, hash) do
+        Logger.warning(
+          "module seed repair: #{key}@#{module_version} of #{module_id} has no ACTIVE row " <>
+            "(newest current row is retired); seeding a fresh draft to activate"
+        )
+
+        suffix = "#{module_version}-repair-#{length(held) + 1}"
+
+        case SolutionPack.install_process_drafts(
+               document,
+               [{key, version}],
+               actor_id,
+               [prefix: prefix, draft_suffix: suffix],
+               owner
+             ) do
+          {:ok, created} -> {:cont, {:ok, acc ++ created}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      else
+        {:cont, {:ok, acc}}
+      end
+    end)
+  end
+
+  defp dead_newest?([], _module_id, _module_version, _hash), do: false
+
+  defp dead_newest?(held, module_id, module_version, hash) do
+    Enum.all?(held, &(&1.owner_module == module_id)) and
+      not Enum.any?(held, &(&1.status == :active)) and
+      not Enum.any?(held, &(&1.status == :draft and current?(&1, hash, module_version))) and
+      Enum.any?(
+        held,
+        &(&1.status in [:deprecated, :archived] and current?(&1, hash, module_version))
+      )
   end
 
   defp load_rows(packed, prefix) do
@@ -277,8 +341,14 @@ defmodule Letflow.Modules.EnsureSeeds do
       active == nil and Enum.all?(rows, &(&1.status == :draft)) ->
         {:activate, draft, nil}
 
+      # T-3014: the module's current version is retired and nothing is ACTIVE (dead-newest).
       active == nil ->
-        :skip
+        if Enum.any?(
+             rows,
+             &(&1.status in [:deprecated, :archived] and current?(&1, hash, module_version))
+           ),
+           do: {:activate, draft, nil},
+           else: :skip
 
       pristine?(active) and not current?(active, hash, module_version) ->
         {:activate, draft, active}

@@ -931,10 +931,12 @@ defmodule Letflow.Engine do
   # The public route, a scheduled job and any other caller answer as for an unknown definition
   # (INV-5), before the status case; the cause goes to the server log only. A child start of a
   # SUB_PROCESS node is refused alike in `SubProcess.resolve_child_definition/2`.
+  # T-3101 (G-SUB-1): a parent whose transitive SUB_PROCESS child carries `module_writes` is
+  # module-only too (its start variables reach the child).
   defp gate_module_only_start({:ok, definition} = found, opts) do
     with false <- Keyword.get(opts, :module_start, false) == true,
          {:ok, graph} <- build_graph(definition.graph),
-         true <- WriteTargets.module_writes?(graph) do
+         true <- WriteTargets.module_writes?(graph, Keyword.get(opts, :prefix)) do
       Logger.info("start refused: module-only definition definition_id=#{definition.id}")
       {:error, :not_found}
     else
@@ -8767,7 +8769,7 @@ defmodule Letflow.Engine do
     case Enum.sort(
            Enum.uniq(
              VariableMerge.reserved_keys(output_variables) ++
-               WriteTargets.refused_keys(graph, node_id, output_variables)
+               WriteTargets.refused_keys(graph, node_id, output_variables, prefix)
            )
          ) do
       [] ->

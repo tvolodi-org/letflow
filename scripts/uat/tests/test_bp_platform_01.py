@@ -44,6 +44,7 @@ FUNCTIONS = [
     "tenant.reactivate",
     "tenant.record_lifecycle",
     "tenant.record_onboarding",
+    "tenant.set_script_policy",
     "tenant.suspend",
     "tenant.validate",
 ]
@@ -65,10 +66,21 @@ def registry():
     return {"items": [{"name": n, "inputs": [{"name": "x"}], "outputs": [{"name": "y"}]} for n in FUNCTIONS]}
 
 
+# the compiled template catalogue of today (Letflow.NotificationTemplates.Registry)
+TEMPLATES = {
+    "asset_expiry_reminder": ["asset_name", "asset_code", "expiry_date", "responsible_name", "tenant_name"],
+    "exam_assigned": ["exam_title", "candidate_name", "deadline", "tenant_name"],
+    "exam_reminder": ["exam_title", "candidate_name", "deadline", "tenant_name"],
+    "exam_result": ["exam_title", "candidate_name", "result_status", "score_percent", "tenant_name"],
+    "password_reset_hint": ["user_name", "tenant_name"],
+    "problem_report_status": ["user_name", "report_number", "status_text", "reply_text", "tenant_name"],
+    "task_assigned": ["task_name", "process_name", "assignee_name", "due_date", "tenant_name"],
+    "tenant_registered": ["tenant_name", "tenant_slug", "registered_by"],
+}
+
+
 def templates():
-    keys = ["asset_expiry_reminder", "exam_assigned", "exam_reminder", "exam_result", "password_reset_hint",
-            "problem_report_status", "task_assigned", "tenant_registered"]
-    return {"items": [{"template_key": k, "placeholders": ["tenant_name", "tenant_slug", "registered_by"]} for k in keys]}
+    return {"items": [{"template_key": k, "placeholders": list(v)} for k, v in sorted(TEMPLATES.items())]}
 
 
 class StepA(unittest.TestCase):
@@ -132,8 +144,34 @@ class StepA(unittest.TestCase):
         self.assertFalse(self.verdict("A3a", {"items": []}))
         self.assertFalse(self.verdict("A3b", {"items": []}))
         t = templates()
-        t["items"][7]["placeholders"] = []
+        for item in t["items"]:
+            if item["template_key"] == "tenant_registered":
+                item["placeholders"] = []
         self.assertFalse(self.verdict("A3b", t))
+
+    def test_a3a_names_the_functions_of_the_graph_and_not_a_position(self):
+        """T-3105: the catalogue is compiled and grows; an assertion by position goes red for
+        a reason that has nothing to do with the scenario (a new entry shifts every index)."""
+        catalogue = registry()
+        self.assertEqual(14, len(catalogue["items"]))  # the compiled catalogue of today
+        self.assertTrue(self.verdict("A3a", catalogue))
+        # the order of the catalogue is no part of the answer
+        self.assertTrue(self.verdict("A3a", {"items": list(reversed(catalogue["items"]))}))
+        # a catalogue without a function the graph calls is a defect
+        without = {"items": [i for i in catalogue["items"] if i["name"] != "tenant.validate"]}
+        self.assertFalse(self.verdict("A3a", without))
+        # a function without inputs is a defect too
+        no_inputs = {"items": [dict(i, inputs=[]) if i["name"] == "tenant.bind_realm" else i
+                                for i in catalogue["items"]]}
+        self.assertFalse(self.verdict("A3a", no_inputs))
+
+    def test_a3b_names_the_template_key_and_not_a_position(self):
+        """T-3105: the template catalogue is compiled too and grows the same way."""
+        catalogue = templates()
+        self.assertTrue(self.verdict("A3b", catalogue))
+        self.assertTrue(self.verdict("A3b", {"items": list(reversed(catalogue["items"]))}))
+        without = {"items": [i for i in catalogue["items"] if i["template_key"] != "tenant_registered"]}
+        self.assertFalse(self.verdict("A3b", without))
 
 
 class StepsBToH(unittest.TestCase):
@@ -162,8 +200,8 @@ class StepsBToH(unittest.TestCase):
 
     def test_the_steps_run_in_the_order_of_the_scenario(self):
         ids = list(self.steps)
-        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C4", "C5", "D1", "E1", "E2",
-                 "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
+        order = ["A1", "A2", "A3a", "A3b", "B0a", "B0b", "B0c", "B1n", "B1", "B2", "B3", "C1", "C2", "C3", "C3r", "C4", "C5", "D1",
+                 "E1", "E2", "E3", "E4", "E5", "E6", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F9", "F10", "G1", "G2",
                  "G3", "G4", "G5", "G6", "H1", "H2", "H3", "H4", "H5", "H6"]
         self.assertEqual(order, ids)
         self.assertLess(ids.index("B0b"), ids.index("B1"))  # the allowed destination comes before the mail step
@@ -181,6 +219,19 @@ class StepsBToH(unittest.TestCase):
             c = next(c for c in self.process["cleanup"] if c["do"]["path"] == f"/api/v1/tenants/${{slug{i}}}/deactivate")
             self.assertEqual([f"slug{i}"], c["requires"])
         self.assertNotIn("qoimeks-client1", FILE.read_text())
+
+    def test_t3210_each_deactivated_tenant_is_purged_right_after_and_only_that_one(self):
+        ids = [c["id"] for c in self.process["cleanup"]]
+        for i, cid in zip((1, 2, 3, 4), ("c3", "c4", "c5", "c6")):
+            purge = self.cleanup[cid + "p"]
+            self.assertEqual(ids.index(cid) + 1, ids.index(cid + "p"))  # right after its deactivate
+            self.assertEqual(("POST", f"/api/v1/tenants/${{slug{i}}}/purge"), (purge["do"]["api"], purge["do"]["path"]))
+            self.assertEqual([f"slug{i}"], purge["requires"])  # skipped when the run made no such tenant
+            self.assertEqual(200, purge["expect"]["status"])  # a refusal is a loud cleanup failure
+        purges = [c for c in self.process["cleanup"] if c["do"]["path"].endswith("/purge")]
+        self.assertEqual(4, len(purges))  # the four tenants of this run, no sweep, no fixed name
+        for c in purges:
+            self.assertRegex(c["do"]["path"], r"^/api/v1/tenants/\$\{slug[1-4]\}/purge$")
 
     def test_every_cleanup_step_is_conditional_on_what_the_run_made(self):
         for step in self.process["cleanup"]:
@@ -292,8 +343,9 @@ class StepsBToH(unittest.TestCase):
         self.assertTrue(self.verdict("B2", pending))
         self.assertFalse(self.verdict("B3", pending))  # armed but never run: the runner is off
 
-    def test_the_process_creates_the_realm_and_the_unknown_realm_is_a_negative(self):
-        # /onboarding probes a realm that is SENT; the registrations send none, the process creates it
+    def test_the_registrations_send_no_realm_and_the_unknown_realm_is_a_negative(self):
+        # /onboarding probes a realm that is SENT; the registrations send none, so the tenant has no realm
+        # (decision 0072: Letflow never creates realms; the bind_realm step is a no-op)
         for sid in ("B1", "F6", "G3"):
             self.assertNotIn("idp_realm_id", self.steps[sid]["do"]["body"], sid)
         neg = self.steps["B1n"]
@@ -304,17 +356,29 @@ class StepsBToH(unittest.TestCase):
         self.assertNotIn("save", neg)
         # E1 sends no realm (realm1 is null without Keycloak, smoke T-2946) and forces the failure with an
         # administrator address off the email allow-list: the notify step is refused (ERROR + DLQ)
-        self.assertEqual("$.idp_realm_id", self.steps["C3"]["save"]["realm1"])
+        self.assertEqual("$.idp_realm_id", self.steps["C3r"]["save"]["realm1"])
         self.assertNotIn("idp_realm_id", self.steps["E1"]["do"]["body"])
         email = self.steps["E1"]["do"]["body"]["admin_email"]
         self.assertTrue(email.endswith("@refused.uat.letflow.internal"))
         self.assertNotEqual("uat.letflow.internal", email.split("@")[1])
         self.assertNotIn("realm", self.process["inputs"])
 
-    def test_the_description_names_the_setting_and_no_marker_is_left(self):
+    def test_the_realm_step_does_not_pass_on_a_null(self):
+        """T-3107: the realm of a tenant made by the process is null on QA. The step that claims the
+        realm must fail on a null (and is blocked anyway), so the run never says a realm is bound when
+        there is none. C3 no longer claims the realm at all."""
+        null_realm = {"slug": "${slug1}", "status": "active", "idp_realm_id": None}
+        self.assertFalse(self.verdict("C3r", null_realm))
+        self.assertTrue(self.verdict("C3r", {"slug": "${slug1}", "status": "active",
+                                             "idp_realm_id": "uat-tmp-x"}))
+        self.assertTrue(self.verdict("C3", null_realm))
+        self.assertNotIn("$.idp_realm_id", self.steps["C3"]["expect"]["json"])
+        self.assertEqual({"exists": True}, self.steps["C3r"]["expect"]["json"]["$.idp_realm_id"])
+
+    def test_the_description_names_the_setting_and_the_one_blocked_step(self):
         text = self.process["description"]
         self.assertIn("LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true", text)
-        self.assertIn("No step carries a blocked_by marker now", text)
+        self.assertIn("C3r carries the blocked_by marker", text)
         self.assertIn("file", self.steps["F8"]["says"])
 
     def test_a_non_finite_wait_time_is_refused(self):
@@ -409,11 +473,17 @@ class BlockedSteps(H2IsPlayed):
         self.assertIn("steps not run (blocked_by): 1", summary)
         self.assertIn("1 steps NOT RUN", summary)
 
-    def test_no_step_of_the_scenario_is_parked_any_more(self):
-        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason."""
+    def test_the_only_parked_step_is_the_realm_and_it_names_its_owner(self):
+        """T-2827: the create-via-process setting is on at QA; a marker needs an owner and a reason.
+
+        T-3107: the one marker is the realm of the new tenant (C3r): the registration sends no
+        idp_realm_id, so there is no realm to bind on QA (decision 0072) and the step is reported as
+        NOT RUN instead of passing on a null."""
         process = json.loads(FILE.read_text())
-        marked = {x["id"] for x in process["steps"] if x.get("blocked_by")}
-        self.assertEqual(set(), marked)
+        marked = {x["id"]: x["blocked_by"] for x in process["steps"] if x.get("blocked_by")}
+        self.assertEqual({"C3r"}, set(marked))
+        self.assertIn("owner", marked["C3r"])
+        self.assertIn("T-2727", marked["C3r"])
 
     def test_fresh_tenant_module_install_ends_active(self):
         """G14 finding: no shipped definition of a fresh tenant stays a draft; an empty install does not pass."""
@@ -493,3 +563,74 @@ class BlockedNeverFails(H2IsPlayed):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PurgeRecorder(BaseHTTPRequestHandler):
+    """T-3210: a platform API that records every POST and answers the purge with a switchable status."""
+
+    seen = []
+    purge_status = 200
+
+    def do_GET(self):  # noqa: N802
+        self.reply(200, {"status": "ok", "sha": "abc123", "items": []})
+
+    def do_POST(self):  # noqa: N802
+        type(self).seen.append(self.path)
+        if self.path.endswith("/purge"):
+            self.reply(type(self).purge_status, {"status": "deleted"} if type(self).purge_status == 200 else {"error": "not_eligible"})
+        else:
+            self.reply(200, {})
+
+    def reply(self, status, doc):
+        data = json.dumps(doc).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+class PurgeInCleanup(FakeServerCase):
+    def setUp(self):
+        super().setUp()
+        self.handler = type("P", (PurgeRecorder,), {"seen": [], "purge_status": 200})
+        self.other = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+        threading.Thread(target=self.other.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.addCleanup(self.other.server_close)
+        self.addCleanup(self.other.shutdown)
+        self.actors = {"admin": {"user": "adm", "tenant": "qoimeks-qa2",
+                                 "base_url": f"http://127.0.0.1:{self.other.server_address[1]}"}}
+
+    def clean(self, inputs):
+        process = json.loads(FILE.read_text())
+        cleanup = [c for c in process["cleanup"] if c["id"] in ("c3", "c3p", "c4", "c4p")]
+        r = runner.Runner({"id": "C", "steps": [], "cleanup": cleanup}, base_url=self.base, tenant="qoimeks-qa2",
+                          actors=self.actors, run_dir=self.run_dir, inputs=inputs, poll_interval=0.01,
+                          out=io.StringIO(), residue_check=False)
+        return r.run()
+
+    def test_the_created_tenant_is_deactivated_then_purged_and_a_foreign_one_never(self):
+        code = self.clean({"slug1": "uat-tmp-aaaa", "slug2": "uat-tmp-bbbb"})
+        self.assertEqual(0, code, (self.run_dir / "summary.md").read_text())
+        self.assertEqual(["/api/v1/tenants/uat-tmp-aaaa/deactivate", "/api/v1/tenants/uat-tmp-aaaa/purge",
+                          "/api/v1/tenants/uat-tmp-bbbb/deactivate", "/api/v1/tenants/uat-tmp-bbbb/purge"],
+                         [p for p in self.handler.seen if "/tenants/" in p])
+        self.assertFalse([p for p in self.handler.seen if "qoimeks" in p])
+
+    def test_a_tenant_this_run_did_not_create_is_not_purged(self):
+        code = self.clean({"slug1": "uat-tmp-aaaa"})  # slug2 never made: its steps are skipped
+        self.assertEqual(0, code)
+        purged = [p for p in self.handler.seen if p.endswith("/purge")]
+        self.assertEqual(["/api/v1/tenants/uat-tmp-aaaa/purge"], purged)
+
+    def test_a_refused_purge_fails_the_cleanup_loudly_with_the_tenant_name(self):
+        self.handler.purge_status = 409
+        code = self.clean({"slug1": "uat-tmp-aaaa"})
+        self.assertNotEqual(0, code)
+        verdicts = self.verdicts()
+        self.assertEqual("fail", verdicts[("cleanup", "c3p")])
+        text = json.dumps(self.lines())
+        self.assertIn("uat-tmp-aaaa", text)

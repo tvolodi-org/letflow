@@ -22,6 +22,13 @@ vi.mock('../ProcessDiagramLazy', () => ({
   ),
 }))
 vi.mock('@/hooks/useDefinitions', () => ({ useDefinitionVersions: vi.fn() }))
+// D7: author lookups. Default: the user cannot be read (no data), so the short id is kept.
+const authorData = vi.hoisted(() => ({ value: undefined as undefined | { display_name: string } }))
+vi.mock('@tanstack/react-query', async () => ({
+  ...(await vi.importActual<object>('@tanstack/react-query')),
+  useQueries: ({ queries }: { queries: unknown[] }) => queries.map(() => ({ data: authorData.value })),
+}))
+vi.mock('@/api/useTenantScopedQueryKeys', () => ({ useTenantScopedQueryKeys: () => ({ admin: { userDetail: (id: string) => ['u', id] } }) }))
 
 import { useDefinitionVersions } from '@/hooks/useDefinitions'
 import { DefinitionVersionsPane } from '../DefinitionVersionsPane'
@@ -58,6 +65,7 @@ function show(def = V3) {
   )
 }
 afterEach(() => {
+  authorData.value = undefined
   cleanup()
   vi.clearAllMocks()
 })
@@ -144,5 +152,19 @@ describe('DefinitionVersionsPane', () => {
     show()
     expect(screen.queryByText(/purchase-approval/)).toBeNull()
     expect(within(screen.getByLabelText('Compare version')).getAllByRole('option')).toHaveLength(2)
+  })
+})
+
+describe('T-2815 D7 created by', () => {
+  it('shows the person name when it can be read, the short id otherwise', () => {
+    arrange({ data: { items: [V3], next_cursor: null } })
+    const view = show()
+    expect(screen.getAllByTestId('versions-row')[0]).toHaveTextContent('12345678')
+    view.unmount()
+    authorData.value = { display_name: 'Aigerim S.' }
+    show()
+    const row = screen.getAllByTestId('versions-row')[0]
+    expect(row).toHaveTextContent('Aigerim S.')
+    expect(row).not.toHaveTextContent('12345678')
   })
 })

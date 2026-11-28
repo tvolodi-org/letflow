@@ -56,9 +56,11 @@ class Scenario(unittest.TestCase):
 
     def test_cleanup_deactivates_every_throwaway_tenant(self):
         slugs = {s["do"]["path"] for s in self.process["cleanup"]}
+        # T-3210: each deactivate is followed by the purge of the same tenant
         self.assertEqual(
             slugs,
-            {"/api/v1/tenants/${slug1}/deactivate", "/api/v1/tenants/${slug2}/deactivate"},
+            {"/api/v1/tenants/${slug1}/deactivate", "/api/v1/tenants/${slug2}/deactivate",
+             "/api/v1/tenants/${slug1}/purge", "/api/v1/tenants/${slug2}/purge"},
         )
 
 

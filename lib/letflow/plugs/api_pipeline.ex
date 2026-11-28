@@ -16,13 +16,18 @@ defmodule Letflow.Plugs.ApiPipeline do
   ## Admission control (REQ-216/REQ-217, ISS-0431/GH#835)
 
   `Letflow.Plugs.Admission` is mounted TWICE: once with `pool: :global` as the
-  very FIRST plug in this chain (before `Plug.Parsers`, so a request rejected
-  for lack of capacity costs no body-parsing work), and once with
-  `pool: :tenant` immediately after `Letflow.Plugs.AuthPipeline` and before
+  very FIRST plug of this chain that does any work (before `Plug.Parsers`, so a
+  request rejected for lack of capacity costs no body-parsing work), and once
+  with `pool: :tenant` immediately after `Letflow.Plugs.AuthPipeline` and before
   `Letflow.Plugs.TenantStatus` (tenant identity is not resolved until
   `AuthPipeline` completes). See `Letflow.Plugs.Admission`'s own moduledoc for
   the full rationale, including the disclosed limitation that `AuthPipeline`'s
   own DB work is covered only by the global gate.
+
+  T-3034 moved `plug(:match)` to the FRONT of the chain (it used to be the last
+  plug before `plug(:dispatch)`), so that the admission gate can name the route
+  class of the request it refuses. The match reads no body and no database; the
+  full reasoning is in the comment above the `plug(:match)` call.
 
   **REQ-217 rework (design doc §10.1):** `:release_global_admission` is
   mounted between `AuthPipeline` and the `pool: :tenant` mount. It releases
@@ -108,8 +113,36 @@ defmodule Letflow.Plugs.ApiPipeline do
   use Plug.Router
   use Plug.ErrorHandler
 
-  # REQ-217 -- global admission gate, first plug in the chain (before
-  # Plug.Parsers). See Letflow.Plugs.Admission's moduledoc.
+  # T-3034 -- the route match runs FIRST, before the admission gate.
+  #
+  # `Plug.Router`'s `:match` is a pure path match: it reads `conn.path_info`,
+  # decodes it and records the matched route template in
+  # `conn.private[:plug_route]` and the path parameters in `conn.path_params`.
+  # It reads NO body and touches NO database, so moving it ahead of the
+  # admission gate costs nothing -- but it is what lets the admission gate
+  # name the ROUTE CLASS of the request it refuses (the route pattern, never
+  # the request path). The QA evidence T-3034 answers to is a set of 503s whose
+  # refusals could not be attributed to a path; without the route template the
+  # refusal line could only say "unmatched".
+  #
+  # Why this is safe where it stands: the match was ALREADY the last plug of
+  # this chain before the dispatch, so the SAME decode of the same path
+  # segments ran for every request that reached it. Only the ORDER changed:
+  # the decode now happens before authentication instead of after it. The
+  # top-level `Letflow.Router` already decodes the same segments for its own
+  # match before it forwards here, so a path whose encoding is broken has
+  # always been able to raise before the tenant is known; this change makes
+  # the DOUBLE-decoded variant behave like the single-decoded one instead of
+  # adding a new failure class.
+  #
+  # `conn.path_params` is now filled before the authentication plugs run
+  # instead of after them. No plug of this chain reads it before the dispatch
+  # (the three readers in `lib/letflow/` are all route handlers), so the
+  # earlier value changes nothing.
+  plug(:match)
+
+  # REQ-217 -- global admission gate, first plug of the chain that does any
+  # work (before Plug.Parsers). See Letflow.Plugs.Admission's moduledoc.
   plug(Letflow.Plugs.Admission, pool: :global)
 
   # GH T-1558 -- per-address 429 for repeated failed credentials; peeks before the body is read
@@ -182,7 +215,6 @@ defmodule Letflow.Plugs.ApiPipeline do
   plug(Letflow.Plugs.Admission, pool: :tenant)
 
   plug(Letflow.Plugs.TenantStatus)
-  plug(:match)
   plug(:dispatch)
 
   forward("/identity", to: Letflow.Routers.Identity)

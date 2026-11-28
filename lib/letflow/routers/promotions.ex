@@ -822,6 +822,20 @@ defmodule Letflow.Routers.Promotions do
         "the most recent assertion run recorded failing assertions; applying is blocked until a rehearsal with zero failures is recorded"
       )
 
+  # T-3014: the promoted name belongs to a module (owner_module stamp) in the target
+  # tenant: refused with no state change, uniform with the definitions routes.
+  defp render_apply(conn, {:error, {:promotion_failed, :module_owned_definition}}) do
+    id = conn.path_params |> Map.get("id", "") |> to_string()
+
+    Definitions.record_refused_attempt(
+      "definition.promote",
+      binary_part(id, 0, min(64, byte_size(id))),
+      Keyword.put(conn.assigns.scoped_opts, :actor_id, conn.assigns.auth_context.user_id)
+    )
+
+    Response.conflict(conn, "a module-owned definition cannot be changed by a tenant")
+  end
+
   defp render_apply(conn, {:error, {:promotion_failed, :forbidden}}),
     do: Response.forbidden(conn, "insufficient permissions")
 

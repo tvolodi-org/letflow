@@ -54,6 +54,28 @@ class ExpressionAndSubstitution(unittest.TestCase):
         with self.assertRaises(runner.Undefined):
             runner.substitute("${nope}", ctx)
 
+    def test_slice_and_hex(self):
+        ctx = {"uuid1": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "stored": "abcdef-123"}
+        out = runner.substitute("t-${uuid1|hex[0:20]}", ctx)
+        self.assertEqual(out, "t-0a1b2c3d4e5f6789abcd")
+        self.assertEqual(len(out) - 2, 20)
+        self.assertNotIn("-", out[2:])
+        self.assertEqual(runner.substitute("${uuid1[0:8]}", ctx), "0a1b2c3d")  # no filter: dashes stay
+        self.assertEqual(runner.substitute("${uuid1[-4:]}", ctx), "6789")
+        self.assertEqual(runner.substitute({"p": "/x/${stored|hex[:3]}"}, ctx), {"p": "/x/abc"})
+        self.assertEqual(runner.substitute("${stored|hex}", ctx), "abcdef123")
+        self.assertEqual(runner.referenced_names("${uuid1|hex[0:20]}"), {"uuid1"})
+
+    def test_slice_errors(self):
+        with self.assertRaises(runner.Undefined):
+            runner.substitute("${nope|hex[0:20]}", {})
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[50:60]}", {"v": "abc"})  # empty slice, never ""
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[0:1]}", {"v": {"a": 1}})
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute("${v[a:b]}", {"v": "abc"})  # not a slice: an arithmetic parse error
+
     def test_json_path(self):
         doc = {"a": {"b": [{"c": 1}, {"c": 2}]}, "k-1": True}
         self.assertEqual(runner.json_path(doc, "$.a.b[1].c"), (True, 2))
@@ -61,6 +83,22 @@ class ExpressionAndSubstitution(unittest.TestCase):
         self.assertEqual(runner.json_path(doc, "$.nope"), (False, None))
         self.assertEqual(runner.json_path(doc, '$["k-1"]'), (True, True))
         self.assertEqual(runner.json_path(doc, "$"), (True, doc))
+
+    def test_json_path_names_a_list_item_instead_of_counting_it(self):
+        """T-3105: an assertion by position breaks when the server grows the list."""
+        doc = {"items": [{"name": "a", "id": "1"}, {"name": "tenant.validate", "id": "2", "inputs": [{"name": "x"}]}]}
+        self.assertEqual(runner.json_path(doc, "$.items[?name=tenant.validate]"),
+                         (True, {"name": "tenant.validate", "id": "2", "inputs": [{"name": "x"}]}))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=tenant.validate].inputs[0].name"), (True, "x"))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=nope]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=a&id=1]"), (True, {"name": "a", "id": "1"}))
+        self.assertEqual(runner.json_path(doc, "$.items[?name=a&id=2]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.items[?id=2].name"), (True, "tenant.validate"))
+        # a number of the answer compares as a number
+        self.assertEqual(runner.json_path(doc, "$.items[?count=2]"), (False, None))
+        self.assertEqual(runner.json_path(doc, "$.nope[?name=a]"), (False, None))
+        with self.assertRaises(runner.RunnerError):
+            runner.json_path(doc, "$.items[?name]")
 
 
 class Assertions(unittest.TestCase):
@@ -93,9 +131,46 @@ class Assertions(unittest.TestCase):
         self.assertEqual(self.check({"json": {"$.s": {"exists": True}, "$.gone": {"exists": False}}}, 200, body), [True, True])
         self.assertEqual(self.check({"json": {"$.gone": {"exists": True}}}, 200, body), [False])
 
+    # T-3107: `exists` used to mean "the path was found", so a value of null passed: the pilot
+    # scenario BP-PLATFORM-01 read `$.idp_realm_id` as null and the step passed (smoke
+    # 20261127T024554Z-db6538, step C3). `exists` means a value that is really there: not null
+    # and not empty. `present` is the matcher for "the key is there, the value may be null or
+    # empty"; a step that uses it says so in its own words.
+    def test_exists_needs_a_value(self):
+        body = {"null": None, "empty_text": "", "empty_list": [], "empty_map": {},
+                "text": "x", "zero": 0, "no": False, "list": [1]}
+        for path in ("$.null", "$.empty_text", "$.empty_list", "$.empty_map"):
+            self.assertEqual(self.check({"json": {path: {"exists": True}}}, 200, body), [False], path)
+        for path in ("$.text", "$.zero", "$.no", "$.list"):
+            self.assertEqual(self.check({"json": {path: {"exists": True}}}, 200, body), [True], path)
+        self.assertEqual(self.check({"json": {"$.gone": {"exists": True}}}, 200, body), [False])
+
+    def test_exists_false_is_the_negation(self):
+        body = {"null": None, "empty_text": "", "text": "x"}
+        self.assertEqual(self.check({"json": {"$.null": {"exists": False}}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.empty_text": {"exists": False}}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.gone": {"exists": False}}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.text": {"exists": False}}}, 200, body), [False])
+
+    def test_present_allows_a_null_or_an_empty_value(self):
+        body = {"null": None, "empty_list": [], "empty_text": "", "text": "x"}
+        for path in ("$.null", "$.empty_list", "$.empty_text", "$.text"):
+            self.assertEqual(self.check({"json": {path: {"present": True}}}, 200, body), [True], path)
+        self.assertEqual(self.check({"json": {"$.gone": {"present": True}}}, 200, body), [False])
+        self.assertEqual(self.check({"json": {"$.text": {"present": False}}}, 200, body), [False])
+        self.assertEqual(self.check({"json": {"$.gone": {"present": False}}}, 200, body), [True])
+
     def test_default_for_a_missing_path(self):
         self.assertEqual(self.check({"json": {"$.rows[0].quantity": {"equals": "0", "default": "0"}}}, 200, {"rows": []}), [True])
         self.assertEqual(self.check({"json": {"$.rows[0].quantity": {"equals": "0"}}}, 200, {"rows": []}), [False])
+
+    def test_a_named_item_is_found_whatever_the_order_of_the_list_is(self):
+        """T-3105: the assertion names the item, so a catalogue that grows does not move it."""
+        body = {"items": [{"name": "a"}, {"name": "tenant.validate"}]}
+        self.assertEqual(self.check({"json": {"$.items[?name=tenant.validate]": {"exists": True}}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.items[?name=nope]": {"exists": True}}}, 200, body), [False])
+        self.assertEqual(self.check({"json": {"$.items[?name=tenant.validate].name": "tenant.validate"}}, 200, body), [True])
+        self.assertEqual(self.check({"json": {"$.items[?name=a].name": "tenant.validate"}}, 200, body), [False])
 
 
 class Loader(unittest.TestCase):
@@ -460,6 +535,45 @@ class Cli(FakeServerCase):
         code, out, err = self.main("--input", "item=item-1", "place=place-1", "org_unit=ou-1", "responsible=resp-1")
         self.assertEqual(code, 2)
         self.assertEqual((self.run_dir / "run.jsonl").read_text(), "x\n")
+
+
+class ScenarioMatchers(unittest.TestCase):
+    """T-3107: the rule of the `present` matcher in the scenario tree.
+
+    A step that uses `present` says so in its own words: a reader of the scenario must know
+    that the null or the empty list is intended and not an accident. Every `present` of the
+    tree is checked here, so a step that adds one without saying so is caught.
+    """
+
+    PROCESSES = HERE.parents[2] / "test" / "uat" / "processes"
+
+    def scenarios(self):
+        for path in sorted(self.PROCESSES.glob("*.json")):
+            yield path, json.loads(path.read_text(encoding="utf-8"))
+
+    def test_every_present_matcher_is_named_in_the_step_that_uses_it(self):
+        found = 0
+        for path, doc in self.scenarios():
+            for step in (doc.get("steps") or []) + (doc.get("cleanup") or []):
+                expect = step.get("expect") or {}
+                for json_path, matcher in (expect.get("json") or {}).items():
+                    if not isinstance(matcher, dict) or "present" not in matcher:
+                        continue
+                    found += 1
+                    says = step.get("says") or ""
+                    self.assertIn("present", says,
+                                  f"{path.name}: step {step['id']} uses present at {json_path} and does not say so")
+        self.assertGreater(found, 0, "no step of the tree uses present: the rule is untested")
+
+    def test_no_step_uses_a_matcher_the_runner_does_not_know(self):
+        for path, doc in self.scenarios():
+            for step in (doc.get("steps") or []) + (doc.get("cleanup") or []):
+                expect = step.get("expect") or {}
+                for json_path, matcher in (expect.get("json") or {}).items():
+                    if not isinstance(matcher, dict):
+                        continue
+                    unknown = set(matcher) - runner.OPERATORS
+                    self.assertEqual(set(), unknown, f"{path.name}: step {step['id']} at {json_path}")
 
 
 if __name__ == "__main__":

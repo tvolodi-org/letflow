@@ -22,7 +22,7 @@
     {
       "id": "s1",
       "actor": "platform-admin",
-      "says": "The operator reads the backup status: 200 with the flag 'configured' and the list of jobs (each with its age). The list may be empty when no backup is configured on QA; that is an answer, not a failure.",
+      "says": "The operator reads the backup status: 200 with the flag 'configured' and the list of jobs (each with its age). The list may be empty when no backup is configured on QA; that is an answer, not a failure. T-3107: the list may be empty, so the step asserts that the list is THERE (`present`), not that it holds a job.",
       "do": {
         "api": "GET",
         "path": "/api/v1/platform-status/backup"
@@ -34,13 +34,14 @@
             "exists": true
           },
           "$.jobs": {
-            "exists": true
+            "present": true
           }
         }
       }
     },
     {
       "id": "s2",
+      "positional_ok": "any row of the list will do: the step only needs one existing row and uses the same row for every field it reads",
       "actor": "platform-admin",
       "says": "The platform dashboard reads the list of companies: 200 and at least the platform company itself.",
       "do": {

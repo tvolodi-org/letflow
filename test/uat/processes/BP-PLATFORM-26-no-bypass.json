@@ -91,6 +91,7 @@
     },
     {
       "id": "R1c",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "Route 1: the history opens with INSTANCE_STARTED.",
       "do": {
@@ -199,6 +200,7 @@
     },
     {
       "id": "R2c",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "Route 2: the history opens with INSTANCE_STARTED.",
       "do": {
@@ -316,6 +318,22 @@
       }
     },
     {
+      "id": "c1p",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/purge",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
       "id": "c2",
       "actor": "admin",
       "requires": [
@@ -325,6 +343,22 @@
       "do": {
         "api": "POST",
         "path": "/api/v1/tenants/${slug2}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c2p",
+      "actor": "admin",
+      "requires": [
+        "slug2"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug2}/purge",
         "body": {}
       },
       "expect": {

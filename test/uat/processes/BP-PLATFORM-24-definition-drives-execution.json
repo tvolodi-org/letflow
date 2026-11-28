@@ -29,7 +29,9 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[0].name": "platform.validate_registration"
+          "$.items[?name=platform.validate_registration]": {
+            "exists": true
+          }
         }
       }
     },
@@ -304,6 +306,7 @@
     },
     {
       "id": "A5",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "1. The instance of A stops at the hold: one PENDING task of node 'hold'.",
       "do": {
@@ -1987,7 +1990,8 @@
       "do": {
         "sweep": {
           "prefix": "uat-tmp-defproof-",
-          "exclude_contains": "${run_id}"
+          "exclude_contains": "${run_id}",
+          "best_effort": true
         }
       },
       "expect": {

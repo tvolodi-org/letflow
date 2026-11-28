@@ -57,7 +57,7 @@ class Scenario(unittest.TestCase):
             self.assertIn(key, deleted)
         sweeps = [c for c in self.process["cleanup"] if "sweep" in c["do"]]
         self.assertEqual([c["do"]["sweep"] for c in sweeps],
-                         [{"prefix": "uat-tmp-defproof-", "exclude_contains": "${run_id}"}])  # T-2898
+                         [{"prefix": "uat-tmp-defproof-", "exclude_contains": "${run_id}", "best_effort": True}])  # T-2898, T-3157
         for c in self.process["cleanup"]:
             self.assertTrue(c.get("requires") or c in sweeps)
 
@@ -67,6 +67,15 @@ class Scenario(unittest.TestCase):
         order = lambda body: [n["id"] for n in body["graph"]["nodes"] if n["node_type"] == "SERVICE_TASK"]
         self.assertEqual(["validate", "mail", "file"], order(a))
         self.assertEqual(["file", "validate", "mail"], order(b))
+
+    def test_the_function_picker_is_read_by_name_and_not_by_position(self):
+        """T-3105: the compiled catalogue grows; the step names the function it uses."""
+        catalogue = {"items": [{"name": "platform.validate_registration"},
+                                {"name": "tenant.create"},
+                                {"name": "tenant.set_script_policy"}]}
+        self.assertTrue(self.ok("A0", catalogue))
+        self.assertTrue(self.ok("A0", {"items": list(reversed(catalogue["items"]))}))
+        self.assertFalse(self.ok("A0", {"items": [{"name": "tenant.create"}]}))
 
     def test_the_log_must_follow_the_definition_order(self):
         self.assertTrue(self.ok("A6", log(["validate"])))

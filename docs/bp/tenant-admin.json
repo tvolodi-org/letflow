@@ -3361,13 +3361,15 @@
           "GET /api/v1/tenants",
           "GET /api/v1/tenants/:slug",
           "POST /api/v1/tenants",
-          "GET /api/v1/platform-status/backup"
+          "GET /api/v1/platform-status/backup",
+          "GET /api/v1/platform-status/admission"
         ],
         "code_refs": [
           "lib/letflow/routers/tenants.ex:213",
           "lib/letflow/routers/tenants.ex:217",
           "lib/letflow/routers/tenants.ex:209",
-          "lib/letflow/routers/platform_status.ex:25"
+          "lib/letflow/routers/platform_status.ex:45",
+          "lib/letflow/routers/platform_status.ex:49"
         ],
         "result": "403 Forbidden, detail 'insufficient permissions' (one body for every refusal)"
       },
@@ -3385,7 +3387,7 @@
           "lib/letflow/routers/me.ex:113",
           "lib/letflow/routers/tenants.ex:213",
           "lib/letflow/routers/tenants.ex:217",
-          "lib/letflow/routers/platform_status.ex:25"
+          "lib/letflow/routers/platform_status.ex:45"
         ],
         "result": "200; me shows platform_tenant true"
       },

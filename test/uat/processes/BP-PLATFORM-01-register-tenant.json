@@ -2,7 +2,7 @@
   "id": "BP-PLATFORM-01-register-tenant",
   "bp_entry": "BP-PLATFORM-01",
   "title": "Register a tenant as a configurable process: start, run, step log, mail, retry, designer edit, rollback, refusals",
-  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active with its realm bound; D the mail is in Mailpit; E a forced failure (an administrator address whose domain is not on the email allow-list: the notify step is refused, platform_call_notify_refused) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates every throwaway tenant (QA cannot purge a tenant made through the routes) and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. No step carries a blocked_by marker now. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
+  "description": "The pilot scenario of the tenant registration (T-2744 step A, T-2608 steps B..H). Step A reads the shipped definition (read-only). B..G run in the platform tenant as the platform administrator and create throwaway tenants uat-tmp-<uuid> only: B starts a registration from the route (202) and checks that the engine ARMED the first step (B2) and that the platform step RAN (B3; the two steps name the two causes of an instance that sits in started: nothing armed, or the step runner off on the host); C the instance COMPLETES, the step log lists the six steps in order, the tenant is active and its realm is read in its own step C3r (blocked: a throwaway tenant has no realm, decision 0072); D the mail is in Mailpit; E a forced failure (an administrator address whose domain is not on the email allow-list: the notify step is refused, platform_call_notify_refused) ends in ERROR, the timeline names the step, the DLQ entry is retried (second attempt shown); F a new draft through the designer API adds the file step, a path-like file name is refused at activation, the draft is activated, a start runs the file step, the first instance stays on version 1; G one call rolls back, a start has no file step; H a company user is refused on the start, the activation and the reads. The scenario adds the catcher domain to the platform tenant's outbound allow-list as the explicit step B0 (the notify step is refused at dispatch without it) and the cleanup removes it, deactivates and then purges (T-3210, POST /api/v1/tenants/<slug>/purge) every throwaway tenant and rolls the definition back if a step failed before G1; the platform residue block watches the definition and the instances. A4 is the one browser check: the Playwright spec web/tests/e2e/pilot-register-tenant-qa.e2e.spec.ts against the real designer page https://qa.bizdala.com/definitions/<id>, with the id of A1 supplied as QA_DESIGNER_URL and a signed-in platform administrator's saved browser state as QA_STORAGE_STATE. T-2827: the steps that need a registration to reach the engine on QA (B1 C1-C3 D1 E F6-F10 G3-G6 H4 H5) run with LETFLOW_PROVISIONER_CREATE_VIA_PROCESS=true set on QA by infra (2026-11-25 18:39Z); the new tenant's administrator is the runner actor new_admin. T-3107: C3r carries the blocked_by marker (the realm of a throwaway tenant); every other step is played. The QA build id, verdict line and residue result come from the engine's post-deploy run of this file, not from a step. Inputs: none. Defaults: hostname_suffix, stuck_after_s (default 60), run_within_s (default 120). Actors: admin = the platform administrator (an actor object of the platform tenant), storekeeper = a user of a company tenant. A3 reads the sorted catalogues by position (platform functions sorted by name; notification templates sorted by key, tenant_registered last): a new entry that sorts earlier moves a position and the step must be updated with it.",
   "tenant": "${tenant}",
   "inputs": [],
   "dry_run": {
@@ -93,18 +93,34 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[1].name": "tenant.bind_realm",
-          "$.items[2].name": "tenant.create",
-          "$.items[3].name": "tenant.grant_first_admins",
-          "$.items[5].name": "tenant.notify_admin",
-          "$.items[6].name": "tenant.provision",
-          "$.items[9].name": "tenant.record_lifecycle",
-          "$.items[10].name": "tenant.record_onboarding",
-          "$.items[12].name": "tenant.validate",
-          "$.items[1].inputs[0].name": {
+          "$.items[?name=tenant.bind_realm]": {
             "exists": true
           },
-          "$.items[2].outputs[0].name": {
+          "$.items[?name=tenant.create]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.grant_first_admins]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.notify_admin]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.provision]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.record_lifecycle]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.record_onboarding]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.validate]": {
+            "exists": true
+          },
+          "$.items[?name=tenant.bind_realm].inputs[0].name": {
+            "exists": true
+          },
+          "$.items[?name=tenant.create].outputs[0].name": {
             "exists": true
           }
         }
@@ -121,8 +137,10 @@
       "expect": {
         "status": 200,
         "json": {
-          "$.items[7].template_key": "tenant_registered",
-          "$.items[7].placeholders": {
+          "$.items[?template_key=tenant_registered]": {
+            "exists": true
+          },
+          "$.items[?template_key=tenant_registered].placeholders": {
             "contains": "tenant_name"
           }
         }
@@ -202,7 +220,7 @@
     {
       "id": "B1",
       "actor": "admin",
-      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. The form names NO realm: /onboarding registers a company with an EXISTING realm only when idp_realm_id is sent (and probes it before any row); without it the process creates the realm and the first administrator (the bind_realm and grant_first_admins steps), and the realm id is read back from the registry in C3.",
+      "says": "B. The platform administrator registers a throwaway tenant (uat-tmp-*) from the registration route: 202 with an instance id, no direct create or provision call. The form names NO realm: /onboarding registers a company with an EXISTING realm only when idp_realm_id is sent (and probes it before any row); without it there is no realm to bind and the tenant is not yet loginable (decision 0072: Letflow never creates realms; the bind_realm step is a no-op, T-2727), so the realm of the tenant is read back in C3r, which is blocked until an onboarding-made tenant has one.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -335,7 +353,7 @@
     {
       "id": "C3",
       "actor": "admin",
-      "says": "C. The new tenant exists, is active and has the realm the process created bound (saved as realm1). NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
+      "says": "C. The new tenant exists and is active: the process made it. The realm it may hold is read in C3r, not here.",
       "do": {
         "api": "GET",
         "path": "/api/v1/tenants/${slug1}"
@@ -344,7 +362,24 @@
         "status": 200,
         "json": {
           "$.slug": "${slug1}",
-          "$.status": "active",
+          "$.status": "active"
+        }
+      },
+      "requires": [
+        "slug1"
+      ]
+    },
+    {
+      "id": "C3r",
+      "actor": "admin",
+      "says": "C. The realm bound to the new tenant (saved as realm1): the registry carries it. T-3107: this was asserted inside C3 with `exists`, and `exists` accepted a null - the step passed with idp_realm_id null (smoke 20261127T024554Z-db6538, step C3) and proved nothing. The realm is a separate step now, so it is either proved or reported as not run; it is never a pass on a null. NOT proved here: a sign-in as the new tenant's administrator (D-195) - the runner has static actors and no provisioner flow, and no realm of a throwaway tenant exists in Keycloak; named in the findings of T-2608 for the PM.",
+      "do": {
+        "api": "GET",
+        "path": "/api/v1/tenants/${slug1}"
+      },
+      "expect": {
+        "status": 200,
+        "json": {
           "$.idp_realm_id": {
             "exists": true
           }
@@ -355,10 +390,12 @@
       ],
       "save": {
         "realm1": "$.idp_realm_id"
-      }
+      },
+      "blocked_by": "the registration of B1 sends no idp_realm_id, so the tenant has no realm: POST /api/v1/onboarding without a realm is 'not yet loginable' (decision 0072: Letflow never creates realms; the bind_realm step is a no-op, T-2727) and the registry reads idp_realm_id null. The step needs a realm for the throwaway tenant: owner, the operator (the provisioner wiring of T-2727); until then the realm is not proved, and this step is reported as NOT RUN, never as a pass."
     },
     {
       "id": "C4",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "C. Fresh tenant plus module install (G14 finding): the platform.register_tenant definition (the name filter keeps a draft of any other definition out of this check) is not left as a draft; the definitions the default-module install shipped into the new tenant are all ACTIVE, none is left as a draft (the outbound fence of G14 must not refuse a shipped definition). Read as the new tenant's administrator.",
       "do": {
@@ -379,6 +416,7 @@
     },
     {
       "id": "C5",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "C. The same tenant has at least one ACTIVE shipped definition (the previous step is not green by an empty install).",
       "do": {
@@ -413,7 +451,7 @@
     {
       "id": "E1",
       "actor": "admin",
-      "says": "E. A forced failure that a valid request can still reach: the registration names an administrator address whose domain (refused.uat.letflow.internal) is NOT on the platform tenant's email allow-list (the allow-list matches the domain exactly and only uat.letflow.internal was added in B0b). Every earlier check passes (the route pre-checks slug, hostname and realm; no realm is sent), so the instance starts and the notify step (tenant.notify_admin) is refused with platform_call_notify_refused, which lands as ERROR plus a DLQ entry (platform_step_runner apply_result). The first version of this step reused realm1 as idp_realm_id to force a duplicate_realm at bind_realm, but realm1 is null on a platform without a Keycloak realm (smoke T-2946, C3: idp_realm_id null), so nothing failed and the instance COMPLETED.",
+      "says": "E. A forced failure that a valid request can still reach: the registration names an administrator address whose domain (refused.uat.letflow.internal) is NOT on the platform tenant's email allow-list (the allow-list matches the domain exactly and only uat.letflow.internal was added in B0b). Every earlier check passes (the route pre-checks slug, hostname and realm; no realm is sent), so the instance starts and the notify step (tenant.notify_admin) is refused with platform_call_notify_refused, which lands as ERROR plus a DLQ entry (platform_step_runner apply_result). The first version of this step reused realm1 as idp_realm_id to force a duplicate_realm at bind_realm, but realm1 was null on a platform without a Keycloak realm (smoke T-2946, C3: idp_realm_id null; T-3107 moved the realm assertion into its own step C3r, which is blocked until a throwaway tenant has a realm), so nothing failed and the instance COMPLETED.",
       "do": {
         "api": "POST",
         "path": "/api/v1/onboarding",
@@ -486,6 +524,7 @@
     },
     {
       "id": "E4",
+      "positional_ok": "the list is filtered by this step's own query to the rows of this run; the first row is the one asked for",
       "actor": "admin",
       "says": "E. The failure is in the dead-letter list of the platform tenant.",
       "do": {
@@ -1454,6 +1493,22 @@
       }
     },
     {
+      "id": "c3p",
+      "actor": "admin",
+      "requires": [
+        "slug1"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug1}/purge",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
       "id": "c4",
       "actor": "admin",
       "requires": [
@@ -1463,6 +1518,22 @@
       "do": {
         "api": "POST",
         "path": "/api/v1/tenants/${slug2}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c4p",
+      "actor": "admin",
+      "requires": [
+        "slug2"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug2}/purge",
         "body": {}
       },
       "expect": {
@@ -1486,6 +1557,22 @@
       }
     },
     {
+      "id": "c5p",
+      "actor": "admin",
+      "requires": [
+        "slug3"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug3}/purge",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
       "id": "c6",
       "actor": "admin",
       "requires": [
@@ -1495,6 +1582,22 @@
       "do": {
         "api": "POST",
         "path": "/api/v1/tenants/${slug4}/deactivate",
+        "body": {}
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "c6p",
+      "actor": "admin",
+      "requires": [
+        "slug4"
+      ],
+      "says": "T-3210: purge the throwaway tenant this run created (POST /api/v1/tenants/<slug>/purge, the product's own purge of T-2972), right after its deactivate. Only the run's own slug (a variable of this run) is named. A refusal (409 not_eligible, any non-200) FAILS the cleanup loudly with the tenant name in the step path; the sweep stays for strays.",
+      "do": {
+        "api": "POST",
+        "path": "/api/v1/tenants/${slug4}/purge",
         "body": {}
       },
       "expect": {
@@ -1523,7 +1626,7 @@
   "defaults": {
     "hostname_suffix": "letflow.qa.bizdala.com",
     "stuck_after_s": "60",
-    "run_within_s": "120"
+    "run_within_s": "240"
   },
   "platform_residue": {
     "definitions": [

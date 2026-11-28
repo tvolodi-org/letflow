@@ -71,6 +71,19 @@ defmodule Letflow.Signup.Messages do
   end
 
   @doc """
+  T-3153: the invite mail of a first administrator. With a one-time password (the realm was just created) it is
+  the first-credential mail; without one (a replay: the password is gone) it is the "Forgot password" hint.
+  Shared by the sign-up saga and the `tenant.provision_realm_and_invite` platform step.
+  """
+  @spec credential_or_hint(String.t() | nil, String.t(), String.t() | nil, String.t() | nil) ::
+          %{subject: String.t(), body: String.t()}
+  def credential_or_hint(language, email, username, password) do
+    if is_binary(password),
+      do: first_credential(language, username || email, password),
+      else: reset_hint(language)
+  end
+
+  @doc """
   T-1620: the refusal text of a sign-up answer (422/429/503) in the visitor's language; unknown language or
   code falls back to English / the generic text. Neutral: never says whether an address is known (INV-5).
   """

@@ -448,6 +448,12 @@ defmodule Letflow.Definitions.Promotion do
               {:error, reason} -> Repo.rollback(reason)
             end
 
+            # T-3014: a promotion is a tenant action (review apply and the tenants promote
+            # route both run as the tenant); it must not retire or shadow a module-owned
+            # definition of that name. Refused before any state change.
+            if module_owned_name?(process_key, target_prefix),
+              do: Repo.rollback(:module_owned_definition)
+
             deprecate_previous_active(process_key, target_prefix)
             activated_row = activate_new_definition(new_row, target_prefix, activator)
 
@@ -529,6 +535,13 @@ defmodule Letflow.Definitions.Promotion do
   # (the schema this Repo.update_all/3 call is scoped to via `prefix:`) already
   # confines this query to exactly one tenant, so the extra predicate was
   # redundant with the schema boundary and is dropped along with the column.
+  defp module_owned_name?(process_key, target_prefix) do
+    from(d in ProcessDefinition,
+      where: d.name == ^process_key and not is_nil(d.owner_module)
+    )
+    |> Repo.exists?(prefix: target_prefix)
+  end
+
   defp deprecate_previous_active(process_key, target_prefix) do
     from(d in ProcessDefinition,
       where: d.name == ^process_key and d.status == :active

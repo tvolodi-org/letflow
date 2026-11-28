@@ -36,7 +36,16 @@ defmodule Letflow.Modules.FixtureLedgerPost do
           "skip_note" => %{required: false},
           "before" => %{required: false}
         },
-        posts_ledger: "alpha"
+        posts_ledger: "alpha",
+        # D-204 (the module-process conversion, section 1.2): the four
+        # MODULE-FAMILY fields. `post_alpha` is the ONE handler of a fake
+        # module that opts into the module family, so the derivation has a
+        # worked example to test against (a handler without a permission stays
+        # on the old owner-stamp path and is no catalogue entry).
+        permission: :FxlpPost,
+        outputs: [%{name: "note_id", type: :uuid}, %{name: "ledger_entry_id", type: :uuid}],
+        idempotency_inputs: ["note"],
+        side_effect_classes: [:write_module_record, :ledger_post]
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_beta",

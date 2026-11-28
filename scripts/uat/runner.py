@@ -76,7 +76,7 @@ STABLE_EXTRA_S = 120
 ANONYMOUS_ACTOR = "anonymous"
 PAGE_THROUGH_MAX_PAGES = 15
 DO_KINDS = ("api", "upload", "wait_task", "wait_mail", "login", "first_signin", "assert_only", "repeat", "parallel", "sweep",
-            "module_installed", "tenant_onboarded", "page_through", "client1_tool")
+            "module_installed", "tenant_onboarded", "page_through", "client1_tool", "tenant_retention")
 # The module names of the product (the syntax the infra script checked before any request).
 MODULE_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 BUILTIN_FIXTURES = ("module_installed", "tenant_onboarded")
@@ -112,7 +112,7 @@ EMAIL_SHAPE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 URL_SHAPE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>()]+")
 PHONE_SHAPE = re.compile(r"(?<![\w.-])(?:\+[0-9][0-9\s().-]{6,}[0-9]|[0-9]{10,15}|[0-9][0-9\s()-]{6,}[0-9]|\([0-9]{3}\)[0-9\s.-]{6,}[0-9])(?![\w.-])")
 PLAIN_DECIMAL = re.compile(r"^-?\d+(\.\d+)?$")
-OPERATORS = {"equals", "contains", "regex", "absent", "exists", "default"}
+OPERATORS = {"equals", "contains", "regex", "absent", "exists", "present", "default"}
 
 
 # The temporary password in the text of the mail to the first administrator (the first word after a "password" label).
@@ -191,6 +191,9 @@ class Undefined(RunnerError):
 _TOKEN = re.compile(r"\s*(?:(\d+(?:\.\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|(.))")
 _PLACEHOLDER = re.compile(r"\$\{([^}]*)\}")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# ${name[a:b]}, ${name|hex}, ${name|hex[a:b]}: a slice (Python semantics) of the string of a context
+# variable; the hex filter removes the dashes first (a uuid -> 32 hex digits). a, b may be empty or negative.
+_SLICE_EXPR = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(\|\s*hex\s*)?(?:\[\s*(-?\d*)\s*:\s*(-?\d*)\s*\])?$")
 
 
 def fmt_decimal(value: Decimal) -> str:
@@ -275,8 +278,36 @@ def eval_expression(text: str, ctx: dict) -> str:
     return fmt_decimal(result)
 
 
+def parse_slice_expr(inner: str):
+    """-> (name, hex?, slice) for a ${name[a:b]} / ${name|hex} / ${name|hex[a:b]} placeholder, else None."""
+    m = _SLICE_EXPR.match(inner.strip())
+    if not m or (not m.group(2) and m.group(3) is None):
+        return None
+    sl = None
+    if m.group(3) is not None:
+        sl = slice(*(int(g) if g else None for g in (m.group(3), m.group(4))))
+    return m.group(1), bool(m.group(2)), sl
+
+
+def eval_slice(parsed, ctx: dict, text: str) -> str:
+    name, hexed, sl = parsed
+    if name not in ctx:
+        raise Undefined(name)
+    val = ctx[name]
+    if val is None or isinstance(val, (dict, list, bool)):
+        raise RunnerError(f"${{{text}}}: variable {name} is not a text")
+    out = str(val)
+    if hexed:
+        out = out.replace("-", "")
+    if sl is not None:
+        out = out[sl]
+        if out == "":
+            raise RunnerError(f"${{{text}}}: the slice of {name} is empty")
+    return out
+
+
 def substitute(value, ctx: dict):
-    """${name} and ${a + 1} in strings, recursively. A string that is exactly one ${name}
+    """${name}, ${a + 1} and ${name|hex[0:20]} (slice, see _SLICE_EXPR) in strings, recursively. A string that is exactly one ${name}
     gives the raw value of the variable; anything else gives a string (numbers as plain decimals)."""
     if isinstance(value, str):
         whole = _PLACEHOLDER.fullmatch(value)
@@ -288,6 +319,9 @@ def substitute(value, ctx: dict):
 
         def one(match):
             inner = match.group(1).strip()
+            parsed = parse_slice_expr(inner)
+            if parsed:
+                return eval_slice(parsed, ctx, inner)
             if _NAME.match(inner):
                 if inner not in ctx:
                     raise Undefined(inner)
@@ -307,6 +341,10 @@ def referenced_names(value) -> set:
     names = set()
     if isinstance(value, str):
         for match in _PLACEHOLDER.finditer(value):
+            parsed = parse_slice_expr(match.group(1))
+            if parsed:
+                names.add(parsed[0])
+                continue
             names.update(n for n in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1)))
     elif isinstance(value, list):
         for v in value:
@@ -375,11 +413,18 @@ def terminal_instance(body) -> bool:
 
 # -- JSON path and assertions -------------------------------------------------------------------
 
-_PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]")
+_PATH_PART = re.compile(r"\.([A-Za-z0-9_\-]+)|\[(\d+)\]|\[\"([^\"]*)\"\]|\[\?([^\]]+)\]")
 
 
 def json_path(doc, path: str):
-    """`$.a.b[0].c` -> (found, value). `$` is the whole document."""
+    """`$.a.b[0].c` -> (found, value). `$` is the whole document.
+
+    A list item may be NAMED instead of counted: `$.items[?name=tenant.validate]` is the
+    first item whose `name` is `tenant.validate` (T-3105). An assertion by position breaks
+    when the server owns the list and adds to it: a new catalogue entry shifts every index
+    after it, and the scenario goes red for a reason that has nothing to do with it. Several
+    fields may be named at once (`[?definition_name=x&node_id=y]`): the item must match all
+    of them."""
     if not path.startswith("$"):
         raise RunnerError(f"path {path!r} must start with $")
     rest = path[1:]
@@ -390,8 +435,12 @@ def json_path(doc, path: str):
         if not match:
             raise RunnerError(f"path {path!r}: cannot read {rest[pos:]!r}")
         pos = match.end()
-        key, index, quoted = match.groups()
-        if index is not None:
+        key, index, quoted, selector = match.groups()
+        if selector is not None:
+            cur = item_by_field(cur, parse_selector(selector))
+            if cur is None:
+                return False, None
+        elif index is not None:
             if not isinstance(cur, list) or int(index) >= len(cur):
                 return False, None
             cur = cur[int(index)]
@@ -401,6 +450,40 @@ def json_path(doc, path: str):
                 return False, None
             cur = cur[key]
     return True, cur
+
+
+def parse_selector(selector: str):
+    """`name=tenant.validate&node_id=work` -> [("name", "tenant.validate"), ("node_id", "work")]."""
+    pairs = []
+    for part in selector.split("&"):
+        field, _, value = part.partition("=")
+        if not field or not value:
+            raise RunnerError(f"path selector {selector!r} must read like name=tenant.validate")
+        pairs.append((field, value))
+    return pairs
+
+
+def item_by_field(items, pairs):
+    """The first item of a list whose fields are the wanted pairs (T-3105), or None.
+
+    The text of the path is a string, so a number of the answer compares as a number."""
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if all(field_matches(item.get(field), value) for field, value in pairs):
+            return item
+    return None
+
+
+def field_matches(value, wanted) -> bool:
+    """The value of the field is the wanted text (a number of the answer compares as a number)."""
+    if value is None:
+        return False
+    if value == wanted:
+        return True
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and values_equal(value, wanted)
 
 
 def numbers_equal(actual, expected):
@@ -426,6 +509,18 @@ def values_equal(actual, expected) -> bool:
     return numeric if numeric is not None else actual == expected
 
 
+def value_present(found, actual) -> bool:
+    """Is there a value at this path? T-3107: `exists` means a value that is really there.
+
+    A path that is not found, a value of null and an empty value ('', [], {}) are NOT a
+    value: `exists` used to accept all three, so a step could pass on a null (the pilot
+    scenario BP-PLATFORM-01 read `$.idp_realm_id` as null and step C3 passed). A false and
+    a zero are values: they are not "nothing"."""
+    if not found or actual is None:
+        return False
+    return not (isinstance(actual, (str, list, tuple, dict, set)) and len(actual) == 0)
+
+
 def check_matcher(found, actual, matcher):
     """One matcher against one path result -> (ok, short description of what was expected)."""
     if isinstance(matcher, dict) and matcher.keys() & OPERATORS:
@@ -449,7 +544,12 @@ def check_matcher(found, actual, matcher):
             absent = (not found) or actual is None
             return (absent if matcher["absent"] else not absent), {"absent": matcher["absent"]}
         if "exists" in matcher:
-            return (found if matcher["exists"] else not found), {"exists": matcher["exists"]}
+            present = value_present(found, actual)
+            return (present if matcher["exists"] else not present), {"exists": matcher["exists"]}
+        if "present" in matcher:
+            # T-3107: the explicit "the key is there" matcher: the value may be null or empty.
+            # A step that uses it says so in its own words.
+            return (found if matcher["present"] else not found), {"present": matcher["present"]}
     return found and values_equal(actual, matcher), {"equals": matcher}
 
 
@@ -527,7 +627,8 @@ def set_assertions(expect: dict, body) -> list:
 def run_assertions(expect: dict, status: int, body, text=None, mask=False) -> list:
     """expect = {status: 200 | [200, 201], json: {"$.a.b": matcher, "key": matcher}} or
     {refused: {status, code}} (the expect_refused sugar). mask: a step that handles a secret
-    never shows an actual value."""
+    never shows an actual value. A path names a list item with `$.items[?name=x]` (T-3105):
+    the assertion then holds whatever the order of the list is."""
     if "refused" in expect:
         return refused_results(expect["refused"], status, body, text)
     results = []
@@ -671,6 +772,8 @@ CLIENT1_TOOL_TIMEOUT_S = 120
 UUID_ARG_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # the server's multipart cap: a bigger file is refused here, before it is sent
 UPLOAD_GENERATED_PREFIX = "generated/client1/"  # built at run time from a seed (client1_workbook.py), never committed
+BODY_FILE_MAX_BYTES = 2 * 1024 * 1024
+BEARER_ENV_RE = re.compile(r"UAT_QA_PROVISIONER_[A-Z0-9_]{1,48}")  # route 3 only: a provisioner credential, by name
 UPLOAD_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "test" / "uat" / "fixtures"
 CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
 
@@ -781,10 +884,11 @@ class Runner:
                  poll_interval=None, run_id=None, out=None, build_sha=None, old_base_url=None,
                  keep_going=False, label=None, file_issues=False, repo=None, gh_cmd=None, fixtures=None, pass_map=None,
                  overrides=None, cleanup_mode="end", residue_check=True, allow_create=False, mail_trap_url=None,
-                 password_factory=None, upload_dir=None):
+                 password_factory=None, upload_dir=None, body_dir=None):
         if cleanup_mode not in CLEANUP_MODES:
             raise ConfigError(f"cleanup must be one of {', '.join(CLEANUP_MODES)}, got {cleanup_mode!r}")
         self.upload_dir = upload_dir or UPLOAD_FIXTURES_DIR
+        self.body_dir = Path(body_dir) if body_dir else UPLOAD_FIXTURES_DIR.parent  # T-3108: test/uat
         self.residue_check = residue_check  # chain/run level switch; a process may also say "residue_check": false
         self.residue_before = {}  # tenant -> {base_url, actors, docs, tasks} recorded before the first process
         self.platform_before = {}  # tenant -> {base_url, actor, tenants} recorded before the first process
@@ -830,6 +934,13 @@ class Runner:
         self.records = []
         self.definition_reports = []  # T-2992: {"tenant", "kind", "path", "note"} of the definition reports of the run
         self._definition_seen = set()  # (kind, tenant) already taken
+        self.fixture_repairs = []  # T-3125: the loud lines of the dead-newest repairs of the run
+        # T-3034: the admission counters of the node (read-only, public /health): at the start of
+        # every tenant's leg and at every 503 whose body says capacity.
+        self.admission_counters = []  # {"tenant", "kind", "path", "note"} of the counter reads of the run
+        self._admission_counter_files = set()  # the names already written (the cap of ten per run)
+        self._admission_counter_tenants = set()  # the tenants whose leg start was already read
+        self._admission_503_seq = 0  # the number of the capacity refusals read so far
         self.entries = []  # cleanup list: {process, cleanup: [steps], ctx, done}
         self.issues = {}
         self.replay = False
@@ -1188,6 +1299,8 @@ class Runner:
             status, body, response = calls[0]
             if any(self._is_definition_not_active(c[0], c[1]) for c in calls):
                 self._definition_report("after")
+            # T-3034: a capacity refusal gets the counters of the node saved next to it.
+            self._admission_counters_on_capacity(calls)
             results = self._assert_calls(step, do, calls, secret_step)
             record["status"] = status
             record["asserted"] = results
@@ -1245,10 +1358,136 @@ class Runner:
         self.definition_reports.append({"tenant": self.tenant, "kind": kind, "path": path, "note": note})
         print(f"definition report ({kind}) {self.tenant}: {path or note}", file=self.out, flush=True)
 
+    def _definition_health_ok(self, process):
+        """T-3014: a tenant whose definition report shows a dead-newest stock definition fails the stock leg LOUDLY, before
+        the first stock step, with the report path in the verdict line (not only at the 409 later)."""
+        dead = (getattr(self, "dead_newest", None) or {}).get(self.tenant)
+        if not dead:
+            return True
+        path = next((d["path"] for d in self.definition_reports
+                     if d["tenant"] == self.tenant and d["kind"] == "before" and d["path"]), "-")
+        started = time.monotonic()
+        repaired, why = self._repair_dead_newest(dead, path)
+        if repaired:
+            return True
+        if why:
+            dead_text = f"{why}; DEAD-NEWEST stock definition(s) on {self.tenant}: {', '.join(sorted(dead))} - report {path}"
+            record = {"process": process["id"], "phase": "step", "step": "definition-health", "actor": "-",
+                      "verdict": "fail", "error": dead_text}
+            self._finish(record, started, False)
+            print(f"definition health FAIL {self.tenant}: {dead_text}", file=self.out, flush=True)
+            return False
+        record = {"process": process["id"], "phase": "step", "step": "definition-health", "actor": "-",
+                  "verdict": "fail",
+                  "error": f"DEAD-NEWEST stock definition(s) on {self.tenant}: {', '.join(sorted(dead))} - report {path}"}
+        self._finish(record, started, False)
+        print(f"definition health FAIL {self.tenant}: {record['error']}", file=self.out, flush=True)
+        return False
+
+    def _repair_state_file(self):
+        root = getattr(self, "repair_state_dir", None) or Path(self.run_dir).parent / "fixture-state"
+        return Path(root) / f"definition-repairs-{self.tenant}.json"
+
+    def _repair_dead_newest(self, dead, report_path):
+        """T-3125: the dead-newest stock definition of a QA fixture tenant is repaired through the product's own path:
+        POST /api/v1/tenant/modules/stock/ensure-seeds as the tenant admin of THIS tenant, once, then the report is
+        read again. -> (True, None) repaired; (False, None) not applicable, the caller fails as T-3014 does;
+        (False, text) a failure the caller reports before the dead-newest text. Loud: the line is printed and kept in
+        the summary. A repair recorded for this tenant by an earlier run means the definition died AGAIN: a PRODUCT
+        defect, never repaired a second time."""
+        tenant = self.tenant
+        if tenant in REPAIR_NEVER_TENANTS or tenant not in REPAIR_TENANTS:
+            return False, None
+        try:
+            import definition_report
+            role = definition_report.admin_role(self.actors)
+            if not role:
+                return False, "fixture repair not done: no admin actor in the plan"
+            definition_report.guard(tenant, self.actor_spec(role).get("user") or "", self.base_url, sys.modules[__name__])
+        except Exception as err:  # noqa: BLE001 - a guard refusal is a reason, never a repair
+            return False, f"fixture repair refused: {err}"
+        state_file = self._repair_state_file()
+        if state_file.exists():
+            return False, (f"PRODUCT DEFECT: dead-newest AGAIN on {tenant} after a repair recorded in {state_file} "
+                           "(something archives it again); no second repair")
+        status, body, _ = self.request(role, "POST", REPAIR_PATH,
+                                       {"rationale": "UAT fixture repair of a dead-newest stock definition (T-3125)"})
+        if status != 200 or not isinstance(body, dict):
+            return False, f"fixture repair failed: ensure-seeds answered {status}"
+        listed = [str(x) for key in ("process_drafts", "process_activated") for x in (body.get(key) or [])]
+        missing = [n for n in sorted(dead) if not any(x == n or x.startswith(n + "@") for x in listed)]
+        if missing:
+            return False, ("fixture repair failed: ensure-seeds answered 200 but did not list "
+                           f"{', '.join(missing)} in process_drafts/process_activated")
+        try:
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text(json.dumps({"tenant": tenant, "repaired": sorted(dead), "report": report_path,
+                                              "at": datetime.now(timezone.utc).isoformat()}, indent=2), encoding="utf-8")
+        except OSError as err:
+            return False, f"fixture repair done but its record cannot be written ({err}): refused to go on"
+        self.dead_after_repair = list(dead)
+        self._definition_seen.discard(("repaired", tenant))
+        self._definition_report("repaired")
+        still = getattr(self, "dead_after_repair", None) or []
+        if still:
+            return False, f"fixture repair: ensure-seeds applied but still dead-newest: {', '.join(still)}"
+        self.dead_newest.pop(tenant, None)
+        line = f"fixture repair: ensure-seeds applied: {', '.join(sorted(dead))} re-activated"
+        self.fixture_repairs.append(line)
+        print(line, file=self.out, flush=True)
+        return True, None
+
     @staticmethod
     def _is_definition_not_active(status, body):
         return status == 409 and isinstance(body, dict) and "definition_not_active" in (
             body.get("reason"), body.get("error"), body.get("limit"), body.get("detail"))
+
+    # -- the admission counters (T-3034) ------------------------------------------------------
+
+    def _leg_tenant(self):
+        """The tenant of the leg that runs now: the tenant of the current process (a chain entry may run on
+        its own tenant), else the tenant of the run."""
+        return self.process_tenants.get((self.process or {}).get("id"), self.tenant)
+
+    def _admission_counter(self, kind):
+        """T-3034: the admission counters of the node, saved in the run dir. A failure is a note in the
+        summary and never changes the verdict of the run."""
+        if self.replay:
+            return
+        tenant = self._leg_tenant()
+        try:
+            import admission_counter
+            path, note = admission_counter.capture(self, kind, tenant)
+        except Exception as err:  # noqa: BLE001 - never a verdict
+            path, note = None, f"{tenant}: admission counter ({kind}) failed: {err}"
+        self.admission_counters.append({"tenant": tenant, "kind": kind, "path": path, "note": note})
+        print(f"admission counter ({kind}) {tenant}: {path or note}", file=self.out, flush=True)
+
+    def _admission_counter_start(self, tenant=None):
+        """The counters at the START of this tenant's leg (once per tenant of the run)."""
+        tenant = tenant or self._leg_tenant()
+        if tenant in self._admission_counter_tenants:
+            return
+        self._admission_counter_tenants.add(tenant)
+        self._admission_counter("start")
+
+    def _admission_counters_on_capacity(self, calls):
+        """Every 503 whose body says capacity gets the counters of the node saved next to it: the file
+        says what the budget looked like at the moment of the refusal."""
+        for status, body, _text in calls:
+            if status == 503 and self._says_capacity(body):
+                self._admission_counter("503")
+
+    @staticmethod
+    def _says_capacity(body) -> bool:
+        """Whether a 503 body is the admission refusal (its detail names the capacity)."""
+        if not isinstance(body, dict):
+            return False
+        for key in ("detail", "error", "reason", "title", "message"):
+            value = body.get(key)
+            if isinstance(value, str) and "capacity" in value.lower():
+                return True
+        return False
 
     def _blocked_line(self, record, started, step, why):
         """A step that waits for a piece that is not built: reported, never run, never a pass, never a failure.
@@ -1265,7 +1504,7 @@ class Runner:
 
     @staticmethod
     def _handles_secret(step) -> bool:
-        if step.get("http_as") or step.get("bearer") or "login" in (step.get("do") or {}):
+        if step.get("http_as") or step.get("bearer") or step.get("bearer_env") or "login" in (step.get("do") or {}):
             return True
         return any(isinstance(spec, dict) and "secret" in spec for spec in (step.get("save") or {}).values())
 
@@ -1391,6 +1630,7 @@ class Runner:
         """-> a list of (status, parsed, text), one per HTTP call (one for api, wait_task, assert_only)."""
         http_as = step.get("http_as")
         role = step.get("actor")
+        extra = self._bearer_extra(step)
         if "wait_task" in do:
             return [self._wait_task(step, do, record)]
         if "wait_mail" in do:
@@ -1407,13 +1647,15 @@ class Runner:
             return self._parallel(role, do["parallel"], http_as, record)
         if "repeat" in do:
             times = int(substitute(do.get("times", 2), self.ctx))
-            return self._repeat(role, do["repeat"], times, http_as, record)
+            return self._repeat(role, do["repeat"], times, http_as, record, extra)
         if "sweep" in do:
             return [self._sweep(role, do["sweep"], http_as, record)]
+        if "tenant_retention" in do:
+            return [self._tenant_retention(role, do["tenant_retention"], http_as, record)]
         if "page_through" in do:
-            return [self._page_through(role, do["page_through"], http_as, record)]
+            return [self._page_through(role, do["page_through"], http_as, record, extra)]
         if "upload" in do:
-            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as)
+            info = self._call(role, dict(do["upload"], api=do["upload"].get("api", "POST")), http_as, **extra)
             record.update(method=info["method"], path=info["path"], request=info["request"])
             if do["upload"].get("save_response") is True:
                 self._save_upload_response(do["upload"], info["result"])
@@ -1423,12 +1665,6 @@ class Runner:
         spec = do["assert_only"] if "assert_only" in do else do
         if "assert_only" in do:
             spec = dict(spec, api="GET")
-        base = None
-        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
-            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
-            if not base.startswith(("http://", "https://")):
-                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
-        extra = {"bearer": step.get("bearer"), "bearer_base": base}
         info = self._call(role, spec, http_as, **extra)
         if "poll" in step:
             info = self._poll_call(step, do, role, spec, http_as, info, record, extra)
@@ -1436,6 +1672,26 @@ class Runner:
         if info["request"] is not None:
             record["request"] = info["request"]
         return [info["result"]]
+
+    def _bearer_extra(self, step) -> dict:
+        """The credential keywords of a step (kept on every kind of call: api, upload, repeat, page_through, T-3108).
+        `bearer` names a session; `bearer_env` names an environment variable of the provisioner credential (route 3,
+        POST /admin/v1/tenants): the VALUE is read here, registered as a secret and never written."""
+        base = None
+        if step.get("bearer_base"):  # the call goes to a URL an earlier step saved (the new tenant of a sign-up)
+            base = str(self.ctx.get(step["bearer_base"]) or "").rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise RunnerError(f"bearer_base {step['bearer_base']}: no URL saved by an earlier step")
+        bearer = step.get("bearer")
+        env_name = step.get("bearer_env")
+        if env_name:
+            value = os.environ.get(env_name)
+            if not value:
+                raise RunnerError(f"bearer_env {env_name}: not set in the environment (.env.uat); presence only is checked")
+            self.secret_values.add(value)
+            bearer = "env:" + env_name
+            self.secrets[bearer] = value
+        return {"bearer": bearer, "bearer_base": base}
 
     # -- module_installed / tenant_onboarded: the local modes of the QA tenant setup (D-174) -------------
 
@@ -1736,11 +1992,32 @@ class Runner:
         elif "body" in spec:
             body = substitute(spec["body"], self.ctx)
             redacted = redact(body)
+        elif "body_file" in spec:
+            body = substitute(self._body_from_file(spec["body_file"]), self.ctx)
+            redacted = redact(body)
         headers = substitute(spec.get("headers") or {}, self.ctx)
         who = spec.get("actor", role)
         result = self.request(who, method, path, body, headers, http_as=spec.get("http_as", http_as), bearer=bearer,
                               bearer_base=bearer_base)
         return {"method": method, "path": path, "request": redacted, "result": result}
+
+    def _body_from_file(self, rel):
+        """T-3108: a JSON body read from a file under test/uat (the 142 location links, the converter header bodies).
+        The path is relative, has no `..`, and its resolved target (symlinks followed) stays inside test/uat."""
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise RunnerError("body_file_path_invalid: the file is a relative name under test/uat")
+        root = self.body_dir.resolve()
+        path = (root / rel).resolve()
+        if not path.is_relative_to(root):
+            raise RunnerError("body_file_path_invalid: the file is outside test/uat")
+        if not path.is_file():
+            raise RunnerError(f"body_file_missing: no file {rel}")
+        if path.stat().st_size > BODY_FILE_MAX_BYTES:
+            raise RunnerError(f"body_file_too_big: {rel} is over {BODY_FILE_MAX_BYTES} bytes")
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            raise RunnerError(f"body_file_not_json: {rel}") from None
 
     def _upload_file(self, rel: str) -> Path:
         """The file of an upload: under test/uat/fixtures, or generated from a seed under run dir. Typed refusals."""
@@ -1818,11 +2095,27 @@ class Runner:
                 break
         else:
             raise RunnerError(f"sweep: more than {SWEEP_MAX_PAGES} pages of definitions: refused")
-        lines, swept, gone = [], 0, 0
+        lines, swept, gone, left = [], 0, 0, 0
+        best_effort = spec.get("best_effort") is True  # T-3157: a leftover that cannot be deleted is reported, not a RED run
+        deadline = time.monotonic() + SWEEP_BEST_EFFORT_MAX_S
         for def_id, name, state in found:
             if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", def_id):
                 raise RunnerError("sweep: a definition id of the list is not a plain id: refused")
+            if best_effort and time.monotonic() >= deadline:
+                lines.append(f"sweep stopped after {SWEEP_BEST_EFFORT_MAX_S} s: the rest stays for the next run")
+                print(self.scrub(lines[-1]), file=self.out, flush=True)
+                break
             status, _, _ = self.request(role, "DELETE", "/api/v1/definitions/" + def_id, http_as=http_as)
+            if status not in accept and best_effort:
+                left += 1
+                line = f"sweep {def_id} {name} was {state}: LEFT, answered {status} (not deleted, not a failure of this run)"
+                lines.append(line)
+                print(self.scrub(line), file=self.out, flush=True)
+                if status in (401, 403):  # a re-login was already tried by request(): more calls would answer the same
+                    lines.append("sweep stopped: the credential is refused, the rest stays for the next run")
+                    print(self.scrub(lines[-1]), file=self.out, flush=True)
+                    break
+                continue
             if status not in accept:
                 raise RunnerError(f"sweep: DELETE {def_id} ({name}) answered {status}, expected one of {accept}")
             outcome = "already gone" if status in (404, 409) else "swept"
@@ -1831,10 +2124,29 @@ class Runner:
             line = f"sweep {def_id} {name} was {state}: {outcome} ({status})"
             lines.append(line)
             print(self.scrub(line), file=self.out, flush=True)
-        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone"
+        summary = f"sweep {prefix}*: {swept} swept, {gone} already gone" + (f", {left} left" if left else "")
         print(self.scrub(summary), file=self.out, flush=True)
         record.update(method="DELETE", path="/api/v1/definitions/:id", sweep=lines + [summary])
         result = {"swept": swept, "already_gone": gone, "lines": lines}
+        return (200, result, json.dumps(result))
+
+    def _tenant_retention(self, role, spec, http_as, record):
+        """T-3203: purge the throwaway tenants older than N days through the product's own platform.tenant_lifecycle
+        process (see tenant_retention.py for the allow-list, the exclusions, the batch cap and the dry run).
+        -> (200, {"purged": n, "left": m, "candidates": k, "lines": [...]}, text)."""
+        import tenant_retention
+
+        spec = substitute(spec, self.ctx)
+        try:
+            result = tenant_retention.execute(
+                lambda method, path, body=None: self.request(role, method, path, body, http_as=http_as), spec,
+                self.actor_spec(role).get("tenant") or self.tenant, self.actor_base(role), load_retired_checked(),
+                out=lambda text: print(self.scrub(text), file=self.out, flush=True))
+        except (ValueError, RuntimeError) as err:
+            raise RunnerError(f"tenant_retention: {err}") from None
+        record.update(method="POST", path="/api/v1/instances", tenant_retention=result["lines"])
+        if result.get("failed"):
+            raise RunnerError("tenant_retention: " + "; ".join(l for l in result["lines"] if l.startswith("FAILED")))
         return (200, result, json.dumps(result))
 
     def _save_upload_response(self, spec, result):
@@ -1883,7 +2195,7 @@ class Runner:
         result = {"exit": 0, "lines": len(lines)}
         return (200, result, json.dumps(result))
 
-    def _page_through(self, role, spec, http_as, record):
+    def _page_through(self, role, spec, http_as, record, extra=None):
         """T-2941: follow the cursor of a list route. Per page: status 200 and `count` (when the page has one) equal
         to the items returned. -> (200, {"items": all items, "pages": n, "truncated": bool}, text); the asserts
         age_at_least / unique_ids of the step's expect read that collected set."""
@@ -1898,7 +2210,7 @@ class Runner:
             path = f"{base}{joiner}page_size={size}"
             if cursor:
                 path += "&cursor=" + urllib.parse.quote(str(cursor), safe="")
-            status, body, text = self.request(role, "GET", path, http_as=http_as)
+            status, body, text = self.request(role, "GET", path, http_as=http_as, **(extra or {}))
             pages += 1
             if status != 200:
                 raise RunnerError(f"page_through: page {pages} answered {status}, expected 200")
@@ -1922,11 +2234,11 @@ class Runner:
         record.update(method="GET", path=base, pages=pages)
         return (200, result, json.dumps(result))
 
-    def _repeat(self, role, spec, times, http_as, record):
+    def _repeat(self, role, spec, times, http_as, record, extra=None):
         """The same call `times` times with the same body, one after the other (retry, idempotency)."""
         if times < 2:
             raise RunnerError("repeat: times must be at least 2")
-        infos = [self._call(role, spec, http_as) for _ in range(times)]
+        infos = [self._call(role, spec, http_as, **(extra or {})) for _ in range(times)]
         record.update(method=infos[0]["method"], path=infos[0]["path"], calls=[
             {"status": i["result"][0]} for i in infos])
         if infos[0]["request"] is not None:
@@ -2243,6 +2555,11 @@ class Runner:
                     return False
                 if "/modules/stock" in json.dumps(process):
                     self._definition_report("before")
+                    if not self._definition_health_ok(process):
+                        return False
+                # T-3034: the counters at the start of this tenant's leg (a chain process may have
+                # a tenant of its own; the leg's tenant is the one of the process).
+                self._admission_counter_start(self._leg_tenant())
                 self.entries.append(entry)
                 ok = self._run_process_body(process, isolated, shared, work, entry)
             entry["created"] = [name for name in work if name not in base]
@@ -2838,6 +3155,8 @@ class Runner:
             self._summary(started_at, sha_start, None, False, True, False)
             print(f"{self.label}: FAIL (preflight; run dir {self.run_dir})", file=self.out, flush=True)
             return 1
+        # T-3034: the counters of the node at the start of the run's own tenant leg.
+        self._admission_counter_start(self.tenant)
         results = {}
         stopped = False
         cleanup_ok = True
@@ -3044,6 +3363,17 @@ class Runner:
             lines += ["", "## Definition reports (read-only, T-2992)", ""]
             for d in self.definition_reports:
                 lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
+            try:
+                import definition_report
+                lines.append(f"- {definition_report.JOURNAL_NOTE}")
+            except Exception:  # noqa: BLE001
+                pass
+        for line in self.fixture_repairs:
+            lines += ["", f"> **{line}**"]
+        if self.admission_counters:
+            lines += ["", "## Admission counters (read-only, T-3034)", ""]
+            for d in self.admission_counters:
+                lines.append(f"- {d['tenant']} {d['kind']}: " + (f"`{d['path']}`" if d["path"] else f"NOTE {d['note']}"))
         lines += ["", "## Processes", "", "| process | tenant | verdict | steps | cleanup | duration ms | first failing step |",
                   "|---|---|---|---|---|---|---|"]
         for pid in dict.fromkeys(r["process"] for r in self.records if r.get("phase") in ("step", "cleanup", "inputs", "outputs")):
@@ -3097,7 +3427,11 @@ def refuse_placeholders(text: str, source) -> None:
 
 
 SWEEP_ACCEPT = [200, 204, 404, 409]
+SWEEP_BEST_EFFORT_MAX_S = 60  # T-3157: a best-effort sweep gives up after this long (a 178 s sweep outlived the token)
 SHARED_ACCESS_PATH = "/api/v1/identity/shared-stock-access"
+REPAIR_TENANTS = ("qoimeks-qa2",)  # T-3125: the QA fixture tenants whose dead-newest stock definition the run repairs
+REPAIR_NEVER_TENANTS = ("qoimeks-qa", "qoimeks-qa1", "qoimeks-client1-qa")
+REPAIR_PATH = "/api/v1/tenant/modules/stock/ensure-seeds"
 SHARED_ACCESS_SWEEP_TENANTS = ("qoimeks-qa2",)  # the QA tenants of the reviewed sweep list (T-2980)
 SWEEP_MAX_PAGES = 50
 SWEEP_PREFIX_RE = re.compile(r"uat-tmp-[a-z0-9]+-")  # uat-tmp-designer-, uat-tmp-defproof-, uat-tmp-walk-
@@ -3127,6 +3461,8 @@ def sweep_versions_problem(name, marker):
 def validate_call(spec, where):
     if not isinstance(spec, dict) or "api" not in spec or "path" not in spec:
         raise ConfigError(f"{where}: a call needs api (the method) and path")
+    if "body_file" in spec and ("body" in spec or not isinstance(spec["body_file"], str)):
+        raise ConfigError(f"{where}: body_file is a file name under test/uat and excludes body")
 
 
 def validate_step(step, where) -> None:
@@ -3206,8 +3542,8 @@ def validate_step(step, where) -> None:
             raise ConfigError(f"{where}: repeat needs times of at least 2")
     elif kind == "sweep":
         spec = do["sweep"]
-        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept"}:
-            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?}}")
+        if not isinstance(spec, dict) or set(spec) - {"prefix", "draft_versions_of", "exclude_contains", "accept", "best_effort"}:
+            raise ConfigError(f"{where}: sweep is {{prefix | draft_versions_of, exclude_contains, accept?, best_effort?}}")
         if "draft_versions_of" in spec and ("prefix" in spec or not isinstance(spec["draft_versions_of"], str)
                                             or not SWEEP_VERSIONS_RE.fullmatch(spec["draft_versions_of"])):
             raise ConfigError(f"{where}: sweep draft_versions_of is one dotted definition name and excludes prefix")
@@ -3219,6 +3555,12 @@ def validate_step(step, where) -> None:
         if "accept" in spec and not (isinstance(spec["accept"], list) and spec["accept"]
                                       and all(isinstance(c, int) for c in spec["accept"])):
             raise ConfigError(f"{where}: sweep accept is a list of status codes")
+    elif kind == "tenant_retention":
+        import tenant_retention
+
+        problem = tenant_retention.spec_problem(do["tenant_retention"])
+        if problem:
+            raise ConfigError(f"{where}: {problem}")
     elif kind == "page_through":
         spec = do["page_through"]
         if not isinstance(spec, dict) or not isinstance(spec.get("path"), str) or not spec["path"].strip() \
@@ -3256,6 +3598,12 @@ def validate_step(step, where) -> None:
         raise ConfigError(f"{where}: http_as can only be shared_access")
     if "bearer" in step and not (isinstance(step["bearer"], str) and step["bearer"]):
         raise ConfigError(f"{where}: bearer is the name of a session made by a login step")
+    if "bearer_env" in step and not (isinstance(step["bearer_env"], str) and BEARER_ENV_RE.fullmatch(step["bearer_env"])
+                                     and step.get("platform_route") is True and "bearer" not in step):
+        raise ConfigError(f"{where}: bearer_env is a UAT_QA_PROVISIONER_* variable name, on a platform_route step, "
+                          "without bearer")
+    if "platform_route" in step and step["platform_route"] is not True:
+        raise ConfigError(f"{where}: platform_route can only be true")
     if "bearer_base" in step and not (isinstance(step["bearer_base"], str) and step["bearer_base"]
                                       and step.get("bearer")):
         raise ConfigError(f"{where}: bearer_base is the name of a saved URL and goes with bearer")
