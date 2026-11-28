@@ -40,6 +40,7 @@ defmodule Letflow.Engine.WriteTargets do
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.Graph.Node
+  alias Letflow.Definitions.ModuleCalls
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.Engine.SubProcess
@@ -61,6 +62,7 @@ defmodule Letflow.Engine.WriteTargets do
     nodes
     |> Enum.flat_map(&node_read_keys/1)
     |> Kernel.++(PlatformCalls.read_keys(nodes))
+    |> Kernel.++(ModuleCalls.read_keys(nodes))
     |> Kernel.++(NotifyCalls.read_keys(nodes))
     |> MapSet.new()
   end

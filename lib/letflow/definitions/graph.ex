@@ -291,6 +291,8 @@ defmodule Letflow.Definitions.Graph do
             # and a platform-call node has no HTTP, catalogue-service or script route.
             | :platform_call_not_allowed
             | :conflicting_platform_call_routes
+            # T-3045 (D-204 P2a): a `module_call` node carries no other route.
+            | :conflicting_module_call_routes
             # T-2594 (pilot gap G13): the TYPED STEP MAPPING of a step that maps
             # variables -- the declared reads and writes against the definition's
             # own `variable_schemas`, the reserved engine namespace, and the
@@ -503,6 +505,7 @@ defmodule Letflow.Definitions.Graph do
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
         &check_service_task_platform_call_route/1,
+        &check_service_task_module_call_route/1,
         &check_notify/1,
         &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
@@ -1080,6 +1083,9 @@ defmodule Letflow.Definitions.Graph do
     # route, next to the HTTP endpoint, the catalogue service and the Lua script: it
     # carries no endpoint of its own.
     |> Enum.filter(&(attribute_value(&1.attributes, "platform_call") == nil))
+    # T-3045 (D-204 P2a): a SERVICE_TASK bound to a MODULE function is a sixth route and
+    # carries no endpoint of its own.
+    |> Enum.filter(&(attribute_value(&1.attributes, "module_call") == nil))
     # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth
     # route, next to the HTTP endpoint, the catalogue service, the Lua script and
     # the platform call: it carries no endpoint of its own.
@@ -1171,6 +1177,40 @@ defmodule Letflow.Definitions.Graph do
     end)
   end
 
+  # T-3045 (D-204 P2a): a module-call node is a CLOSED catalogue call, like a platform-call
+  # one: it carries no other route, so the runtime cannot dispatch the other route while the
+  # source rules exempt the node as a trusted module step. One route per node, whichever route
+  # attribute the second one is. Messages name the node id only, never an attribute value.
+  @spec check_service_task_module_call_route(t()) :: [Violation.t()]
+  defp check_service_task_module_call_route(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    |> Enum.filter(&(attribute_value(&1.attributes, "module_call") != nil))
+    |> Enum.filter(fn node ->
+      Enum.any?(
+        [
+          "endpoint",
+          "service_id",
+          "script_key",
+          "platform_call",
+          "notify",
+          "entity_writes",
+          "module_writes"
+        ],
+        &(attribute_value(node.attributes, &1) != nil)
+      )
+    end)
+    |> Enum.map(fn node ->
+      %Violation{
+        code: :conflicting_module_call_routes,
+        message:
+          "Node '#{node.id}' (SERVICE_TASK) binds a module call and also carries another route " <>
+            "attribute ('endpoint', 'service_id', 'script_key', 'platform_call', 'notify', " <>
+            "'entity_writes' or 'module_writes')"
+      }
+    end)
+  end
+
   # T-2592 (pilot gap G4): a SERVICE_TASK bound to a NOTIFICATION is a fifth route
   # (next to the HTTP endpoint, the catalogue service, the Lua script and the
   # platform call). The rules of the declaration live in
@@ -1242,6 +1282,7 @@ defmodule Letflow.Definitions.Graph do
     |> Enum.filter(
       &(attribute_value(&1.attributes, "script_key") == nil and
           attribute_value(&1.attributes, "platform_call") == nil and
+          attribute_value(&1.attributes, "module_call") == nil and
           attribute_value(&1.attributes, "notify") == nil)
     )
     |> Enum.filter(&invalid_timeout?(&1.attributes))

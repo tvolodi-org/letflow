@@ -137,6 +137,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.NotifyCalls
   alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.PackUpdateOverrides
+  alias Letflow.Definitions.ModuleCalls
   alias Letflow.Definitions.PlatformCalls
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionArtifact
@@ -836,6 +837,7 @@ defmodule Letflow.Definitions do
 
         with :ok <- check_entity_writes(definition, prefix, activator),
              :ok <- check_platform_calls(definition, prefix, activator),
+             :ok <- check_module_calls(definition, prefix, activator),
              :ok <- check_start_permission(definition, prefix),
              :ok <- check_step_mappings(definition, prefix),
              :ok <- check_notify_calls(definition, prefix),
@@ -2897,6 +2899,7 @@ defmodule Letflow.Definitions do
          :ok <- check_reserved_references(definition),
          :ok <- check_entity_writes(definition, prefix, activator),
          :ok <- check_platform_calls(definition, prefix, activator),
+         :ok <- check_module_calls(definition, prefix, activator),
          :ok <- check_start_permission(definition, prefix),
          :ok <- check_step_mappings(definition, prefix),
          :ok <- check_notify_calls(definition, prefix),
@@ -3029,6 +3032,39 @@ defmodule Letflow.Definitions do
         violations =
           for node <- nodes,
               violation <- PlatformCalls.violations(node, nodes, prefix, activator),
+              do: %{node_id: node.id, index: violation.index, code: violation.code}
+
+        if violations == [] do
+          :ok
+        else
+          {:error, {:platform_calls_invalid, violations}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
+    end
+  end
+
+  # T-3045 (D-204 P2a): the ACTIVATION fence for a `module_call` step -- a SERVICE_TASK bound to
+  # a MODULE entry of the compiled catalogue. Same four activation paths and the same typed 422 as
+  # the platform fence (`{:platform_calls_invalid, violations}`; the codes are `module_call_*`), so
+  # no router needs a new clause. The rules live in `Letflow.Definitions.ModuleCalls`; the step is
+  # not runnable until P2b, so a valid one is refused with `:module_call_runtime_unavailable`.
+  @doc false
+  @spec check_module_calls(
+          ProcessDefinition.t() | map(),
+          String.t(),
+          EntityPort.activator() | nil
+        ) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:platform_calls_invalid, [platform_call_violation()]}}
+  def check_module_calls(%{graph: graph_map}, prefix, activator) when is_binary(prefix) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        violations =
+          for node <- nodes,
+              violation <- ModuleCalls.violations(node, nodes, prefix, activator),
               do: %{node_id: node.id, index: violation.index, code: violation.code}
 
         if violations == [] do
@@ -3378,8 +3414,10 @@ defmodule Letflow.Definitions do
       {{:ok, declared, nodes}, %{user_id: _} = activator} ->
         module_declared = ModuleWrites.declared_nodes(nodes)
         platform_declared = PlatformCalls.declared_nodes(nodes)
+        module_call_declared = ModuleCalls.declared_nodes(nodes)
 
-        if declared == [] and module_declared == [] and platform_declared == [] do
+        if declared == [] and module_declared == [] and platform_declared == [] and
+             module_call_declared == [] do
           nil
         else
           pairs =
@@ -3415,6 +3453,13 @@ defmodule Letflow.Definitions do
               functions -> Map.put(record, "platform_functions", functions)
             end
 
+          # T-3045 (D-204 P2a): the module functions the graph calls, for the same reason.
+          record =
+            case ModuleCalls.function_names(module_call_declared) do
+              [] -> record
+              functions -> Map.put(record, "module_functions", functions)
+            end
+
           # REQ-688: consent nodes and the activating credential, only for a graph with a consented
           # SERVICE posting node; every other document stays byte-identical.
           case ModuleWrites.ledger_consent_nodes(module_declared) do
@@ -3439,8 +3484,8 @@ defmodule Letflow.Definitions do
   defp platform_extra_permissions(nodes, activator) do
     held = Map.get(activator, :catalogue_permissions, [])
 
-    nodes
-    |> PlatformCalls.required_permissions()
+    (PlatformCalls.required_permissions(nodes) ++ ModuleCalls.required_permissions(nodes))
+    |> Enum.uniq()
     |> Enum.map(&Atom.to_string/1)
     |> Enum.filter(&(&1 in held))
     |> Enum.sort()
@@ -4023,6 +4068,7 @@ defmodule Letflow.Definitions do
             with :ok <- check_reserved_references(target_row),
                  :ok <- check_entity_writes(target_row, prefix, activator),
                  :ok <- check_platform_calls(target_row, prefix, activator),
+                 :ok <- check_module_calls(target_row, prefix, activator),
                  :ok <- check_start_permission(target_row, prefix),
                  :ok <- check_step_mappings(target_row, prefix),
                  :ok <- check_notify_calls(target_row, prefix),

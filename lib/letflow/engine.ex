@@ -1701,6 +1701,12 @@ defmodule Letflow.Engine do
           {:error, reason} -> {:error, {:platform_call_unresolved, node_id, reason}}
         end
 
+      # T-3045 (D-204 P2a): a module-function step has no run time yet (P2b). Activation refuses
+      # it (`ModuleCalls`, `:module_call_runtime_unavailable`); a graph that reaches here anyway fails closed
+      # with a typed refusal instead of falling into another route.
+      {:ok, %ServiceTask.Config{route_kind: :module_call}} ->
+        {:error, {:config_parse_failed, node_id, :module_call_runtime_unavailable}}
+
       # T-2810: a notification step. Nothing is resolved here (the address and the values are
       # read from the instance at run time and never copied into a row, INV-4); the engine arms
       # the row and the runner (`Letflow.Engine.NotifyStepRunner`) sends.

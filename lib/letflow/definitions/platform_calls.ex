@@ -478,13 +478,34 @@ defmodule Letflow.Definitions.PlatformCalls do
   # itself (`Letflow.Definitions.NotifyCalls`, code `:notify_conflicting_route`)
   # and keeps the foreign-source rule, so the rule cannot be dodged by hanging
   # a `notify` attribute on a node that really does call something.
-  defp foreign_source?(nodes) do
+  defp foreign_source?(nodes), do: foreign_source?(nodes, fn _node -> false end)
+
+  # `exempt?` names a further kind of node the caller trusts (T-3045: a pure `module_call` step
+  # is the trusted source of a module-call graph, never of a platform-call one).
+  defp foreign_source?(nodes, exempt?) do
     Enum.any?(nodes, fn node ->
       node.node_type in @foreign_source_types and
         (not declares_platform_call?(node) or conflicting_route?(node)) and
-        not declares_notify?(node)
+        not declares_notify?(node) and not exempt?.(node)
     end)
   end
+
+  @doc """
+  `foreign_source?` for a caller with its own trusted step kind (T-3045, the `module_call`
+  fence): true when the graph carries a node that merges a value into the instance variables
+  from outside the trusted inputs, other than a pure platform-call step, a well-formed
+  notification step, or a node `exempt?` accepts.
+  """
+  @spec foreign_source_beside?([Graph.Node.t()], (Graph.Node.t() -> boolean())) :: boolean()
+  def foreign_source_beside?(nodes, exempt?) when is_list(nodes) and is_function(exempt?, 1),
+    do: foreign_source?(nodes, exempt?)
+
+  @doc """
+  The violation codes of ONE argument source (`%{"var" => name}` or `%{"const" => value}`): the
+  one parse of an argument both call kinds share. An empty list is a valid source.
+  """
+  @spec arg_source_codes(term()) :: [atom()]
+  def arg_source_codes(src), do: source_codes(src)
 
   # The node declares a WELL-FORMED `notify` attribute and NOTHING else that
   # routes it. The declaration is parsed through the ONE parse the notify
