@@ -23,7 +23,7 @@ class Rehearsal3(unittest.TestCase):
     def test_r2_live_steps_are_registration_and_cleanup(self):
         live = [s["id"] for s in DOC["steps"] if "blocked_by" not in s]
         self.assertEqual(live, ["r1", "r2", "r3"])
-        self.assertEqual([s["id"] for s in DOC["cleanup"]], ["c1"])
+        self.assertEqual([s["id"] for s in DOC["cleanup"]], ["c1", "c1p"])
 
     def test_r3_blocked_steps_name_the_realm_and_send_no_realm(self):
         for s in DOC["steps"]:

@@ -2,7 +2,7 @@ import { type Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 
 // REQ-293 §8.3 — the ONLY way the REQ-290 corpus manifest/version-marker data
 // reaches the client: a build-time virtual module, not a runtime fetch and not a
@@ -111,8 +111,24 @@ function themeTokensPlugin(): Plugin {
   }
 }
 
+// T-3160: the designer guide is imported raw from ../docs; a build context without docs/ yields an EMPTY map
+// (import.meta.glob matches nothing, no error) and the Guide panel says "not available". Fail the build instead.
+function guideDocsPlugin(): Plugin {
+  return {
+    name: 'guide-docs-present',
+    apply: 'build',
+    buildStart() {
+      for (const f of ['designer-guide.md', 'designer-guide.ru.md', 'designer-guide.kk.md']) {
+        if (!existsSync(resolve(__dirname, '..', 'docs', f))) {
+          throw new Error(`docs/${f} is not in the build context: the designer guide would be empty (T-3160)`)
+        }
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), exprManifestPlugin(), harnessGatePlugin(), themeTokensPlugin()],
+  plugins: [guideDocsPlugin(), react(), exprManifestPlugin(), harnessGatePlugin(), themeTokensPlugin()],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

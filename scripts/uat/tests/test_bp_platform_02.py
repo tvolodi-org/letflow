@@ -83,13 +83,20 @@ class Signup(unittest.TestCase):
         self.assertEqual("admin", self.steps["S11"]["do"]["body"]["slug"])
         self.assertEqual(422, self.steps["S11"]["expect_refused"]["status"])
 
-    def test_cleanup_touches_only_the_throwaway_tenant_and_always_runs(self):
-        paths = [c["do"]["path"] for c in self.process["cleanup"]]
-        self.assertEqual(["/api/v1/tenants/uat-tmp-${run_id}/deactivate", "/api/v1/tenants/uat-tmp-${run_id}/purge"], paths)
-        for c in self.process["cleanup"]:
-            self.assertNotIn("requires", c)  # a sign-up that made the tenant and then failed is reconciled
-            self.assertIn(404, c["expect"]["status"])  # nothing was made
-            self.assertEqual("admin", c["actor"])
+    def test_cleanup_touches_only_the_throwaway_tenant_and_needs_the_mark(self):
+        self.assertEqual(2, len(self.process["cleanup"]))  # the deactivate and (T-3210) the purge of the same slug
+        purge = self.process["cleanup"][1]
+        self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/purge", purge["do"]["path"])
+        self.assertEqual([200, 404], purge["expect"]["status"])
+        c = self.process["cleanup"][0]
+        self.assertEqual("/api/v1/tenants/uat-tmp-${run_id}/deactivate", c["do"]["path"])
+        # failure path: no "requires", so a sign-up that made the tenant and then failed an assertion is reconciled;
+        # 404 (nothing was made) is accepted; the slug is the run's own exact uat-tmp- slug, never a permanent tenant
+        self.assertNotIn("requires", c)
+        self.assertEqual([200, 404], c["expect"]["status"])
+        self.assertTrue(c["do"]["path"].startswith("/api/v1/tenants/uat-tmp-"))
+        self.assertNotIn("qoimeks", c["do"]["path"])
+        self.assertEqual("admin", c["actor"])
         self.assertEqual("bpm-default", self.process["dry_run"]["actors"]["admin"]["tenant"])
 
     def test_residue_group_exists_for_the_platform_actor(self):

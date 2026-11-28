@@ -20,7 +20,7 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
 
       tenant.validate -> tenant.create -> tenant.provision ->
       tenant.record_lifecycle -> tenant.record_onboarding ->
-      tenant.bind_realm -> tenant.grant_first_admins ->
+      tenant.provision_realm_and_invite -> tenant.bind_realm -> tenant.grant_first_admins ->
       tenant.install_default_modules -> tenant.notify_admin
 
   `tenant.create` and the steps after it read the tenant id from the OUTPUT of
@@ -46,6 +46,7 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
       validate(),
       create(),
       provision(),
+      provision_realm_and_invite(),
       record_lifecycle(),
       record_onboarding(),
       bind_realm(),
@@ -120,6 +121,36 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
       permission: @permission,
       side_effects: [
         %SideEffect{text: "creates the tenant schema and runs its migrations", class: :ddl}
+      ],
+      idempotency_key: ["tenant_id"],
+      platform_tenant_only: true
+    }
+  end
+
+  # T-3153 (owner item 11, slice G1): the provisioner makes the realm and the first administrator,
+  # and the administrator is invited by one mail. `tenant_id` is the provisioner's own idempotency
+  # key (stable across retries). The temporary password is in no input and no output: the only
+  # output is the realm id, which `tenant.bind_realm` binds as the next step.
+  defp provision_realm_and_invite do
+    %Entry{
+      name: "tenant.provision_realm_and_invite",
+      family: :platform,
+      version: @version,
+      inputs: [
+        %Input{name: "tenant_id", type: :uuid, required: true, source_class: :step},
+        %Input{name: "admin_email", type: :string, required: true, source_class: :start},
+        %Input{name: "name", type: :string, required: true, source_class: :start},
+        %Input{name: "slug", type: :string, required: true, source_class: :start},
+        %Input{name: "language", type: :string, required: false, source_class: :start}
+      ],
+      outputs: [%Output{name: "realm_id", type: :string}],
+      permission: @permission,
+      side_effects: [
+        %SideEffect{
+          text:
+            "asks the tenant provisioner for the realm and the first administrator, and mails the invitation once",
+          class: :outbound
+        }
       ],
       idempotency_key: ["tenant_id"],
       platform_tenant_only: true

@@ -427,8 +427,56 @@ defmodule Letflow.Routers.SolutionPackOverrideActivateTest do
 
       before = count("process_definitions", ctx.a)
       conn = activate(ctx.a, token, pack_id, id)
-      assert conn.status == 422 and conn.resp_body =~ "module_owned_definition_not_supported"
+      assert conn.status == 409
+      assert conn.resp_body =~ "a module-owned definition cannot be changed by a tenant"
       assert before == count("process_definitions", ctx.a)
+    end
+
+    test "R1f: an override whose name has a module-owned ACTIVE row is a 409 and retires nothing",
+         ctx do
+      {token, pack_id, installed} = world(ctx)
+      id = create!(ctx.a, token, pack_id, installed.id, %{"nodes.task.label" => "x"})
+
+      # the module's own newer version of the same name is the ACTIVE row
+      {:ok, draft} =
+        Definitions.create(
+          %{
+            name: installed.name,
+            version: "2.0.0",
+            graph: graph(),
+            created_by: Ecto.UUID.generate()
+          },
+          prefix: ctx.a.schema_name
+        )
+
+      {:ok, %{definition: module_row}} = Definitions.activate(draft.id, prefix: ctx.a.schema_name)
+
+      Repo.query!(~s|ALTER TABLE "#{ctx.a.schema_name}".process_definitions DISABLE TRIGGER USER|)
+
+      Repo.query!(
+        ~s|UPDATE "#{ctx.a.schema_name}".process_definitions SET owner_module = 'm', owner_module_version = '1', owner_manifest_hash = 'h', owner_body_hash = 'b' WHERE id = $1|,
+        [Ecto.UUID.dump!(module_row.id)]
+      )
+
+      conn = activate(ctx.a, token, pack_id, id)
+      assert conn.status == 409, conn.resp_body
+      assert conn.resp_body =~ "a module-owned definition cannot be changed by a tenant"
+
+      %{rows: [[status]]} =
+        Repo.query!(
+          ~s|SELECT status FROM "#{ctx.a.schema_name}".process_definitions WHERE id = $1|,
+          [Ecto.UUID.dump!(module_row.id)]
+        )
+
+      assert to_string(status) == "active"
+
+      %{rows: [[audits]]} =
+        Repo.query!(
+          ~s|SELECT count(*) FROM "#{ctx.a.schema_name}".audit_entries WHERE action = 'definition.override_activate.refused'|
+        )
+
+      assert audits == 1
+      assert activated_audits(ctx.a) == []
     end
 
     test "R1e: an effective graph failing validation gives the fixed text, no draft", ctx do
