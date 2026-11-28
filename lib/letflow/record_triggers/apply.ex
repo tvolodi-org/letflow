@@ -295,7 +295,7 @@ defmodule Letflow.RecordTriggers.Apply do
 
   defp log_dlq_failed(prefix, tag) do
     Logger.error("record trigger dead-letter entry failed",
-      component: "record_trigger",
+      subsystem: "record_trigger",
       tenant_schema: prefix,
       tag: tag
     )
@@ -357,7 +357,7 @@ defmodule Letflow.RecordTriggers.Apply do
 
   defp log_audit_failed(prefix, tag) do
     Logger.error("record trigger audit failed",
-      component: "record_trigger",
+      subsystem: "record_trigger",
       tenant_schema: prefix,
       tag: tag
     )

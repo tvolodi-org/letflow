@@ -23,7 +23,17 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
   alias Letflow.Secrets
   alias Letflow.Support.ScriptTaskFixture, as: F
 
-  @metadata [:component, :dispatch_id, :tenant_schema, :tag, :detail, :trigger, :count]
+  @metadata [
+    :subsystem,
+    :dispatch_id,
+    :instance_id,
+    :node_id,
+    :tenant_schema,
+    :tag,
+    :detail,
+    :trigger,
+    :count
+  ]
 
   setup do
     %{t: F.tenant!("gh2534-7c-rec")}
@@ -210,8 +220,10 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
     refute log =~ "** ("
   end
 
-  test "raise logs tag only", %{t: t} do
-    raise_sentinel = "RAISE_SENTINEL_#{System.unique_integer([:positive])}"
+  test "raise logs class and truncated message, never payload", %{t: t} do
+    raise_sentinel =
+      "RAISE_SENTINEL_#{System.unique_integer([:positive])}" <> String.duplicate("x", 300)
+
     F.put_env!(:script_task_runner, F.RaisingRunner)
     F.put_env!(:script_task_raise_message, raise_sentinel)
     b = F.bound!(t, F.doubling_source(), F.closed_manifest(), %{"amount" => 1})
@@ -227,8 +239,13 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
     assert log =~ "tag=raised"
     assert log =~ "dispatch_id=#{b.row.id}"
     assert log =~ "tenant_schema=#{t.schema_name}"
-    refute log =~ raise_sentinel
-    refute log =~ "RuntimeError"
+    # T-3258: the exception class and a 200-char message are logged; the full text is not
+    assert log =~ "RuntimeError"
+    assert log =~ String.slice(raise_sentinel, 0, 200)
+    refute log =~ String.slice(raise_sentinel, 0, 201)
+    assert log =~ "node_id=#{b.row.node_id}"
+    assert log =~ "instance_id=#{b.row.instance_id}"
+    refute log =~ "amount"
     refute log =~ "** ("
     # the row stays running for the lease sweep (never re-run)
     assert F.reload(t.schema_name, b.row).status == :running

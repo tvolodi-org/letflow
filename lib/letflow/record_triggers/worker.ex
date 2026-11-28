@@ -270,7 +270,7 @@ defmodule Letflow.RecordTriggers.Worker do
   # Only the tenant schema and the class tag are logged, never the error text.
   defp log_caught(prefix, tag) do
     Logger.error("record trigger step caught",
-      component: "record_trigger",
+      subsystem: "record_trigger",
       tenant_schema: prefix,
       tag: tag
     )

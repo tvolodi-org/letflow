@@ -200,7 +200,7 @@ defmodule Letflow.Obs.Alerts do
   rescue
     err ->
       Logger.error("alert detection crashed",
-        component: "alert_detection",
+        subsystem: "alert_detection",
         tenant_schema: tenant_schema,
         error: inspect(err)
       )
@@ -581,7 +581,7 @@ defmodule Letflow.Obs.Alerts do
 
       {:error, last_error} when attempt >= policy.max_attempts ->
         Logger.error("alert delivery exhausted",
-          component: "alert_delivery",
+          subsystem: "alert_delivery",
           hook_id: hook.hook_id,
           trigger_key: trigger_key,
           attempt_count: attempt,
@@ -636,7 +636,7 @@ defmodule Letflow.Obs.Alerts do
       _ ->
         Logger.warning(
           "alert hook auth_secret_ref resolution failed, sending without Authorization",
-          component: "alert_delivery",
+          subsystem: "alert_delivery",
           ref: ref
         )
 
@@ -713,7 +713,7 @@ defmodule Letflow.Obs.Alerts do
       now = DateTime.utc_now()
 
       Logger.error("script HMAC secret missing",
-        component: "script_task",
+        subsystem: "script_task",
         tenant_schema: tenant_schema,
         trigger: @script_hmac_trigger
       )
@@ -795,7 +795,7 @@ defmodule Letflow.Obs.Alerts do
       now = DateTime.utc_now()
 
       Logger.error("record trigger dead",
-        component: "record_trigger",
+        subsystem: "record_trigger",
         tenant_schema: tenant_schema,
         trigger: @record_trigger_dead_trigger
       )
@@ -844,7 +844,7 @@ defmodule Letflow.Obs.Alerts do
 
     Logger.error(
       "error group alert reason=#{reason} group=#{group}",
-      component: "error_capture",
+      subsystem: "error_capture",
       trigger: "error_group_alert",
       reason: reason,
       group: group
