@@ -833,11 +833,29 @@ defmodule Letflow.Modules.Stock.QuickCountTest do
              prefix: ctx.schema
            ) == 2
 
-    # a user with DefinitionsActivate still activates the draft by hand
+    # T-3014: the listed draft is module-stamped, so a tenant request (also with
+    # DefinitionsActivate) cannot activate it: 409 with the reason and one audit row.
     draft = Enum.find(rows, &(&1.status == :draft))
-    api(:post, "/definitions/#{draft.id}/activate", ctx.tok_a, %{}) |> P.status!(200)
-    repaired = api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(200)
-    assert repaired["process_activation_needed"] == []
+
+    refused =
+      api(:post, "/definitions/#{draft.id}/activate", ctx.tok_a, %{}) |> P.status!(409)
+
+    assert refused["detail"] == "a module-owned definition cannot be changed by a tenant"
+
+    assert Repo.aggregate(
+             from(e in Entry,
+               where: e.action == "definition.activate.refused" and e.resource_id == ^draft.id
+             ),
+             :count,
+             prefix: ctx.schema
+           ) == 1
+
+    # both rows are as they were: the old version keeps its place, the draft stays and is listed
+    assert Repo.get!(ProcessDefinition, old_active.id, prefix: ctx.schema) == old_active
+    assert Repo.get!(ProcessDefinition, draft.id, prefix: ctx.schema) == draft
+
+    still = api(:post, "/tenant/modules/stock/ensure-seeds", ctx.tok_a, %{}) |> P.status!(200)
+    assert [%{"name" => "stock_quick_count"}] = still["process_activation_needed"]
   end
 
   test "QC-T2353c a tenant-created version of the name blocks automatic activation", ctx do
