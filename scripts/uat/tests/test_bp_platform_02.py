@@ -29,42 +29,59 @@ class Signup(unittest.TestCase):
         rows = runner.run_assertions(self.steps[step_id]["expect"], status, body)
         return all(r["ok"] for r in rows)
 
-    def test_actors_are_anonymous_or_the_platform_admin_and_no_secret_or_retired_tenant(self):
+    def test_actors_and_no_secret_literal_or_retired_tenant(self):
         for step in self.steps.values():
             self.assertIn(step["actor"], ("anonymous", "admin"))
         text = json.dumps(self.process["steps"] + self.process["cleanup"])
         self.assertNotIn("qoimeks", text)
-        # the password is an input of the run, never a literal in the file
-        self.assertEqual(["signup_password"], self.process["inputs"])
+        # the form takes no password (config password_required=false): no step sends one, no secret is an input
         for step in self.process["steps"]:
-            body = step["do"].get("body") or {}
-            if "password" in body:
-                self.assertEqual("${signup_password}", body["password"])
-        self.assertEqual(1, len(self.process["later_steps"]))  # only the purge (T-2747) is left outside the run
+            self.assertNotIn("password", step["do"].get("body") or {})
+        self.assertEqual(["verify_token"], self.process["inputs"])
 
-    def test_signup_sends_the_owner_fields_and_expects_the_tenant_url(self):
-        body = self.steps["S6"]["do"]["body"]
-        for key in ("company_name", "user_name", "password", "slug"):
-            self.assertIn(key, body)
-        self.assertEqual("${signup_password}", body["password"])
-        self.assertTrue(body["slug"].startswith("uat-tmp-"))
-        self.assertTrue(self.ok("S6", {"status": "check_your_mail", "tenant_url": "https://uat-tmp-1.x"}, 202))
-        # no tenant URL (the build lacks the fields) or a refusal is RED
-        self.assertFalse(self.ok("S6", {"status": "check_your_mail"}, 202))
-        self.assertFalse(self.ok("S6", {"error": "signup_unavailable"}, 503))
+    def test_every_runner_address_is_on_the_mail_trap_domain(self):
+        for sid in ("S2", "S4", "S11"):
+            self.assertTrue(self.steps[sid]["do"]["body"]["email"].endswith("@uat.letflow.internal"), sid)
+        self.assertTrue(self.steps["S5"]["do"]["wait_mail"]["recipient"].endswith("@uat.letflow.internal"))
+        self.assertEqual(self.steps["S4"]["do"]["body"]["email"], self.steps["S5"]["do"]["wait_mail"]["recipient"])
 
-    def test_new_tenant_must_be_active_without_a_human_step(self):
+    def test_first_credential_chain_order_and_inputs(self):
+        ids = [s["id"] for s in self.process["steps"]]
+        self.assertEqual(["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11"], ids)
+        s8 = self.steps["S8"]["do"]["first_signin"]
+        self.assertEqual("${tenant_realm}", s8["realm"])  # the realm of the registry, never derived from the slug
+        self.assertEqual("Your workspace account", s8["subject"])  # Signup.Messages.first_credential, en
+        self.assertEqual("new_admin", s8["as"])
+        for sid in ("S9", "S10"):
+            self.assertEqual("new_admin", self.steps[sid]["bearer"])
+        self.assertEqual("/api/v1/modules/stock/documents", self.steps["S10"]["do"]["path"])
+        self.assertTrue(self.ok("S9", {"roles": ["TENANT_ADMIN"]}, 200))
+        self.assertFalse(self.ok("S9", {"roles": ["TENANT_AUDITOR"]}, 200))
+        self.assertFalse(self.ok("S10", {}, 404))
+        self.assertTrue(self.ok("S10", {"items": []}, 200))
+
+    def test_the_steps_the_runner_cannot_do_are_blocked_with_an_owner_and_the_rest_run(self):
+        for sid in ("S6", "S7", "S8", "S9", "S10"):
+            self.assertIn("owner: operator", self.steps[sid]["blocked_by"])
+        for sid in ("S1", "S2", "S3", "S4", "S5", "S11"):
+            self.assertNotIn("blocked_by", self.steps[sid])
+        self.assertNotIn("blocked_by", self.process["dry_run"])  # the file itself is not blocked
+        self.assertIsNone(runner.blocked_reason(self.process))
+
+    def test_verify_and_registry_expectations(self):
+        self.assertTrue(self.ok("S6", {"status": "verified"}, 200))
+        self.assertFalse(self.ok("S6", {"error": "invalid_or_expired_link"}, 400))
+        self.assertFalse(self.ok("S6", {"error": "slug_taken"}, 409))
         # the registry serialises the enum with Atom.to_string: lower case (lib/letflow/routers/tenants.ex tenant_map/1)
         self.assertTrue(self.ok("S7", {"status": "active"}, 200))
         self.assertFalse(self.ok("S7", {"status": "ACTIVE"}, 200))
-        self.assertFalse(self.ok("S7", {"status": "inactive"}, 200))
         self.assertFalse(self.ok("S7", {}, 404))
-        self.assertEqual(["signup_made"], self.steps["S7"]["requires"])
+        self.assertEqual({"tenant_realm": "$.idp_realm_id"}, self.steps["S7"]["save"])
+        self.assertIn("poll", self.steps["S7"])
 
-    def test_refusals_slug_taken_and_reserved(self):
-        self.assertEqual("slug_taken", self.steps["S8"]["expect_refused"])
-        self.assertEqual("admin", self.steps["S9"]["do"]["body"]["slug"])
-        self.assertEqual(422, self.steps["S9"]["expect_refused"]["status"])
+    def test_reserved_slug_is_refused(self):
+        self.assertEqual("admin", self.steps["S11"]["do"]["body"]["slug"])
+        self.assertEqual(422, self.steps["S11"]["expect_refused"]["status"])
 
     def test_cleanup_touches_only_the_throwaway_tenant_and_needs_the_mark(self):
         self.assertEqual(2, len(self.process["cleanup"]))  # the deactivate and (T-3210) the purge of the same slug
@@ -121,176 +138,6 @@ class Signup(unittest.TestCase):
             runner.http_call = original
         self.assertEqual("http://x/api/signup/config", seen["url"])
         self.assertNotIn("Authorization", seen["headers"])
-
-    def test_needed_roles_skip_anonymous(self):
-        r = runner.Runner.__new__(runner.Runner)
-        r.processes, r.overrides, r.fixtures = [self.process], {}, []
-        self.assertEqual(["admin"], r.needed_roles())
-
-    def test_demo_cap_reached_is_a_named_red_of_the_signup_step(self):
-        # the cap is never filled on purpose: the closed answer of the provisioner fails S6 and names the reason
-        body = {"error": "conflict", "limit": "demo_cap_reached"}  # the real answer of POST /admin/v1/tenants
-        rows = runner.run_assertions(self.steps["S6"]["expect"], 409, body)
-        self.assertFalse(all(r["ok"] for r in rows))
-        self.assertIn("demo_cap_reached", self.process["description"])
-        # the verdict line the runner writes for the step carries the closed reason
-        r = self._runner()
-        r.process, r.run_id, r.token_refreshes, r.lines = self.process, "r1", 0, []
-        r.write_line = r.lines.append
-        r.save_context = lambda: None
-        r._execute = lambda step, do, record: [(409, body, json.dumps(body))]
-        self.assertFalse(r.run_step(self.steps["S6"], "steps"))
-        self.assertEqual("fail", r.lines[0]["verdict"])
-        self.assertIn("demo_cap_reached", r.lines[0]["error"])
-
-    def test_the_tenant_admin_signs_in_and_holds_tenant_admin(self):
-        s10, s11 = self.steps["S10"], self.steps["S11"]
-        self.assertEqual("${signup_password}", s10["do"]["login"]["password"])
-        # the realm is what the provisioner issued (decision 0072), read from the registry, never the slug
-        self.assertEqual("${tenant_realm}", s10["do"]["login"]["realm"])
-        self.assertEqual({"tenant_realm": "$.idp_realm_id"}, self.steps["S7"]["save"])
-        self.assertIn("tenant_realm", s10["requires"])
-        self.assertEqual("session", s11["bearer"])
-        self.assertEqual(["signup_made", "tenant_realm"], s10["requires"])
-        self.assertTrue(self.ok("S10", {"signed_in": True}, 200))
-        self.assertFalse(self.ok("S10", {"signed_in": False}, 401))
-        self.assertTrue(self.ok("S11", {"roles": ["TENANT_ADMIN"]}, 200))
-        self.assertFalse(self.ok("S11", {"roles": ["TENANT_AUDITOR"]}, 200))
-        self.assertFalse(self.ok("S11", {}, 401))
-
-    def _runner(self):
-        r = runner.Runner.__new__(runner.Runner)
-        r.ctx, r.secrets, r.secret_values = {"run_id": "20261125T024731Z-5b87c4", "signup_password": "pw-Canary-1",
-                                             "tenant_realm": "t-0123456789abcdef0123"}, {}, set()
-        r.base_url = "http://x"
-        return r
-
-    def test_login_keeps_the_token_secret_and_bearer_uses_it(self):
-        import io
-        import urllib.request
-
-        class Answer(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        seen = {}
-
-        def fake_open(req, timeout=None):
-            seen["url"], seen["data"] = req.full_url, req.data
-            return Answer(b'{"access_token": "tok-Canary-2"}')
-
-        original, calls = urllib.request.urlopen, []
-        urllib.request.urlopen = fake_open
-        runner_http = runner.http_call
-        runner.http_call = lambda m, u, h, b, timeout=None: calls.append((u, h)) or (200, {}, "{}")
-        try:
-            r, rec = self._runner(), {}
-            status, body, _ = r._login(self.steps["S10"], self.steps["S10"]["do"], rec)
-            self.assertEqual((200, {"signed_in": True}), (status, body))
-            self.assertIn("/realms/t-0123456789abcdef0123/protocol/openid-connect/token", seen["url"])
-            self.assertIn("tok-Canary-2", r.secret_values)
-            self.assertNotIn("tok-Canary-2", json.dumps(rec))
-            self.assertNotIn("tok-Canary-2", json.dumps(r.ctx))
-            r.request("anonymous", "GET", "/api/v1/me/access", bearer="session")
-            self.assertEqual("Bearer tok-Canary-2", calls[0][1]["Authorization"])
-            self.assertEqual("http://x/api/v1/me/access", calls[0][0])
-            # S11 goes to the tenant URL S6 saved, not to the run's own base URL
-            self.assertEqual("tenant_url", self.steps["S11"]["bearer_base"])
-            self.assertEqual("$.tenant_url", self.steps["S6"]["save"]["tenant_url"])
-            r.ctx["tenant_url"] = "https://uat-tmp-x.example.test/"
-            r.run_id, r.lines, r.process = "r1", [], self.process
-            r._call("anonymous", {"api": "GET", "path": "/api/v1/me/access"}, bearer="session",
-                    bearer_base="https://uat-tmp-x.example.test")
-            self.assertEqual("https://uat-tmp-x.example.test/api/v1/me/access", calls[1][0])
-            r.ctx["tenant_url"] = ""
-            with self.assertRaises(runner.RunnerError):
-                r._execute(self.steps["S11"], self.steps["S11"]["do"], {})
-            with self.assertRaises(runner.RunnerError):
-                self._runner().request("anonymous", "GET", "/x", bearer="session")
-        finally:
-            urllib.request.urlopen = original
-            runner.http_call = runner_http
-
-    def test_login_refused_by_the_provider_is_a_failed_step_not_a_pass(self):
-        import urllib.error
-        import urllib.request
-
-        def refuse(req, timeout=None):
-            raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
-
-        original = urllib.request.urlopen
-        urllib.request.urlopen = refuse
-        try:
-            r = self._runner()
-            status, body, _ = r._login(self.steps["S10"], self.steps["S10"]["do"], {})
-        finally:
-            urllib.request.urlopen = original
-        self.assertEqual(401, status)
-        self.assertFalse(self.ok("S10", body, status))
-        self.assertNotIn("session", r.secrets)
-
-    def test_a_literal_login_password_and_a_non_https_idp_are_refused(self):
-        import copy
-        import os
-
-        step = copy.deepcopy(self.steps["S10"])
-        step["do"]["login"]["password"] = "plain-literal"
-        with self.assertRaises(runner.ConfigError):
-            runner.validate_step(step, "S10")
-        old = os.environ.get("BPM_IDP_BASE_URL")
-        os.environ["BPM_IDP_BASE_URL"] = "http://idp.example"
-        try:
-            with self.assertRaises(runner.RunnerError):
-                self._runner()._login(self.steps["S10"], self.steps["S10"]["do"], {})
-        finally:
-            if old is None:
-                os.environ.pop("BPM_IDP_BASE_URL")
-            else:
-                os.environ["BPM_IDP_BASE_URL"] = old
-
-    def test_the_file_is_blocked_so_it_is_not_run_and_not_green(self):
-        import io
-
-        why = runner.blocked_reason(self.process)
-        for task in ("T-2748", "T-2728", "provisioner"):
-            self.assertIn(task, why)
-        out = io.StringIO()
-        runner.cmd_dry_run(type("A", (), {"files": [str(FILE)], "repo": str(FILE.parents[3])})(), out)
-        text = out.getvalue()
-        self.assertIn("SKIPPED", text)
-        self.assertIn(f"not run: {len(self.process['steps'])} step(s)", text)
-        self.assertIn("dry-run: NOT RUN", text)
-        self.assertNotIn("pass", text.lower().replace("not a pass", "").replace("passed", ""))
-
-    def test_login_password_must_be_exactly_one_reference(self):
-        step = next(st for st in self.process["steps"] if "login" in st.get("do", st))
-        for bad in ("literal${", "pre${x}", "${x}post", "${x", "${}", "${a}${b}", "plain"):
-            doc = json.loads(json.dumps(step))
-            (doc.get("do", doc))["login"]["password"] = bad
-            with self.assertRaises(runner.ConfigError, msg=bad):
-                runner.validate_step(doc, "S10")
-        doc = json.loads(json.dumps(step))
-        (doc.get("do", doc))["login"]["password"] = "${signup_password}"
-        runner.validate_step(doc, "S10")
-
-    def test_main_run_needs_no_actor_mapping_for_anonymous(self):
-        import io
-        from contextlib import redirect_stderr, redirect_stdout
-
-        argv = ["run", str(FILE), "--tenant", "bpm-default", "--actors", "admin=admin-user",
-                "--input", "signup_password=nonsecret-test-placeholder"]
-        err, out = io.StringIO(), io.StringIO()
-        with redirect_stderr(err), redirect_stdout(out):
-            try:
-                runner.main(argv)
-            except SystemExit:
-                pass
-        self.assertNotIn("actors missing", err.getvalue() + out.getvalue())
 
 
 class TenantLifecycle(unittest.TestCase):
