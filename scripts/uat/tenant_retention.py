@@ -35,6 +35,7 @@ from pathlib import Path
 DEFAULT_DAYS = 1
 DEFAULT_MAX_PER_RUN = 20
 HARD_MAX_PER_RUN = 25
+RETENTION_SETTING = "LETFLOW_PROVISIONER_RETENTION_DAYS"
 POLL_S = 60  # one lifecycle instance is polled for at most this long
 LOCK_STALE_S = 1800
 ALLOW_RES = (re.compile(r"uat-tmp-[a-z0-9][a-z0-9-]*"), re.compile(r"uat-\d{8}-[a-z0-9][a-z0-9-]*"))
@@ -203,15 +204,23 @@ def run_action(request, slug, action, sleep=time.sleep, poll_s=POLL_S):
 
 
 def retire(request, slug, status, sleep=time.sleep, poll_s=POLL_S):
-    """-> (outcome, line): outcome is 'purged' or 'left'."""
+    """-> (outcome, line): outcome is 'purged', 'left' or 'failed'. An ACTIVE tenant is deactivated (the lifecycle
+    action `suspend`: status inactive, platform-admin, audited) FIRST; purge is never started on a tenant that is
+    not known to be inactive. A purge the product refuses as not eligible (409: the retention days have not run out,
+    so LETFLOW_PROVISIONER_RETENTION_DAYS is not applied on this host) is a loud FAILED outcome, tried once."""
+    if status not in ("active", "inactive"):
+        return "left", f"{slug}: LEFT, status {status or 'unknown'} is neither active nor inactive"
     if status == "active":
         state, detail = run_action(request, slug, "suspend", sleep, poll_s)
         if state != "COMPLETED":
-            return "left", f"{slug}: LEFT, suspend ended {state} ({detail})"
+            return "left", f"{slug}: LEFT, deactivate (suspend) ended {state} ({detail}); purge not started"
     state, detail = run_action(request, slug, "purge", sleep, poll_s)
     if state == "COMPLETED":
         return "purged", f"{slug}: purged through tenant.purge (instance {detail})"
-    return "left", f"{slug}: LEFT, purge ended {state} ({detail}); the product's retention rule decides, the next run tries again"
+    if state == "ERROR":
+        return "failed", (f"FAILED {slug}: purge refused as not eligible (409 not_eligible, instance {detail}): "
+                          f"the retention days have not run out; check that {RETENTION_SETTING} is applied on this host")
+    return "left", f"{slug}: LEFT, purge ended {state} ({detail}); the next run tries again"
 
 
 def execute(request, spec, own_tenant, base_url, retired, now=None, lock_root=None, extra=None, sleep=time.sleep,
@@ -227,7 +236,7 @@ def execute(request, spec, own_tenant, base_url, retired, now=None, lock_root=No
     extra = load_extra() if extra is None else extra
     now = now or datetime.now(timezone.utc)
     found, _kept = candidates(list_registry(request), now, days, retired, own_tenant, extra)
-    lines, purged, left = [], 0, 0
+    lines, purged, left, failed = [], 0, 0, 0
 
     def say(text):
         lines.append(text)
@@ -255,5 +264,10 @@ def execute(request, spec, own_tenant, base_url, retired, now=None, lock_root=No
             say(line)
             purged += outcome == "purged"
             left += outcome == "left"
-    say(f"tenant retention: {purged} purged, {left} left, {len(found)} candidate(s)")
-    return {"purged": purged, "left": left, "candidates": len(found), "dry_run": dry, "lines": lines}
+            failed += outcome == "failed"
+            if outcome == "failed":
+                say(f"retention stopped after the first not-eligible purge: the setting {RETENTION_SETTING} is not "
+                    "applied, so the rest would be refused too (no retry)")
+                break
+    say(f"tenant retention: {purged} purged, {left} left, {failed} failed, {len(found)} candidate(s)")
+    return {"purged": purged, "left": left, "failed": failed, "candidates": len(found), "dry_run": dry, "lines": lines}
