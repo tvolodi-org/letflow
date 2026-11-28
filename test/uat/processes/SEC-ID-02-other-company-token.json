@@ -225,14 +225,13 @@
         "api": "GET",
         "path": "/api/v1/identity/tokens"
       },
+      "positional_ok": "the token list is ordered by issue time, newest first (Identity.list_tokens, unpaginated); the token this process issued one step earlier is the first row. The runner does not expand a variable inside an expectation path, so a [?id=...] selector cannot be used here",
       "expect": {
         "status": 200,
         "json": {
-          "$.items[?id=${this_token_id}]": {
-            "exists": true
-          },
-          "$.items[?id=${this_token_id}].status": "active",
-          "$.items[?id=${this_token_id}].revoked_at": {
+          "$.items[0].id": "${this_token_id}",
+          "$.items[0].status": "active",
+          "$.items[0].revoked_at": {
             "absent": true
           }
         }

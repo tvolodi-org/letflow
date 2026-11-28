@@ -118,9 +118,10 @@
     },
     {
       "id": "s17",
+      "positional_ok": "the same list as step s4, read again, and the first row is the row step s4 saved; the runner does not expand a variable inside an expectation path, so a [?id=...] selector cannot be used",
       "actor": "admin",
       "do": {"api": "GET", "path": "/api/v1/identity/roles"},
-      "expect": {"status": 200, "json": {"$.items[?id=${first_role_before}]": {"exists": true}}}
+      "expect": {"status": 200, "json": {"$.items[0].id": "${first_role_before}"}}
     }
   ],
   "outputs": {},
