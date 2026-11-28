@@ -11,10 +11,10 @@ defmodule Mix.Tasks.Letflow.CheckScopeNodePathsWritersTest do
       scans clean.
     * FAIL: seeded raw SQL in a `.ex`, an `alias Letflow.ScopeNodePaths.Node`, a `.json` naming the
       table and a `.lua` comment naming it each give a violation with the right rule; `run/1`
-      raises `Mix.Error` when the real tree carries one (a probe file placed under `priv/modules`
-      for the duration of one test and removed in `on_exit`).
+      raises `Mix.Error` when a default root carries one (a probe file under `priv/modules` of a
+      tmp tree, never of the real one: sibling CI partitions scan the real tree concurrently).
 
-  `async: false`: one test writes a probe file into the real `priv/modules` tree.
+  `async: false`: one test changes the working directory (restored by `File.cd!/2`).
   """
 
   use ExUnit.Case, async: false
@@ -120,17 +120,20 @@ defmodule Mix.Tasks.Letflow.CheckScopeNodePathsWritersTest do
            ] = Scan.audit(content, "x.ex")
   end
 
-  test "run/1 raises Mix.Error when the real tree carries a violation" do
+  test "run/1 raises Mix.Error when a default root carries a violation", %{dir: dir} do
     probe_dir =
       Path.join("priv/modules", "req496_writer_scan_probe_#{System.unique_integer([:positive])}")
 
-    on_exit(fn -> File.rm_rf!(probe_dir) end)
-    File.mkdir_p!(probe_dir)
-    File.write!(Path.join(probe_dir, "probe.json"), ~s|{"t": "scope_node_paths"}\n|)
+    put_file!(dir, Path.join(probe_dir, "probe.json"), ~s|{"t": "scope_node_paths"}\n|)
 
-    assert_raise Mix.Error, ~r/scope_node_paths writer scan: 1 violation/, fn -> Scan.run([]) end
+    # CI partitions share one checkout and other scans walk the real priv/modules: a probe that
+    # appears and vanishes there fails them with File.Error. It must stay in the tmp tree.
+    refute File.exists?(probe_dir)
 
-    File.rm_rf!(probe_dir)
-    assert Scan.scan(@default_roots) == []
+    File.cd!(dir, fn ->
+      assert_raise Mix.Error, ~r/scope_node_paths writer scan: 1 violation/, fn ->
+        Scan.run([])
+      end
+    end)
   end
 end
