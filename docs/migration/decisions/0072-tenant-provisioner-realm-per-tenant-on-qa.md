@@ -298,6 +298,17 @@ the production demo domain (not decided, not assumed); credential rotation inter
 From the portfolio's sandbox: the optimized Keycloak `start` boot; `requiredActions` on the inline user; long-run behaviour on the real QA Keycloak; the realm's SMTP password is probably stored unencrypted in Keycloak's database (the vault SPI could keep it out; a QA-only residual). This record
 is a design decision, not a verification: no code was run for it.
 
+## 12. Amendment T-3154 (2026-11-28): the realm of a created tenant is made by the registration process
+
+Decision D1 stands: Letflow does not create realms ITSELF and has no Keycloak admin client; the provisioner (infra's) makes the realm and the first
+administrator. What changed is WHO ASKS the provisioner. Until now the sign-up saga (route 4) asked it and route 3 REQUIRED the caller to bring a realm that
+somebody else had made. The owner's rule (item 11 / D-195) is that a tenant is created by the process and is runnable, so the question moved into the
+`platform.register_tenant` process: version 3 has the step `tenant.provision_realm_and_invite` before `tenant.bind_realm`, and it calls the provisioner through the
+same client and the same allow-listed settings as the sign-up (`LETFLOW_SIGNUP_PROVISIONER_URL`, `_TOKEN`, `_HOSTNAME_DOMAIN`; INV-9, no address in code, no
+new secret). `idp_realm_id` is now OPTIONAL on route 3 (absent: the process makes the realm; present: it is probed and bound, the provisioner is not asked)
+and the saga of route 4 no longer calls the provisioner. The one-time password is held in memory from the provisioner's answer to the mail and nowhere else.
+See `docs/platform-register-tenant-v2.md` section 12.
+
 ## Sign-off
 
 REVIEWER: pending (design gate). SECURITY-REVIEWER: attempt 1 returned FAIL (2026-10-25); its findings are applied in this revision (namespace guard D3/P13, `tier: production` refused P14, `Ecto.UUID` cast P8, credential strength P10, one `created_via` value, setting names D7); open question 6 is settled by the SECURITY-REVIEWER ruling in D6. Re-review pending.

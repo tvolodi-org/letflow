@@ -1,6 +1,6 @@
 defmodule Letflow.SignupProvisioningTest do
   @moduledoc """
-  T-1593 (TA-SL2b part a, decision 0085): the realm step of the sign-up saga against a provisioner stub
+  T-1593 (TA-SL2b part a, decision 0085): the sign-up saga and (since T-3154) the realm CLIENT against a provisioner stub
   (Bandit on a random loopback port, real `:httpc`). Sandbox is shared (`async: false`) so the off-request
   task sees the test's connection. P = provisioning flow, V = response validation, F = flag/config,
   U = URL check, L = secrets in logs.
@@ -19,7 +19,6 @@ defmodule Letflow.SignupProvisioningTest do
   alias Letflow.Test.ProvisionerStub, as: Stub
 
   @token "tok-SECRET-caller-token"
-  @password "Tmp-Pa55-ONE-time"
 
   setup do
     System.put_env(RealmProvisioner.token_env(), @token)
@@ -79,77 +78,7 @@ defmodule Letflow.SignupProvisioningTest do
     end
   end
 
-  describe "happy path" do
-    test "P1 verify over the real router starts the step: realm stored, credential mailed, bearer sent" do
-      enable!()
-      assert post_signup().status == 202
-      assert_receive {:deliver_message, verification}, 2_000
-      token = token_from(verification)
-      tenant_id = Repo.one!(Request).tenant_id
-      track_tenant(tenant_id)
-      stub = stub_created(tenant_id)
-      configure!(stub)
-
-      assert request(:post, "/api/signup/verify", %{"token" => token}).status == 200
-      assert await_mail() == :ok
-
-      row = row(tenant_id)
-      label = RealmProvisioner.label(tenant_id)
-      assert {row.state, row.step} == {"completed", "completed"}
-      assert {row.idp_realm_id, row.template_version} == {label, "v2"}
-      assert row.idp_issuer =~ label
-      assert row.credential_sent_at
-
-      assert [post] = Stub.posts(stub)
-      assert post.auth == "Bearer " <> @token
-      assert post.path == "/v1/realms"
-      assert post.body["tier"] == "demo"
-      assert post.body["tenant_id"] == tenant_id
-      assert post.body["owner_email"] == "owner@example.test"
-      assert post.body["hostname"] == label <> ".qa.example.test"
-
-      assert_receive {:deliver_message, credential}, 2_000
-      assert credential.to == "owner@example.test"
-      assert credential.body =~ @password
-
-      # a repeat of the link is the same 200 and does not call the provisioner again
-      assert request(:post, "/api/signup/verify", %{"token" => token}).status == 200
-      assert await_mail() == :ok
-      assert length(Stub.posts(stub)) == 1
-    end
-
-    test "P2 the password is only in the mail: not in the row, its inspect, or the log" do
-      r = ready_row()
-      stub = stub_created(r.tenant_id)
-      configure!(stub)
-
-      log = capture_log(fn -> assert Provisioning.run(r.tenant_id) == :ok end)
-      assert_receive {:deliver_message, %{body: body}}, 2_000
-      assert body =~ @password
-
-      row = row(r.tenant_id)
-      refute inspect(row) =~ @password
-      refute inspect(Map.from_struct(row)) =~ @password
-      refute log =~ @password
-      refute log =~ @token
-      refute :erlang.term_to_binary(Application.get_all_env(:letflow)) =~ @token
-    end
-  end
-
   describe "idempotent and resumable" do
-    test "P3 a replay (200 without the password) sends the Forgot-password hint" do
-      r = ready_row()
-      replay = Stub.created(r.tenant_id) |> Map.delete("first_admin")
-      stub = Stub.start!([{200, replay}])
-      configure!(stub)
-
-      assert Provisioning.run(r.tenant_id) == :ok
-      assert [%{body: body}, %{subject: _welcome}] = mails()
-      assert body =~ "Forgot password"
-      refute body =~ @password
-      assert row(r.tenant_id).step == "completed"
-    end
-
     test "P4 a row left at realm_created resumes at the mail without a second POST" do
       id = Ecto.UUID.generate()
 
@@ -171,19 +100,28 @@ defmodule Letflow.SignupProvisioningTest do
     end
 
     test "P5 the claim is a compare-and-set: a held row is skipped, a finished one is not re-run" do
-      r = ready_row()
+      id = Ecto.UUID.generate()
+
+      r =
+        ready_row(
+          tenant_id: id,
+          step: "credential_sent",
+          state: "provisioning",
+          idp_realm_id: RealmProvisioner.label(id)
+        )
+
       stub = stub_created(r.tenant_id)
       configure!(stub)
 
       assert %Request{} = Provisioning.claim(r.tenant_id)
       assert Provisioning.claim(r.tenant_id) == nil
       assert Provisioning.run(r.tenant_id) == :noop
-      assert Stub.posts(stub) == []
 
       Repo.update_all(from_tenant(r.tenant_id), set: [claimed_at: nil])
       assert Provisioning.run(r.tenant_id) == :ok
       assert Provisioning.run(r.tenant_id) == :noop
-      assert length(Stub.posts(stub)) == 1
+      # T-3154: the saga never calls the provisioner
+      assert Stub.calls(stub) == []
     end
 
     test "T2 advance is idempotent and never calls the network" do
@@ -193,8 +131,23 @@ defmodule Letflow.SignupProvisioningTest do
     end
   end
 
-  describe "conflicts" do
-    test "P6 409 then GET 200 is a replay; one POST, no password in the mail" do
+  # T-3154: the saga no longer calls the provisioner (the registration process does, see
+  # `signup_provisioning_process_test.exs`); the CLIENT's own answers are pinned here directly.
+  defp create_realm(r) do
+    RealmProvisioner.create_realm(
+      %{
+        tenant_id: r.tenant_id,
+        company_name: "Acme Ltd",
+        language: "en",
+        email: "owner@example.test",
+        slug: r.slug
+      },
+      Signup.config()
+    )
+  end
+
+  describe "client conflicts" do
+    test "P6 409 then GET 200 is a replay; one POST, no password" do
       r = ready_row()
 
       stub =
@@ -204,44 +157,31 @@ defmodule Letflow.SignupProvisioningTest do
 
       configure!(stub)
 
-      assert Provisioning.run(r.tenant_id) == :ok
+      assert {:ok, :replay, realm} = create_realm(r)
+      assert realm.password == nil
       assert length(Stub.posts(stub)) == 1
       assert [%{method: "GET", path: path}] = Enum.filter(Stub.calls(stub), &(&1.method == "GET"))
       assert path == "/v1/realms/" <> r.tenant_id
-      assert [%{body: body}, %{subject: _welcome}] = mails()
-      refute body =~ @password
     end
 
-    test "P7 409 demo_cap_reached fails at once with that code" do
+    test "P7 409 demo_cap_reached is that code, at once" do
       r = ready_row()
       stub = Stub.start!([{409, %{"error" => "demo_cap_reached"}}])
       configure!(stub)
 
-      assert Provisioning.run(r.tenant_id) == {:failed, "demo_cap_reached"}
+      assert create_realm(r) == {:error, :demo_cap_reached}
       assert length(Stub.posts(stub)) == 1
-      assert {row(r.tenant_id).state, row(r.tenant_id).step} == {"failed", "provisioning_failed"}
-      assert mails() == []
     end
 
     test "P7b 409 with GET 404 and an unknown cause is a permanent invalid_request" do
       r = ready_row()
       stub = Stub.start!([{409, %{"error" => "other"}}], [{404, %{}}])
       configure!(stub)
-      assert Provisioning.run(r.tenant_id) == {:failed, "invalid_request"}
+      assert create_realm(r) == {:error, :invalid_request}
     end
   end
 
   describe "chosen slug and the user's own retry (T-2748)" do
-    test "P20 the chosen slug is the host sent to the realm provisioner" do
-      r = ready_row(slug: "my-co")
-      stub = stub_created(r.tenant_id)
-      configure!(stub)
-
-      assert Provisioning.run(r.tenant_id) == :ok
-      assert [post] = Stub.posts(stub)
-      assert post.body["hostname"] == "my-co.qa.example.test"
-    end
-
     test "P21 a failed request: verify keeps the link valid; only retry:true resumes a retryable one" do
       enable!()
       r = ready_row()
@@ -351,7 +291,7 @@ defmodule Letflow.SignupProvisioningTest do
       assert row(c.tenant_id).state == "failed"
     end
 
-    test "P24 a host outside the allowed suffixes creates no realm" do
+    test "P24 a host outside the allowed suffixes starts no process and calls no provisioner" do
       r = ready_row(slug: "my-co")
       stub = stub_created(r.tenant_id)
       configure!(stub, hostname_domain: "other.example.test")
@@ -407,25 +347,14 @@ defmodule Letflow.SignupProvisioningTest do
     end
   end
 
-  describe "failure leaves a visible state and a cleanup path" do
-    test "P8 5xx is retried within the budget, then the row is failed with a fixed code" do
+  describe "client failure classes" do
+    test "P8 5xx is unavailable (the step retries it); no token in the log" do
       r = ready_row()
       stub = Stub.start!([{503, %{"error" => "down"}}])
       configure!(stub)
 
-      log =
-        capture_log(fn -> assert Provisioning.run(r.tenant_id) == {:failed, "unavailable"} end)
-
-      assert length(Stub.posts(stub)) == 3
-      row = row(r.tenant_id)
-
-      assert {row.state, row.step, row.last_error} ==
-               {"failed", "provisioning_failed", "unavailable"}
-
-      assert row.step_attempts == 3
-      assert log =~ "signup provisioning failed: unavailable"
-      [line] = log |> String.split("\n") |> Enum.filter(&(&1 =~ "signup provisioning failed"))
-      refute line =~ r.tenant_id
+      log = capture_log(fn -> assert create_realm(r) == {:error, :unavailable} end)
+      assert length(Stub.posts(stub)) == 1
       refute log =~ @token
     end
 
@@ -434,77 +363,23 @@ defmodule Letflow.SignupProvisioningTest do
       stub = Stub.start!([{401, %{}}])
       configure!(stub)
 
-      assert capture_log(fn ->
-               assert Provisioning.run(r.tenant_id) == {:failed, "unauthorized"}
-             end)
-
+      assert create_realm(r) == {:error, :unauthorized}
       assert length(Stub.posts(stub)) == 1
     end
 
-    test "P8c 429 with Retry-After is retried, then the next answer is used" do
+    test "P8c 429 is rate_limited" do
       r = ready_row()
-      stub = Stub.start!([{429, %{}}, {201, Stub.created(r.tenant_id)}])
+      stub = Stub.start!([{429, %{}}])
       configure!(stub)
-      assert Provisioning.run(r.tenant_id) == :ok
-      assert length(Stub.posts(stub)) == 2
+      assert {:error, {:rate_limited, _hint}} = create_realm(r)
     end
 
     test "P9 a timeout counts as unavailable" do
       r = ready_row()
       stub = Stub.start!([{200, {:sleep, 600}}])
-      configure!(stub, http_timeout_ms: 100, retry_delays_ms: [0])
+      configure!(stub, http_timeout_ms: 100)
 
-      capture_log(fn -> assert Provisioning.run(r.tenant_id) == {:failed, "unavailable"} end)
-      assert row(r.tenant_id).last_error == "unavailable"
-    end
-
-    test "P10 the resume path completes a failed row once the provisioner recovers" do
-      r = ready_row()
-      stub = Stub.start!([{503, %{}}])
-      configure!(stub)
-      capture_log(fn -> Provisioning.run(r.tenant_id) end)
-      assert row(r.tenant_id).state == "failed"
-
-      Stub.set_script(stub, :post, [{201, Stub.created(r.tenant_id)}])
-      assert [{tenant_id, :ok}] = Provisioning.resume()
-      assert tenant_id == r.tenant_id
-      assert {row(tenant_id).state, row(tenant_id).step} == {"completed", "completed"}
-    end
-
-    test "P10b resume leaves a permanent failure alone unless forced" do
-      r = ready_row()
-      stub = Stub.start!([{409, %{"error" => "demo_cap_reached"}}])
-      configure!(stub)
-      Provisioning.run(r.tenant_id)
-      assert Provisioning.resume() == []
-      assert row(r.tenant_id).state == "failed"
-
-      Stub.set_script(stub, :post, [{201, Stub.created(r.tenant_id)}])
-      assert [{_, :ok}] = Provisioning.resume(force: true)
-    end
-
-    test "P11 a failing mail adapter fails the row after the realm exists; resume sends the hint" do
-      r = ready_row()
-      stub = stub_created(r.tenant_id)
-      configure!(stub)
-      Letflow.LoginDiscoveryNotifierDouble.set_behaviour(:error)
-
-      capture_log(fn ->
-        assert Provisioning.run(r.tenant_id) == {:failed, "credential_mail_failed"}
-      end)
-
-      row = row(r.tenant_id)
-      assert row.idp_realm_id == RealmProvisioner.label(r.tenant_id)
-      assert length(Stub.posts(stub)) == 1
-      refute inspect(row) =~ @password
-
-      Letflow.LoginDiscoveryNotifierDouble.set_behaviour(:ok)
-      mails()
-      assert [{_, :ok}] = Provisioning.resume()
-      assert length(Stub.posts(stub)) == 1
-      assert [%{body: body}, %{subject: _welcome}] = mails()
-      assert body =~ "Forgot password"
-      assert row(r.tenant_id).step == "completed"
+      assert create_realm(r) == {:error, :unavailable}
     end
   end
 
@@ -521,9 +396,8 @@ defmodule Letflow.SignupProvisioningTest do
         r = ready_row()
         stub = stub_created(r.tenant_id, unquote(Macro.escape(overrides)))
         configure!(stub)
-        assert Provisioning.run(r.tenant_id) == {:failed, "bad_response"}
+        assert create_realm(r) == {:error, :bad_response}
         assert mails() == []
-        assert row(r.tenant_id).idp_realm_id == nil
       end
     end
 
@@ -531,7 +405,7 @@ defmodule Letflow.SignupProvisioningTest do
       r = ready_row()
       stub = Stub.start!([{201, {:raw, String.duplicate("x", 70_000)}}])
       configure!(stub)
-      assert Provisioning.run(r.tenant_id) == {:failed, "bad_response"}
+      assert create_realm(r) == {:error, :bad_response}
     end
   end
 
@@ -566,7 +440,7 @@ defmodule Letflow.SignupProvisioningTest do
         r = ready_row(language: lang, email: "owner-#{lang}@example.test")
         stub = stub_created(r.tenant_id)
         configure!(stub)
-        assert Provisioning.run(r.tenant_id) == :ok
+        assert {:ok, :created, _realm} = create_realm(r)
         assert [%{body: %{"tier" => "demo"}}] = Stub.posts(stub)
       end
 

@@ -189,7 +189,9 @@ defmodule Letflow.Test.SignupHelpers do
       Repo.query!("DELETE FROM #{table} WHERE #{column} = $1", [Ecto.UUID.dump!(tenant_id)])
     end
 
+    # T-3154: route 4 starts the registration process, which reserves an admission per tenant.
     for mod <- [
+          Letflow.TenantProvisioner.Admission,
           Letflow.TenantProvisioner.Lifecycle,
           Letflow.Identity.OnboardingRecord,
           Letflow.TenantProvisioning.Registration

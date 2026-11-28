@@ -69,7 +69,8 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite do
   def run(%{inputs: inputs}) when is_map(inputs) do
     with {:ok, tenant_id} <- cast_uuid(Map.get(inputs, "tenant_id")),
          {:ok, email} <- check_email(Map.get(inputs, "admin_email")),
-         {:ok, slug} <- check_slug(Map.get(inputs, "slug")),
+         {:ok, slug} <-
+           check_slug(host_label(Map.get(inputs, "hostname"), Map.get(inputs, "slug"))),
          {:ok, name} <- check_name(Map.get(inputs, "name")),
          language = language(Map.get(inputs, "language")),
          :ok <- check_configured() do
@@ -126,6 +127,19 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite do
       do: :ok,
       else: {:error, :platform_call_provisioner_not_configured}
   end
+
+  # T-3154: the realm registers the tenant's HOST (the label before the hostname domain), which is the
+  # visitor's chosen label on route 4 and not the `t-<hex>` slug. Without a hostname (or one that is not
+  # a plain string within the byte cap) the slug is the label, as before. The result is checked by
+  # `check_slug/1` like any label (byte cap first, SF-01).
+  defp host_label(host, slug) when is_binary(host) and byte_size(host) in 1..253 do
+    case String.split(host, ".", parts: 2) do
+      [label, _rest] when label != "" -> label
+      _other -> slug
+    end
+  end
+
+  defp host_label(_host, slug), do: slug
 
   defp check_email(value) when is_binary(value) and byte_size(value) in 3..@max_email_bytes do
     if value =~ ~r/\A[^\s@]+@[^\s@]+\z/ and String.valid?(value),

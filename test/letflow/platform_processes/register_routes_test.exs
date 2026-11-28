@@ -43,6 +43,9 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
   alias Letflow.EventStore.InstanceProjection
 
   import ExUnit.CaptureLog
+  import Letflow.Test.SignupHelpers, only: [enable!: 1]
+
+  alias Letflow.Test.ProvisionerStub, as: Stub
 
   @routes ["/api/v1/onboarding", "/api/v1/tenants"]
 
@@ -545,6 +548,41 @@ defmodule Letflow.PlatformProcesses.RegisterRoutesTest do
         do: drop_on_exit(tenant)
 
     refute projection.status == :error, inspect(projection.error_detail)
+  end
+
+  test "T-3154 G2: route 1 without a realm and WITH admin_email makes the realm; without e-mail or provisioner it does not",
+       ctx do
+    seed!(ctx)
+    stub = Stub.start!([{201, {:raw, "{}"}}])
+    System.put_env(Letflow.Signup.RealmProvisioner.token_env(), "tok-g2-routes")
+    on_exit(fn -> System.delete_env(Letflow.Signup.RealmProvisioner.token_env()) end)
+
+    # provisioner NOT configured: today's behaviour, the process does not try to make a realm
+    plain = Map.put(form("/api/v1/onboarding"), "admin_email", "owner-g2a@example.com")
+    conn = post(ctx, "/api/v1/onboarding", plain)
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["provision_realm"] == false
+
+    # configured, e-mail given, no realm: the process provisions
+    enable!(provisioner_url: stub.url, hostname_domain: "qa.example.test")
+    with_mail = Map.put(form("/api/v1/onboarding"), "admin_email", "owner-g2b@example.com")
+    conn = post(ctx, "/api/v1/onboarding", with_mail)
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["provision_realm"] == true
+
+    # configured but nobody to invite: nothing to provision
+    no_mail = form("/api/v1/onboarding")
+    conn = post(ctx, "/api/v1/onboarding", no_mail)
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["provision_realm"] == false
+
+    # route 2 has no e-mail field at all: never provisions
+    conn = post(ctx, "/api/v1/tenants", form("/api/v1/tenants"))
+    assert conn.status == 202, conn.resp_body
+    assert started_variables(ctx, json(conn)["instance_id"])["provision_realm"] == false
+
+    # none of these ran its steps: no tenant row to clean, the provisioner was never called
+    assert Stub.posts(stub) == []
   end
 
   defp started_variables(ctx, instance_id) do

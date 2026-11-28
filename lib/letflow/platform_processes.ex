@@ -156,6 +156,7 @@ defmodule Letflow.PlatformProcesses do
         _other, acc ->
           acc
       end)
+      |> Map.put("provision_realm", provision_realm?(form))
 
     case declared_keys(prefix, key) do
       {:ok, keys} -> Map.merge(base, Map.take(v2, keys))
@@ -179,6 +180,14 @@ defmodule Letflow.PlatformProcesses do
   end
 
   defp present?(value), do: is_binary(value) and value != ""
+
+  # T-3154 (v3): the process makes the realm when none was supplied and there is a first administrator
+  # to invite. An operator form (routes 1 and 2) also needs the provisioner to be configured: an
+  # environment without one keeps today's "not yet loginable" tenant instead of an instance in ERROR.
+  defp provision_realm?(form) do
+    not present?(Map.get(form, :realm_id)) and present?(Map.get(form, :admin_email)) and
+      Letflow.Signup.Provisioning.provisioner_ready?()
+  end
 
   defp declared_keys(prefix, key) do
     definition_ref =
@@ -224,7 +233,8 @@ defmodule Letflow.PlatformProcesses do
   def register_tenant_system_variables(request) when is_map(request) do
     tenant_id = Map.get(request, :tenant_id)
 
-    %{"notify_admin" => false}
+    %{"notify_admin" => false, "provision_realm" => not present?(Map.get(request, :idp_realm_id))}
+    |> put_present("language", Map.get(request, :language))
     |> put_present("slug", slug_of(tenant_id))
     |> put_present("name", Map.get(request, :name))
     |> put_present("requested_tenant_id", tenant_id)
@@ -259,7 +269,9 @@ defmodule Letflow.PlatformProcesses do
 
     with {:ok, slug} <- fetch_slug(variables),
          {:ok, platform_prefix} <- platform_prefix(),
-         :ok <- v2_contract(platform_prefix, register_tenant_start_key(%{slug: slug})) do
+         key = register_tenant_start_key(%{slug: slug}),
+         :ok <- v2_contract(platform_prefix, key),
+         {:ok, variables} <- declared_variables(variables, platform_prefix, key) do
       attrs = %{
         definition_name: register_tenant_definition_name(),
         initial_variables: variables,
@@ -272,6 +284,29 @@ defmodule Letflow.PlatformProcesses do
   end
 
   def start_register_tenant_system(_request, _system_start, _opts), do: {:error, :not_found}
+
+  # T-3154: the variables go only under the names the definition version of THIS start declares (the
+  # active one for a new start, the original's for a replay, so a replay of a v2 start compares equal).
+  # A start that must make the realm needs a version that declares `provision_realm` (v3): an older
+  # active version fails CLOSED, the same code as a missing v2 contract.
+  defp declared_variables(variables, prefix, key) do
+    case declared_keys(prefix, key) do
+      {:ok, keys} ->
+        # An existing start (a replay or a reuse) is answered by the engine from its ledger, by
+        # comparing the variables under the ORIGINAL version's names: it is never refused here.
+        if Map.get(variables, "provision_realm") == true and "provision_realm" not in keys and
+             not match?({:ok, _}, Letflow.Engine.IdempotentReplay.lookup(key, prefix)) do
+          require Logger
+          Logger.error("register_tenant_v3_missing")
+          {:error, :register_tenant_v2_missing}
+        else
+          {:ok, Map.take(variables, keys)}
+        end
+
+      :error ->
+        {:error, :not_found}
+    end
+  end
 
   defp fetch_slug(%{"slug" => slug}) when is_binary(slug), do: {:ok, slug}
   defp fetch_slug(_variables), do: {:error, :invalid_request}

@@ -18,6 +18,7 @@ defmodule Letflow.PlatformProcesses.ProvisionerProcessCreateTest do
   use Letflow.DataCase, async: false
 
   import ExUnit.CaptureLog
+  import Letflow.Test.SignupHelpers, only: [enable!: 1]
   import Ecto.Query, only: [from: 2]
   import Plug.Conn
   import Plug.Test
@@ -37,6 +38,7 @@ defmodule Letflow.PlatformProcesses.ProvisionerProcessCreateTest do
   alias Letflow.TenantProvisioner.Register
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
+  alias Letflow.Test.ProvisionerStub, as: Stub
 
   @write_token "write-credential-for-tests-0123456789abcdef0123456789abcdef"
   @server_url "https://letflow.qa.example"
@@ -347,5 +349,124 @@ defmodule Letflow.PlatformProcesses.ProvisionerProcessCreateTest do
 
     assert audit.actor_kind == "system"
     assert audit.after_state["started_via"] == "signup_provisioning"
+  end
+
+  # ── T-3154 (owner item 11 / D-195, slice G2): the realm is OPTIONAL ─────────────────────────────
+
+  @prov_token "tok-g2-provisioner-token"
+
+  defp wire_provisioner!(stub) do
+    System.put_env(Letflow.Signup.RealmProvisioner.token_env(), @prov_token)
+    on_exit(fn -> System.delete_env(Letflow.Signup.RealmProvisioner.token_env()) end)
+    {:ok, _} = Application.ensure_all_started(:inets)
+
+    enable!(
+      provisioner_url: stub.url,
+      hostname_domain: "qa.example",
+      http_timeout_ms: 500,
+      connect_timeout_ms: 500
+    )
+  end
+
+  defp mails do
+    receive do
+      {:deliver_message, m} -> [m | mails()]
+    after
+      100 -> []
+    end
+  end
+
+  test "G2a route 3 WITHOUT idp_realm_id: the process makes the realm and binds it, one mail",
+       ctx do
+    b = body() |> Map.delete("idp_realm_id")
+    track(b["tenant_id"])
+    stub = Stub.start!([{201, Stub.created(b["tenant_id"])}])
+    wire_provisioner!(stub)
+
+    conn = post(b)
+    assert conn.status == 202, conn.resp_body
+    run_steps(ctx)
+
+    # the wire: ONE provisioner call, keyed by the tenant id, for the tenant's own host
+    assert [call] = Stub.posts(stub)
+    assert call.body["tenant_id"] == b["tenant_id"]
+    assert call.body["hostname"] == b["hostname"]
+
+    # the tenant is bound to the realm the provisioner made, the instance completed
+    realm = Letflow.Signup.RealmProvisioner.label(b["tenant_id"])
+    assert %Tenant{idp_realm_id: ^realm} = Repo.get!(Tenant, b["tenant_id"])
+    %Admission{instance_id: instance_id} = Repo.get(Admission, b["tenant_id"])
+
+    assert %InstanceProjection{status: :completed} =
+             Repo.get_by!(InstanceProjection, [instance_id: instance_id],
+               prefix: ctx.platform.schema_name
+             )
+
+    # exactly ONE mail and it is the credential: the registration notice is off on route 3
+    assert [%{to: to, body: mail_body}] = mails()
+    assert to == String.downcase(b["owner_email"])
+    assert mail_body =~ "Tmp-Pa55-ONE-time"
+
+    # a replay is the first answer: no second provisioner call, no second mail
+    assert post(b).status == 200
+    assert length(Stub.posts(stub)) == 1
+    assert mails() == []
+
+    # the temporary password is in no stored variable and no instance event
+    events =
+      Repo.all(from(e in Event, where: e.instance_id == ^instance_id),
+        prefix: ctx.platform.schema_name
+      )
+
+    refute inspect(events) =~ "Tmp-Pa55-ONE-time"
+  end
+
+  test "G2b route 3 WITH idp_realm_id: the realm is probed and bound, the provisioner is not asked",
+       ctx do
+    b = body()
+    track(b["tenant_id"])
+    stub = Stub.start!([{201, Stub.created(b["tenant_id"])}])
+    wire_provisioner!(stub)
+
+    conn = post(b)
+    assert conn.status == 202, conn.resp_body
+    run_steps(ctx)
+
+    assert Stub.posts(stub) == []
+    assert mails() == []
+    assert %Tenant{idp_realm_id: realm} = Repo.get!(Tenant, b["tenant_id"])
+    assert realm == b["idp_realm_id"]
+  end
+
+  test "G2c route 3 without a realm and without the provisioner wiring: 400 naming the field, nothing reserved",
+       ctx do
+    b = body() |> Map.delete("idp_realm_id")
+    track(b["tenant_id"])
+    before = instance_count(ctx)
+
+    conn = post(b)
+
+    assert conn.status == 400, conn.resp_body
+    assert conn.resp_body =~ "idp_realm_id"
+    assert admission_count() == 0
+    assert instance_count(ctx) == before
+  end
+
+  test "G2d the setting OFF: a create without a realm is refused on the field (the old path never makes one)",
+       ctx do
+    put_provisioner(
+      allowed_hostname_suffixes: ["qa.example"],
+      demo_lifetime_days: 14,
+      default_modules: []
+    )
+
+    b = body() |> Map.delete("idp_realm_id")
+    track(b["tenant_id"])
+
+    conn = post(b)
+    assert conn.status == 400, conn.resp_body
+    assert conn.resp_body =~ "idp_realm_id"
+    assert admission_count() == 0
+    assert instance_count(ctx) == 0
   end
 end

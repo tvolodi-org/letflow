@@ -1,14 +1,18 @@
 defmodule Letflow.Signup.Provisioning do
   @moduledoc """
-  T-1593 (TA-SL2b part a, decision 0085): the realm step of the sign-up saga. From a verified row in step
-  `ready_for_provisioning`: ask the provisioner for the tenant's realm and first admin
-  (`Letflow.Signup.RealmProvisioner`), record realm/issuer/template version, mail the one-time first
-  credential, then (T-1679, part 1a) create the Letflow tenant in-process through
-  `Letflow.TenantProvisioner.create/1` with the row's `tenant_id` (step `tenant_created`), then (T-1685, part 1b)
+  T-1593 (TA-SL2b part a, decision 0085): the provisioning saga of a verified sign-up. T-3154 (owner item 11 /
+  D-195) moved the realm out of it: from a verified row in step `ready_for_provisioning` the saga creates the
+  Letflow tenant in-process through `Letflow.TenantProvisioner.create/2` with the row's `tenant_id` and NO realm,
+  so the `platform.register_tenant` PROCESS makes the realm and the first administrator
+  (`tenant.provision_realm_and_invite`, which asks `Letflow.Signup.RealmProvisioner` through the sign-up's own
+  wiring) and sends the ONE credential mail. This module calls the provisioner no more and sends no credential
+  mail for a new row. Then (T-1685, part 1b)
   send the one welcome mail with the workspace link `https://<label>.<hostname_domain>/?realm=<slug>` in the
   person's language and complete the row (state/step `completed`). A mail failure is the retryable code
   `welcome_mail_failed`; the tenant stays and the credential mail is never repeated. Delivery is at-least-once only
   if the process dies between a successful send and the row update (same trade-off as the credential mail).
+  A row an earlier build left at `realm_created` or `credential_sent` already has its realm: the create binds it
+  (the realm is the optional field of the create) and the process makes none.
 
   * **The tenant create is idempotent and carries no credential.** A replay is the provisioner's own
     `:existing` answer (nothing is written); no `auth_context` or provisioner bearer token is involved
@@ -118,12 +122,12 @@ defmodule Letflow.Signup.Provisioning do
       {:permanent, code} ->
         fail(tenant_id, code)
 
-      {:retry, code, hint} ->
+      {:retry, code, _hint} ->
         if delay == :last do
           fail(tenant_id, code)
         else
           note_error(tenant_id, code)
-          Process.sleep(hint || delay)
+          Process.sleep(delay)
           loop(tenant_id, rest)
         end
     end
@@ -192,7 +196,8 @@ defmodule Letflow.Signup.Provisioning do
 
   defp process(%Request{email: nil}, _cfg), do: {:permanent, :no_recipient}
 
-  # The realm exists (a crash or a mail failure after the 201): the password is gone.
+  # A row an earlier build left here (realm made by the saga, credential mail not confirmed): the
+  # password is gone, so the hint mail goes out and the process binds the existing realm.
   defp process(%Request{step: "realm_created"} = row, cfg),
     do: send_credential(row, nil, nil, cfg)
 
@@ -202,41 +207,17 @@ defmodule Letflow.Signup.Provisioning do
   # The tenant exists (a crash or a mail failure after the create): only the welcome mail is left.
   defp process(%Request{step: "tenant_created"} = row, cfg), do: send_welcome(row, cfg)
 
-  # The host must carry an allowed suffix BEFORE a realm exists for it: otherwise the tenant create refuses it
-  # later and every sign-up leaves an orphan realm (no realm is created for a host the create would refuse).
+  # T-3154: route 4 no longer asks the provisioner itself. The registration PROCESS makes the realm and
+  # the first administrator and sends the ONE credential mail (`tenant.provision_realm_and_invite`), so
+  # the saga goes straight to the tenant create. The host must still carry an allowed suffix BEFORE the
+  # process starts: otherwise the create refuses it later and the process would leave an orphan realm.
   defp process(%Request{step: "ready_for_provisioning"} = row, cfg) do
     case TenantProvisioner.Request.hostname(
            hostname(row, cfg),
            TenantProvisioner.Config.allowed_hostname_suffixes()
          ) do
-      {:ok, _host} -> create_realm_step(row, cfg)
+      {:ok, _host} -> create_tenant(row, cfg)
       {:error, _field} -> {:permanent, :invalid_tenant}
-    end
-  end
-
-  defp create_realm_step(row, cfg) do
-    case RealmProvisioner.create_realm(row, cfg) do
-      {:ok, _kind, realm} ->
-        row =
-          row
-          |> Ecto.Changeset.change(
-            idp_realm_id: realm.realm,
-            idp_issuer: realm.issuer,
-            template_version: realm.template_version,
-            step: "realm_created"
-          )
-          |> Repo.update!()
-
-        send_credential(row, realm.username, realm.password, cfg)
-
-      {:error, {:rate_limited, hint}} ->
-        {:retry, :rate_limited, hint}
-
-      {:error, :unavailable} ->
-        {:retry, :unavailable, nil}
-
-      {:error, code} ->
-        {:permanent, code}
     end
   end
 
@@ -270,9 +251,12 @@ defmodule Letflow.Signup.Provisioning do
       "tier" => "demo",
       "owner_email" => row.email,
       "hostname" => hostname(row, cfg),
-      "idp_realm_id" => row.idp_realm_id,
       "source_key" => source_key(row.ip_key)
     }
+
+    # A row that already has a realm (made by an earlier build) binds it; a new one has none and the
+    # process makes it.
+    body = if row.idp_realm_id, do: Map.put(body, "idp_realm_id", row.idp_realm_id), else: body
 
     # T-2728: route 4 starts the registration process (setting-guarded inside `create/2`) and never
     # waits: a running instance is a retry of the sweep, a failed one maps to the closed codes.

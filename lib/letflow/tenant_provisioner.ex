@@ -91,7 +91,13 @@ defmodule Letflow.TenantProvisioner do
         |> with_lock(fn -> Register.admit(request, platform_prefix, server_url) end)
         |> Register.finish(request, server_url, wait_ms)
       else
-        with_lock(tenant_id, fn -> do_create(request, platform_prefix, server_url) end)
+        # T-3154: the realm is optional only where the registration process can make it. The old
+        # synchronous path never creates a realm, so without one it refuses, naming the field.
+        if is_nil(request.idp_realm_id) do
+          {:error, {:invalid, "idp_realm_id"}}
+        else
+          with_lock(tenant_id, fn -> do_create(request, platform_prefix, server_url) end)
+        end
       end
     end
   end
@@ -602,7 +608,8 @@ defmodule Letflow.TenantProvisioner do
       Letflow.TenantHosts.taken?(request.hostname, nil) ->
         {:error, :conflict}
 
-      match?({:ok, _}, Identity.resolve_tenant_by_realm(request.idp_realm_id)) ->
+      is_binary(request.idp_realm_id) and
+          match?({:ok, _}, Identity.resolve_tenant_by_realm(request.idp_realm_id)) ->
         {:error, :conflict}
 
       true ->

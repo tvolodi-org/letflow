@@ -165,6 +165,18 @@ defmodule Letflow.TenantProvisioner.RequestTest do
     end
   end
 
+  test "G2 idp_realm_id is OPTIONAL: absent or null parses to nil, a present one is still checked" do
+    assert {:ok, %{idp_realm_id: nil}} =
+             Request.parse(Map.delete(body(), "idp_realm_id"), now: @now)
+
+    assert {:ok, %{idp_realm_id: nil}} = parse(%{"idp_realm_id" => nil})
+    assert {:ok, %{idp_realm_id: @realm}} = parse(%{})
+    assert {:error, "idp_realm_id"} = parse(%{"idp_realm_id" => "bpm-default"})
+    # the first administrator stays required: with no realm the process invites that person
+    assert {:error, "owner_email"} =
+             Request.parse(Map.drop(body(), ["idp_realm_id", "owner_email"]), now: @now)
+  end
+
   test "C5 unknown and missing keys; a body that is not an object" do
     assert {:error, "body"} = parse(%{"extra" => 1})
     assert {:error, "owner_email"} = Request.parse(Map.delete(body(), "owner_email"), now: @now)

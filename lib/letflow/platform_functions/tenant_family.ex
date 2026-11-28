@@ -141,7 +141,10 @@ defmodule Letflow.PlatformFunctions.TenantFamily do
         %Input{name: "admin_email", type: :string, required: true, source_class: :start},
         %Input{name: "name", type: :string, required: true, source_class: :start},
         %Input{name: "slug", type: :string, required: true, source_class: :start},
-        %Input{name: "language", type: :string, required: false, source_class: :start}
+        %Input{name: "language", type: :string, required: false, source_class: :start},
+        # T-3154: the tenant's host; its first label is what the realm registers as callback and web
+        # origin (the visitor's chosen host label differs from the `t-<hex>` slug).
+        %Input{name: "hostname", type: :string, required: false, source_class: :start}
       ],
       outputs: [%Output{name: "realm_id", type: :string}],
       permission: @permission,

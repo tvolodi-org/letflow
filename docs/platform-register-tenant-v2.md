@@ -416,7 +416,55 @@ demo cap and the budgets of every later test on the shared database. Every fixtu
 in an `on_exit` registered after the fixture, and the signup and provisioner helpers in
 `test/support/signup_test_helpers.ex` that delete `tenant_lifecycles` rows delete the admissions of the same ids.
 
-## 12. Not in this design
+## 12. Version 3: the realm is optional, the process makes it (T-3154, owner item 11 / D-195, slice G2)
+
+`Letflow.PlatformProcesses.DefinitionV3` is v2 with ONE change, built FROM v2's own graph so the two cannot drift:
+
+    record_onboarding -> realm_gate
+    realm_gate --[variables.provision_realm == true]--> provision_realm -> bind_realm
+    realm_gate --(default)--> bind_realm
+
+`provision_realm` is a boolean start variable. `provision_realm` runs `tenant.provision_realm_and_invite` (T-3153): the
+provisioner makes the realm and the first administrator, ONE mail carries the temporary password (in memory only, never a
+variable, an instance row, a log or a step log), and the step's one output `realm_id` is what `bind_realm` binds. A new
+start variable `language` carries the invitation's language (absent means `en`) and `hostname` is read by the step so the
+realm registers the tenant's own host (the first label), not the `t-<hex>` slug.
+
+### 12.1 The contract of the four routes
+
+| route | realm in the request | what happens |
+|---|---|---|
+| 3 `POST /admin/v1/tenants` | `idp_realm_id` OPTIONAL | absent: `provision_realm` true, the process makes the realm and invites `owner_email` (required anyway); present: it must be the realm derived from the tenant id, it is probed before the start and bound, the provisioner is not asked |
+| 4 sign-up (`Signup.Provisioning`) | none for a new row | the saga no longer calls the provisioner and sends no credential mail: it creates the tenant through `TenantProvisioner.create/2` without a realm and the process does both. A row an earlier build left at `realm_created`/`credential_sent` already has its realm, which the create binds (the present path) |
+| 1 `POST /api/v1/onboarding` | `idp_realm_id` optional (as before) | absent AND `admin_email` given AND the provisioner configured: `provision_realm` true. Otherwise the tenant is created "not yet loginable" as before |
+| 2 `POST /api/v1/tenants` | `idp_realm_id` optional (as before) | the form has no e-mail, so there is nobody to invite: no provisioning, as before |
+
+Nothing here reads `LETFLOW_SIGNUP_ENABLED`: that flag switches the PUBLIC sign-up; the platform's own tenant creation uses
+the same URL, token and hostname domain (`LETFLOW_SIGNUP_PROVISIONER_URL`, `_TOKEN`, `_HOSTNAME_DOMAIN`) through the same
+client (`Letflow.Signup.RealmProvisioner`). No new secret, no address in code.
+
+Where the provisioner is not configured: routes 3 and 4 with no realm answer 400 `invalid_request` naming `idp_realm_id` BEFORE anything is
+reserved or started (no admission, no instance); routes 1/2 keep today's behaviour. With `LETFLOW_PROVISIONER_CREATE_VIA_PROCESS`
+off, route 3 without a realm is refused the same way (the old synchronous path never makes a realm).
+
+### 12.2 One mail
+
+Routes 3 and 4 start with `notify_admin` false (the provisioner sends no registration notice), so the credential mail of
+`provision_realm` is the only mail of the process; route 4's saga sends only its welcome mail afterwards. A replay of the
+step after a crash is the provisioner's replay (same key, the tenant id): no second realm, and the invitation repeats as the
+"Forgot password" hint, never a second credential.
+
+### 12.3 The upgrade of an existing environment
+
+The seed (`Letflow.PlatformProcesses.Seed`) now writes version "3". It runs as the boot seed
+(`LETFLOW_SEED_PLATFORM_DEFINITIONS=true`, set on QA and runner hosts) and in the QA deploy's
+`BootSeed.run(force: true)`: v3 is written and switched on, v2 is deprecated by the activation. An instance of v2 that is
+running finishes on its own snapshot; a REPLAY of a v2 start is answered from the ledger and its variables are compared
+under the names v2 declares (the builders take only the keys the original version declares), so it is neither re-run nor a
+409. A tenant row already created is untouched. Until the seed has run, a start that must make a realm fails closed
+(`register_tenant_v2_missing`, no start) instead of dropping the variable.
+
+## 13. Not in this design
 
 - Routes 1/2 keep T-2704's answer (202). They are not moved to the wait hint.
 - The old synchronous path is removed only after T-2610 is green twice with the new path (contract amendment, Rollback).
