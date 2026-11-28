@@ -11,10 +11,13 @@ defmodule Letflow.PlatformProcesses.Seed do
 
   ## v2 (T-2727)
 
-  The seed now writes `Letflow.PlatformProcesses.DefinitionV2` (version "2"). Over the seed's own v1
-  it writes v2 and switches it on (`:created`); v1 is deprecated by the activation and instances that
-  run on it finish on their snapshot. A version "2" that carries another document is answered
-  `:version_taken` and nothing is written.
+  The seed writes `Letflow.PlatformProcesses.DefinitionV3` (version "3", T-3154: the realm gateway and
+  the `provision_realm_and_invite` step before `bind_realm`). Over an earlier version of its own it writes
+  v3 and switches it on (`:created`); the older version is deprecated by the activation and instances that
+  run on it finish on their snapshot. A version "3" that carries another document is answered
+  `:version_taken` and nothing is written. This is the upgrade path of an environment that already holds
+  the stamped v2 (QA): the boot seed (`BootSeed`, `LETFLOW_SEED_PLATFORM_DEFINITIONS=true`) or the deploy's
+  `BootSeed.run(force: true)` runs this same function.
 
   ## The answers
 
@@ -116,7 +119,7 @@ defmodule Letflow.PlatformProcesses.Seed do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Identity
   alias Letflow.OutboundDestinations
-  alias Letflow.PlatformProcesses.DefinitionV2, as: Definition
+  alias Letflow.PlatformProcesses.DefinitionV3, as: Definition
   alias Letflow.PlatformTenant
 
   @typedoc "What the seed did."

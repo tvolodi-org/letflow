@@ -178,6 +178,7 @@ write_target | tenant.notify_admin:slug | write_target=refused write_target_exce
 write_target | tenant.notify_admin:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.provision:tenant_id | write_target=refused write_target_exception=allowed
 write_target | tenant.provision_realm_and_invite:admin_email | write_target=refused write_target_exception=allowed
+write_target | tenant.provision_realm_and_invite:hostname | write_target=refused write_target_exception=allowed
 write_target | tenant.provision_realm_and_invite:language | write_target=refused write_target_exception=allowed
 write_target | tenant.provision_realm_and_invite:name | write_target=refused write_target_exception=allowed
 write_target | tenant.provision_realm_and_invite:slug | write_target=refused write_target_exception=allowed

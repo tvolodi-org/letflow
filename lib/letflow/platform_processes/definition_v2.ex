@@ -139,9 +139,13 @@ defmodule Letflow.PlatformProcesses.DefinitionV2 do
     }
   end
 
-  defp edge(id, source, target), do: %{"id" => id, "source" => source, "target" => target}
+  @doc false
+  @spec edge(String.t(), String.t(), String.t()) :: map()
+  def edge(id, source, target), do: %{"id" => id, "source" => source, "target" => target}
 
-  defp call_node(id, function, args) do
+  @doc false
+  @spec call_node(String.t(), String.t(), map()) :: map()
+  def call_node(id, function, args) do
     %{
       "id" => id,
       "node_type" => "SERVICE_TASK",

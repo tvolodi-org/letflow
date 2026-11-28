@@ -100,13 +100,25 @@ defmodule Letflow.TenantProvisioner.Register do
         {:old, TenantProvisioner.create_old_path(request, platform_prefix, server_url)}
 
       true ->
-        with :ok <- TenantProvisioner.probe_realm(request.idp_realm_id),
+        with :ok <- realm_gate(request.idp_realm_id),
              :ok <- TenantProvisioner.not_taken(request),
              :ok <- reserve(request, fingerprint) do
           start(request, :created)
         end
     end
   end
+
+  # T-3154: the realm is OPTIONAL. Supplied: it must exist (probe) and the process binds it. Absent:
+  # the process makes it (`tenant.provision_realm_and_invite`), which needs the provisioner's wiring
+  # (the sign-up's own URL, token and hostname domain); without it nothing is reserved or started and
+  # the answer names the field, as a realm that does not exist does.
+  defp realm_gate(nil) do
+    if Letflow.Signup.Provisioning.provisioner_ready?(),
+      do: :ok,
+      else: {:error, {:invalid, "idp_realm_id"}}
+  end
+
+  defp realm_gate(realm), do: TenantProvisioner.probe_realm(realm)
 
   # One transaction under the demo-cap lock (the same key as the old path's insert): budgets, count,
   # then the admission. The counts of `TenantProvisioner` include this reservation.

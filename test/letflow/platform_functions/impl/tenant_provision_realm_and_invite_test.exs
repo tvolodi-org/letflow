@@ -14,7 +14,9 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInviteTest do
     * PR5 -- masked logs: no password, address, realm, hostname or token in any log line, error or output;
     * PR6 -- configuration absent (URL, token, hostname domain): refused before any call, no POST;
     * PR7 -- bad inputs refused before any call (SF-01), language fallback and the three languages;
-    * PR8 -- the body is registered, its codes are codes of the dispatch row.
+    * PR8 -- the body is registered, its codes are codes of the dispatch row;
+    * PR9 -- (T-3154) the realm registers the tenant's HOST: the first label of the `hostname` input,
+      the slug when no hostname is given.
   """
 
   use ExUnit.Case, async: false
@@ -279,5 +281,26 @@ defmodule Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInviteTest do
 
     entry = Letflow.PlatformFunctions.Catalog.fetch("tenant.provision_realm_and_invite")
     assert {:ok, %{outputs: [%{name: "realm_id"}], idempotency_key: ["tenant_id"]}} = entry
+  end
+
+  test "PR9 the host the realm registers is the label of the hostname input, else the slug", %{
+    tenant_id: tenant_id
+  } do
+    stub = Stub.start!([{201, Stub.created(tenant_id)}, {201, Stub.created(tenant_id)}])
+    configure!(stub)
+
+    assert {:ok, _} =
+             Body.run(context(tenant_id, %{"hostname" => "chosen-label.qa.example.test"}))
+
+    assert {:ok, _} = Body.run(context(tenant_id))
+    assert [with_host, without_host] = Stub.posts(stub)
+    assert with_host.body["hostname"] == "chosen-label.qa.example.test"
+    assert without_host.body["hostname"] == "acme.qa.example.test"
+
+    # a hostname that is not a plain label host falls back to the slug's check, never to a crash
+    assert {:error, :platform_call_invalid_slug} =
+             Body.run(context(tenant_id, %{"hostname" => String.duplicate("a", 64) <> ".x"}))
+
+    _ = mails()
   end
 end

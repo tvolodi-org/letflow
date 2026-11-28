@@ -12,7 +12,7 @@ defmodule Letflow.TenantProvisioner.Request do
   | `tier` | `demo` only; `production` is refused (P14, decision 0072 D6) |
   | `owner_email` | `PendingAdminGrants.normalize_email/1` |
   | `hostname` | one label + `.` + a configured suffix (D5b) |
-  | `idp_realm_id` | `t-` + the first 20 hex digits of the tenant id (P13) |
+  | `idp_realm_id` | OPTIONAL (T-3154). Absent: the registration process makes the realm and the first administrator (`owner_email` is required anyway). Present: `t-` + the first 20 hex digits of the tenant id (P13), and it must exist (probed at admission) |
   | `expires_at` | optional ISO 8601 UTC in the future; default now + the demo lifetime |
   | `source_key` | optional opaque visitor-source id chosen by the front door, 1..128 printable ASCII; kept only as a SHA-256 (T-1621) |
   """
@@ -21,7 +21,7 @@ defmodule Letflow.TenantProvisioner.Request do
   alias Letflow.Identity.Tenant
 
   @keys ~w(tenant_id name language tier owner_email hostname idp_realm_id expires_at source_key)
-  @required ~w(tenant_id name language tier owner_email hostname idp_realm_id)
+  @required ~w(tenant_id name language tier owner_email hostname)
   @languages ~w(ru kk en)
   @label_regex ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/
   @canonical_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
@@ -34,7 +34,7 @@ defmodule Letflow.TenantProvisioner.Request do
           tier: String.t(),
           email_key: String.t(),
           hostname: String.t(),
-          idp_realm_id: String.t(),
+          idp_realm_id: String.t() | nil,
           expires_at: DateTime.t(),
           expires_at_sent: String.t() | nil,
           source_ip_key: binary() | nil,
@@ -59,7 +59,7 @@ defmodule Letflow.TenantProvisioner.Request do
          {:ok, tier} <- tier(body["tier"]),
          {:ok, email_key} <- email(body["owner_email"]),
          {:ok, hostname} <- hostname(body["hostname"], suffixes()),
-         {:ok, realm} <- realm(body["idp_realm_id"], tenant_id),
+         {:ok, realm} <- realm(Map.get(body, "idp_realm_id"), tenant_id),
          {:ok, expires_at} <- expires_at(Map.get(body, "expires_at"), now),
          {:ok, source_ip_key} <- source_key(Map.get(body, "source_key")) do
       {:ok,
@@ -178,6 +178,9 @@ defmodule Letflow.TenantProvisioner.Request do
     domain = email_key |> String.split("@") |> List.last()
     :crypto.hash(:sha256, "letflow:provisioner:domain:v1:" <> domain)
   end
+
+  # T-3154: absent (or JSON null) is valid: the process makes the realm.
+  defp realm(nil, _tenant_id), do: {:ok, nil}
 
   defp realm(raw, tenant_id) when is_binary(raw) do
     trimmed = String.trim(raw)

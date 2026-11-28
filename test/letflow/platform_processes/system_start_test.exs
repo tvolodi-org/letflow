@@ -42,7 +42,15 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
 
   defp request do
     id = Ecto.UUID.generate()
-    %{tenant_id: id, name: "Pilot Co", hostname: nil, idp_realm_id: nil, email_key: nil}
+    # T-3154: a request WITH a realm starts a document that does not declare `provision_realm`
+    # (v2 contract); one without a realm needs v3 and fails closed otherwise (see the test below).
+    %{
+      tenant_id: id,
+      name: "Pilot Co",
+      hostname: nil,
+      idp_realm_id: "t-0123456789abcdef0123",
+      email_key: nil
+    }
   end
 
   defp seed!(ctx) do
@@ -154,10 +162,25 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
       })
 
     assert Map.keys(vars) |> Enum.sort() ==
-             Enum.sort(~w(slug name requested_tenant_id notify_admin admin_email))
+             Enum.sort(~w(slug name requested_tenant_id notify_admin admin_email provision_realm))
 
     assert vars["slug"] == "t-" <> String.replace(id, "-", "")
     assert vars["notify_admin"] == false
+    # T-3154: no realm in the request = the process makes it; a realm in the request = it binds it
+    assert vars["provision_realm"] == true
+
+    with_realm =
+      PlatformProcesses.register_tenant_system_variables(%{
+        tenant_id: id,
+        name: "N",
+        email_key: "a@b.kz",
+        idp_realm_id: "t-0123456789abcdef0123",
+        language: "ru"
+      })
+
+    assert with_realm["provision_realm"] == false
+    assert with_realm["realm_id"] == "t-0123456789abcdef0123"
+    assert with_realm["language"] == "ru"
   end
 
   test "C1: v1 (no v2 contract) is refused, nothing is written", ctx do
@@ -197,6 +220,22 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
              )
 
     assert instance_count(ctx.platform.schema_name) == 0
+  end
+
+  test "T-3154: a start that must make the realm needs a version that declares provision_realm",
+       ctx do
+    activate_contract_document!(ctx)
+    without_realm = %{request() | idp_realm_id: nil}
+
+    # the active version carries the v2 contract only: fail closed, nothing started
+    assert {:error, :register_tenant_v2_missing} =
+             PlatformProcesses.start_register_tenant_system(without_realm, ctx.system_start, [])
+
+    assert instance_count(ctx.platform.schema_name) == 0
+
+    # a request WITH a realm needs no provisioning and starts on the same document
+    assert {:ok, %{instance_id: _}} =
+             PlatformProcesses.start_register_tenant_system(request(), ctx.system_start, [])
   end
 
   test "C1: another definition that calls tenant.create is refused for the system start", ctx do
@@ -529,7 +568,7 @@ defmodule Letflow.PlatformProcesses.SystemStartTest do
 
     for {field, value} <- [
           {:hostname, "t2727-replay.example.com"},
-          {:idp_realm_id, "t2727-realm"},
+          {:idp_realm_id, "t-0123456789abcdef9999"},
           {:email_key, "owner-t2727@example.com"}
         ] do
       test "V16: #{field} absent then present, and present then absent, is a reuse", ctx do

@@ -35,6 +35,26 @@ defmodule Letflow.SignupTenantCreateTest do
     prefix
   end
 
+  # the sign-up create goes through the registration process (T-3154)
+  defp via_process! do
+    Letflow.Support.RegisterTenantProcessFixture.seed!(ctx_schema!())
+    prov = Application.get_env(:letflow, Letflow.TenantProvisioner)
+    runner = Application.get_env(:letflow, :start_platform_step_runner)
+
+    Application.put_env(
+      :letflow,
+      Letflow.TenantProvisioner,
+      Keyword.put(prov, :create_via_process, true)
+    )
+
+    Application.put_env(:letflow, :start_platform_step_runner, true)
+
+    on_exit(fn ->
+      Application.put_env(:letflow, Letflow.TenantProvisioner, prov)
+      Application.put_env(:letflow, :start_platform_step_runner, runner || false)
+    end)
+  end
+
   defp configure!(stub, overrides \\ []) do
     enable!(
       Keyword.merge(
@@ -49,7 +69,7 @@ defmodule Letflow.SignupTenantCreateTest do
     )
   end
 
-  defp row!(attrs \\ []) do
+  defp row!(attrs) do
     tenant_id = Keyword.get(attrs, :tenant_id) || Ecto.UUID.generate()
     track_tenant(tenant_id)
 
@@ -121,7 +141,9 @@ defmodule Letflow.SignupTenantCreateTest do
 
   describe "create after the credential mail" do
     test "C1 C2 the saga creates the demo tenant with the row's tenant_id; no credential used" do
-      r = row!()
+      # T-3154: a row an earlier build left with a realm and the credential mail sent; a new row's
+      # realm and credential mail belong to the process (signup_provisioning_process_test.exs)
+      r = sent_row!()
       stub = stub_for(r.tenant_id)
       configure!(stub)
 
@@ -137,9 +159,8 @@ defmodule Letflow.SignupTenantCreateTest do
       onboarding = Repo.get_by!(OnboardingRecord, tenant_id: r.tenant_id)
       assert onboarding.hostname == RealmProvisioner.label(r.tenant_id) <> ".qa.example.test"
 
-      # the credential, then the welcome mail (W3)
-      assert [credential, welcome] = mails()
-      assert credential.body =~ @password
+      # only the welcome mail (W3): the credential mail was sent before
+      assert [welcome] = mails()
       refute welcome.body =~ @password
       assert welcome.to == row.email
 
@@ -268,6 +289,7 @@ defmodule Letflow.SignupTenantCreateTest do
     test "C5 resume picks the restart step by what is recorded" do
       stub = Stub.start!(List.duplicate({500, %{}}, 12))
       configure!(stub)
+      via_process!()
       Application.delete_env(:letflow, :provisioner_public_base_url)
       failed = [state: "failed", step: "provisioning_failed"]
 
@@ -291,8 +313,10 @@ defmodule Letflow.SignupTenantCreateTest do
       assert sent_mails == []
       # realm exists: restarts at the mail (the hint), then the tenant step fails
       assert row(realm.tenant_id).last_error == "tenant_internal"
-      # nothing recorded: restarts at the realm POST
-      assert Enum.any?(Stub.posts(stub), &(&1.body["tenant_id"] == bare.tenant_id))
+
+      # nothing recorded: restarts at the create, which the PROCESS answers (T-3154: the saga makes no
+      # realm POST itself; the process step does, once its runner picks the instance up)
+      assert row(bare.tenant_id).last_error in ["tenant_pending", "tenant_internal"]
 
       refute Enum.any?(
                Stub.posts(stub),
