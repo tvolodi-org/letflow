@@ -223,8 +223,8 @@ def bad_slices(value) -> list:
         for v in value:
             out += bad_slices(v)
     elif isinstance(value, dict):
-        for v in value.values():
-            out += bad_slices(v)
+        for k, v in value.items():
+            out += bad_slices(k) + bad_slices(v)
     return out
 
 

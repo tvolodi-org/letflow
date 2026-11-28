@@ -138,6 +138,15 @@ class Process(CheckCase):
 
         self.assertTrue(any("not a valid slice" in p for p in self.check(self.mutated(bad))))
 
+    def test_a_placeholder_in_an_assertion_path_is_read(self):
+        """T-3282: the runner expands the keys of expect.json, so the check reads them too."""
+        for path, wanted in (("$.items[?id=${nope}]", "${nope}"), ("$.items[?id=${run_id[0:x]}]", "not a valid slice")):
+            def change(doc):
+                doc["steps"][2]["expect"] = {"status": 200, "json": {path: {"exists": True}}}
+
+            problems = self.check(self.mutated(change))
+            self.assertTrue(any(wanted in p and "step s3" in p for p in problems), (path, problems))
+
     def test_a_positional_index_into_an_api_list_is_caught_in_expect_and_save(self):
         for where in ("expect", "save"):
             def change(doc):

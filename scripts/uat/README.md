@@ -96,7 +96,9 @@ Remember the id of the document as `doc_id`."*
   recognisable), `${now_utc}` (the time now), `${old_base_url}` and `${uuid1}` .. `${uuid12}`. Each UUID name is a
   fresh UUID for the run, different from the other names, and keeps the same value wherever it is used, including a
   `repeat` retry. You may add and subtract numbers: `${balance_before + quantity}`.
-  Using a name that nobody gave or saved is a mistake that the static check reports.
+  Using a name that nobody gave or saved is a mistake that the static check reports. Names are replaced in the
+  keys of an object too, so an assertion path may use one (`$.items[?id=${token_id}]`). The paths of `save` are
+  read as they are written: no `${name}` there.
 * `expect`: what a good answer is. `status` is the answer code (one code or a list: `[200, 201]`; without it any
   `2xx` is good). `json` lists values that must be in the answer: the key is a path (`$.state`,
   `$.rows[0].quantity`), the value is what it must be. Numbers compare as numbers (`"10.000000000"` equals `"10"`).

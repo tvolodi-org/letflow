@@ -54,6 +54,43 @@ class ExpressionAndSubstitution(unittest.TestCase):
         with self.assertRaises(runner.Undefined):
             runner.substitute("${nope}", ctx)
 
+    def test_substitute_expands_dict_keys(self):
+        """T-3282: the assertion paths are the KEYS of expect.json, so a ${var} in a selector must expand."""
+        ctx = {"tid": "t-2", "n": 7}
+        self.assertEqual(runner.substitute({"json": {"$.items[?id=${tid}]": {"exists": True}}}, ctx),
+                         {"json": {"$.items[?id=t-2]": {"exists": True}}})
+        self.assertEqual(runner.substitute({"${n}": "x"}, ctx), {"7": "x"})  # a key is always text
+        self.assertEqual(runner.substitute({3: "${tid}"}, ctx), {3: "t-2"})  # a non-text key is left alone
+        with self.assertRaises(runner.Undefined):
+            runner.substitute({"$.items[?id=${nope}]": 1}, ctx)
+
+    def test_substitute_refuses_two_keys_that_become_one(self):
+        """A silently dropped assertion would be a false pass."""
+        with self.assertRaises(runner.RunnerError):
+            runner.substitute({"$.items[?id=${a}].status": "x", "$.items[?id=t-1].status": "y"}, {"a": "t-1"})
+
+    def test_step_expectation_matches_an_item_by_a_variable_id(self):
+        """T-3282: every expect form of a step reaches the by-id selector with the id filled in."""
+        body = {"items": [{"id": "t-1", "status": "revoked"}, {"id": "t-2", "status": "active"}]}
+        calls = [(200, body, json.dumps(body))]
+        want = {"status": 200, "json": {"$.items[?id=${tid}]": {"exists": True},
+                                        "$.items[?id=${tid}].status": "active"}}
+        stub = SimpleNamespace(ctx={"tid": "t-2"})
+        cases = [("plain", {"expect": want}, {}, calls),
+                 ("per call", {"expect": [want, want]}, {}, calls * 2),
+                 ("unordered", {"expect": {"unordered": [want, want]}}, {}, calls * 2),
+                 ("repeat", {"expect": want, "expect_repeat": want}, {"repeat": {}}, calls * 2)]
+        for name, step, do, answers in cases:
+            with self.subTest(name):
+                rows = runner.Runner._assert_calls(stub, step, do, answers, False)
+                self.assertEqual([r for r in rows if not r["ok"]], [])
+                self.assertTrue(any("[?id=t-2].status" in r["what"] for r in rows))
+
+    def test_referenced_names_reads_keys(self):
+        """A cleanup step whose only use of a variable is in a key must be skipped when it is unset."""
+        step = {"expect": {"json": {"$.items[?id=${tid}]": {"exists": True}}}}
+        self.assertEqual(runner.referenced_names(step), {"tid"})
+
     def test_slice_and_hex(self):
         ctx = {"uuid1": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "stored": "abcdef-123"}
         out = runner.substitute("t-${uuid1|hex[0:20]}", ctx)

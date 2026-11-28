@@ -308,7 +308,9 @@ def eval_slice(parsed, ctx: dict, text: str) -> str:
 
 def substitute(value, ctx: dict):
     """${name}, ${a + 1} and ${name|hex[0:20]} (slice, see _SLICE_EXPR) in strings, recursively. A string that is exactly one ${name}
-    gives the raw value of the variable; anything else gives a string (numbers as plain decimals)."""
+    gives the raw value of the variable; anything else gives a string (numbers as plain decimals).
+    The keys of an object are expanded too, always to text: the assertion paths of `expect.json` are keys
+    (`$.items[?id=${id}]`, T-3282). Two keys that become the same text are an error, never a lost entry."""
     if isinstance(value, str):
         whole = _PLACEHOLDER.fullmatch(value)
         if whole and _NAME.match(whole.group(1).strip()):
@@ -332,7 +334,13 @@ def substitute(value, ctx: dict):
     if isinstance(value, list):
         return [substitute(v, ctx) for v in value]
     if isinstance(value, dict):
-        return {k: substitute(v, ctx) for k, v in value.items()}
+        out = {}
+        for k, v in value.items():
+            key = str(substitute(k, ctx)) if isinstance(k, str) else k
+            if key in out:
+                raise RunnerError(f"two keys become {key!r} after substitution (one of them: {k!r})")
+            out[key] = substitute(v, ctx)
+        return out
     return value
 
 
@@ -350,8 +358,8 @@ def referenced_names(value) -> set:
         for v in value:
             names |= referenced_names(v)
     elif isinstance(value, dict):
-        for v in value.values():
-            names |= referenced_names(v)
+        for k, v in value.items():
+            names |= referenced_names(k) | referenced_names(v)
     return names
 
 
