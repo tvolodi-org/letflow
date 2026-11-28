@@ -142,7 +142,6 @@ defmodule Letflow.Definitions.ModuleOwnedChokePointTest do
     allowed = [
       "lib/letflow/definitions.ex",
       "lib/letflow/routers/definitions.ex",
-      "lib/letflow/definitions/solution_pack_override_activation.ex",
       "lib/letflow/platform_processes/seed.ex",
       "lib/letflow/modules/ensure_seeds.ex",
       "lib/letflow/modules/maintenance/orders.ex",
@@ -150,8 +149,20 @@ defmodule Letflow.Definitions.ModuleOwnedChokePointTest do
       "lib/letflow/modules/assets/documents/posting.ex"
     ]
 
-    offenders = for f <- lib_files(), f not in allowed, File.read!(f) =~ @activating, do: f
+    # N1 (T-3167): a call site outside that list must pass `tenant_request: true` in its call.
+    offenders =
+      for f <- lib_files(),
+          f not in allowed,
+          src = File.read!(f),
+          src =~ @activating,
+          Enum.any?(String.split(src, "Definitions.activate(") |> tl(), fn rest ->
+            not String.contains?(String.slice(rest, 0, 400), "tenant_request: true")
+          end),
+          do: f
+
     assert offenders == []
+    src = File.read!("lib/letflow/definitions/solution_pack_override_activation.ex")
+    assert src =~ ~r/Definitions\.activate\(.{0,400}tenant_request: true/s
   end
 
   test "promotion.ex retires rows only behind the module-owned guard" do

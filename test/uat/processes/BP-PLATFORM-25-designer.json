@@ -782,6 +782,20 @@
       "expect": {
         "status": 200
       }
+    },
+    {
+      "id": "c11",
+      "actor": "admin",
+      "says": "Retention of the throwaway tenants (T-3203): every tenant of the registry that matches the runner's own naming (uat-tmp-*, uat-<date>-<id>), is older than 1 day and is not an owner, fixture or retired tenant is retired through the product's own platform.tenant_lifecycle process (suspend if active, then purge with the slug as confirmation), at most 20 per run, oldest first, a lock per tenant. A tenant the product's retention rule does not release yet is LEFT, not a failure. Never SQL.",
+      "do": {
+        "tenant_retention": {
+          "days": 1,
+          "max_per_run": 20
+        }
+      },
+      "expect": {
+        "status": 200
+      }
     }
   ],
   "defaults": {

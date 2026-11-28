@@ -110,4 +110,53 @@ defmodule Letflow.PlatformProcesses.SystemStartCanaryTest do
           do: refute(conn.resp_body =~ canary, "#{path} carries #{canary}")
     end
   end
+
+  # T-3153 (design rows P1, A3): the provisioner step's one-time password is a canary too. It lives in
+  # one local variable from the provisioner's answer to the mail: it is in no log line, output or error.
+  test "the one-time password of the provisioner step reaches no log line, output or error" do
+    alias Letflow.PlatformFunctions.Impl.TenantProvisionRealmAndInvite, as: Invite
+    alias Letflow.Test.ProvisionerStub
+
+    token = "canary-token-#{System.unique_integer([:positive])}"
+    System.put_env(Letflow.Signup.RealmProvisioner.token_env(), token)
+    on_exit(fn -> System.delete_env(Letflow.Signup.RealmProvisioner.token_env()) end)
+    {:ok, _} = Application.ensure_all_started(:inets)
+
+    tenant_id = Ecto.UUID.generate()
+    password = "CanaryPw-#{System.unique_integer([:positive])}"
+
+    stub =
+      ProvisionerStub.start!([
+        {201,
+         ProvisionerStub.created(tenant_id, %{
+           "first_admin" => %{"username" => "admin", "initial_password" => password}
+         })}
+      ])
+
+    Letflow.Test.SignupHelpers.enable!(
+      provisioner_url: stub.url,
+      hostname_domain: "canary-dom.example.com",
+      http_timeout_ms: 1_000
+    )
+
+    {result, log} =
+      with_log([level: :debug], fn ->
+        Invite.run(%{
+          inputs: %{
+            "tenant_id" => tenant_id,
+            "admin_email" => "canary-owner@canary-dom.example.com",
+            "name" => "Canary Co",
+            "slug" => "canary-host"
+          },
+          dispatch: %{instance_id: Ecto.UUID.generate()}
+        })
+      end)
+
+    assert {:ok, outputs} = result
+
+    for canary <- [password, token, "canary-owner@canary-dom.example.com", "canary-host."] do
+      refute log =~ canary, "log carries #{canary}"
+      refute inspect(outputs) =~ canary, "outputs carry #{canary}"
+    end
+  end
 end

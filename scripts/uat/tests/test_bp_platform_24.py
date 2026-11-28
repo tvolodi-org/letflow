@@ -57,7 +57,7 @@ class Scenario(unittest.TestCase):
             self.assertIn(key, deleted)
         sweeps = [c for c in self.process["cleanup"] if "sweep" in c["do"]]
         self.assertEqual([c["do"]["sweep"] for c in sweeps],
-                         [{"prefix": "uat-tmp-defproof-", "exclude_contains": "${run_id}"}])  # T-2898
+                         [{"prefix": "uat-tmp-defproof-", "exclude_contains": "${run_id}", "best_effort": True}])  # T-2898, T-3157
         for c in self.process["cleanup"]:
             self.assertTrue(c.get("requires") or c in sweeps)
 

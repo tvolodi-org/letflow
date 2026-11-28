@@ -4,6 +4,7 @@
 -- never a record value (INV-4). backup.sh runs it inside the exported snapshot the dump uses;
 -- restore_test.sh runs it on the restored copy and diffs the two outputs.
 --
+-- psql variable `only` (-v only=<schema>, empty = all; T-3149): the lines of one schema, or of `public`.
 -- Schema names come ONLY from public.tenant_schemas and are quoted with format('%I') (INV-1, INV-7);
 -- nothing from outside the database is spliced into SQL. A table an older tenant does not have is `-`.
 --
@@ -11,7 +12,7 @@
 -- invariant is that both sums are equal per (ledger_id, unit_ref); ledger_replay_diff counts the
 -- pairs where they are not (0 for a healthy ledger), ledger_pairs counts all pairs.
 WITH s AS (
-  SELECT schema_name FROM public.tenant_schemas
+  SELECT schema_name FROM public.tenant_schemas WHERE :'only' IN ('', schema_name)
 ),
 counted AS (
   SELECT s.schema_name AS sn, t.name AS tn,
@@ -53,8 +54,8 @@ replay AS (
   FROM replay_q
 )
 SELECT line FROM (
-  SELECT 'public.tenants=' || (SELECT count(*) FROM public.tenants) AS line
-  UNION ALL SELECT 'public.tenant_schemas=' || (SELECT count(*) FROM public.tenant_schemas)
+  SELECT 'public.tenants=' || (SELECT count(*) FROM public.tenants) AS line WHERE :'only' IN ('', 'public')
+  UNION ALL SELECT 'public.tenant_schemas=' || (SELECT count(*) FROM public.tenant_schemas) WHERE :'only' IN ('', 'public')
   UNION ALL SELECT sn || '.' || tn || '=' || v FROM counted
   UNION ALL SELECT sn || '.modules=' || v FROM mods
   UNION ALL SELECT sn || '.ledger_replay=' || md5v FROM replay
