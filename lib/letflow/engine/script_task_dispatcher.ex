@@ -220,8 +220,8 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     %{swept: swept, failed: failed} = sweep_expired_leases(prefix, config(:sweep_limit))
     %{summary | swept: summary.swept + swept, sweep_failed: summary.sweep_failed + failed}
   rescue
-    _ ->
-      log_caught(nil, prefix, "raised")
+    e ->
+      log_caught(nil, prefix, "raised", e)
       summary
   catch
     kind, _ ->
@@ -275,12 +275,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
           try do
             run_claimed(row, prefix)
           rescue
-            _ ->
-              log_caught(row.id, prefix, "raised")
+            e ->
+              log_caught(row, prefix, "raised", e)
               :caught
           catch
             kind, _ ->
-              log_caught(row.id, prefix, class_tag(kind))
+              log_caught(row, prefix, class_tag(kind))
               :caught
           end
 
@@ -291,8 +291,8 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   defp safe_claim(prefix) do
     claim_next(prefix)
   rescue
-    _ ->
-      log_caught(nil, prefix, "raised")
+    e ->
+      log_caught(nil, prefix, "raised", e)
       :none
   catch
     kind, _ ->
@@ -317,14 +317,48 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   defp class_tag(:exit), do: "exited"
   defp class_tag(_error), do: "raised"
 
-  # SEC S3: the ONLY fields are the dispatch id, the tenant schema and the class tag.
-  defp log_caught(dispatch_id, prefix, tag) do
-    Logger.error("script task step caught",
-      component: "script_task",
+  # SEC S3 (T-3258): the fields are the dispatch/instance/step ids, the tenant schema, the class tag
+  # and, for a raised exception, the exception module and its message cut to 200 characters. Never
+  # the payload, the variables or the script source. The message is NOT passed through a redaction
+  # helper (`Secrets.Redaction` redacts maps by key, not strings): it is the exception's own text,
+  # truncated. `subsystem` (not `component`): `component` is reserved by `Letflow.Obs.Logger`.
+  @caught_message_max 200
+
+  defp log_caught(row, prefix, tag, error \\ nil)
+
+  defp log_caught(row, prefix, tag, error) do
+    {dispatch_id, instance_id, node_id} =
+      case row do
+        %{id: id} = r -> {id, Map.get(r, :instance_id), Map.get(r, :node_id)}
+        id -> {id, nil, nil}
+      end
+
+    {exception, text} =
+      case error do
+        e when is_exception(e) ->
+          {inspect(e.__struct__), truncate_message(Exception.message(e))}
+
+        _ ->
+          {nil, nil}
+      end
+
+    suffix = if exception, do: ": #{exception}: #{text}", else: ""
+
+    Logger.error(
+      "script task step caught" <> suffix,
+      subsystem: "script_task",
       dispatch_id: dispatch_id,
+      instance_id: instance_id,
+      node_id: node_id,
       tenant_schema: prefix,
-      tag: tag
+      tag: tag,
+      exception: exception,
+      exception_message: text
     )
+  end
+
+  defp truncate_message(text) when is_binary(text) do
+    text |> String.replace(~r/[\r\n]+/, " ") |> String.slice(0, @caught_message_max)
   end
 
   # ── claim (5.2, transaction A) ───────────────────────────────────────────────
@@ -450,7 +484,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
           {:error, _reason} ->
             Logger.error("script task apply failed",
-              component: "script_task",
+              subsystem: "script_task",
               dispatch_id: claim.dispatch_id,
               tenant_schema: prefix,
               detail: "apply_failed"
@@ -781,7 +815,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
     if warn > 0 do
       Logger.warning("script task sweep failures",
-        component: "script_task",
+        subsystem: "script_task",
         tenant_schema: prefix,
         count: warn
       )
@@ -835,7 +869,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     case {count, rows} do
       {1, [^failure_limit]} ->
         Logger.error("script task sweep stuck",
-          component: "script_task",
+          subsystem: "script_task",
           dispatch_id: row.id,
           tenant_schema: prefix,
           tag: "sweep_stuck"
