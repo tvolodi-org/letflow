@@ -22,6 +22,21 @@ defmodule Letflow.Signup.SweepTest do
     :ok
   end
 
+  defp wait_instance!(tenant_id, 0), do: flunk("no process instance for #{tenant_id}")
+
+  defp wait_instance!(tenant_id, n) do
+    case Repo.get(Letflow.TenantProvisioner.Admission, tenant_id) do
+      %{instance_id: id} when is_binary(id) ->
+        :ok
+
+      _ ->
+        receive do
+        after
+          50 -> wait_instance!(tenant_id, n - 1)
+        end
+    end
+  end
+
   defp row!(attrs) do
     tenant_id = Ecto.UUID.generate()
     now = DateTime.utc_now()
@@ -152,14 +167,14 @@ defmodule Letflow.Signup.SweepTest do
   end
 
   test "SS6 resume starts a stuck row through the real start; second sweep selects nothing" do
+    platform = tenant_create_env!()
     configure!()
-    tenant_create_env!()
     stuck = row!([])
     track_tenant(stuck.tenant_id)
 
     stub =
       Letflow.Test.ProvisionerStub.start!([
-        {201, Letflow.Test.ProvisionerStub.created(stuck.tenant_id, %{})}
+        {201, Letflow.Test.ProvisionerStub.created(stuck.tenant_id)}
       ])
 
     enable!(
@@ -168,12 +183,34 @@ defmodule Letflow.Signup.SweepTest do
       retry_delays_ms: [0, 0]
     )
 
+    # the create goes through the registration process (T-3154): seed it, let the runner start it
+    Letflow.Support.RegisterTenantProcessFixture.seed!(platform.schema_name)
+    prov = Application.get_env(:letflow, Letflow.TenantProvisioner)
+    runner = Application.get_env(:letflow, :start_platform_step_runner)
+
+    Application.put_env(
+      :letflow,
+      Letflow.TenantProvisioner,
+      prov |> Keyword.put(:create_via_process, true) |> Keyword.put(:create_wait_seconds, 0)
+    )
+
+    Application.put_env(:letflow, :start_platform_step_runner, true)
+
+    on_exit(fn ->
+      Application.put_env(:letflow, Letflow.TenantProvisioner, prov)
+      Application.put_env(:letflow, :start_platform_step_runner, runner || false)
+    end)
+
     assert %{resumed: n} = SignupSweep.run()
     assert n >= 1
+    # the sweep starts the row's run in a task: wait (bounded) until the process instance exists
+    wait_instance!(stuck.tenant_id, 100)
+    Enum.each(1..16, fn _ -> Letflow.Engine.PlatformStepRunner.run_due(platform.schema_name) end)
+    assert [{_id, :ok}] = Provisioning.resume()
     assert await_mail() == :ok
 
     r = Repo.get!(Request, stuck.tenant_id)
-    assert {r.state, r.step} == {"completed", "completed"}
+    assert {r.state, r.step, r.last_error} == {"completed", "completed", nil}
     refute stuck.tenant_id in Provisioning.stale_unfinished_ids(DateTime.utc_now())
 
     assert Provisioning.stale_unfinished_ids(DateTime.utc_now()) |> Enum.member?(stuck.tenant_id) ==
