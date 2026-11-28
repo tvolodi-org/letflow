@@ -177,6 +177,29 @@ defmodule Letflow.Routers.DefinitionsTest do
       assert rank == 3.0
     end
 
+    test "GET /search with status keeps the active version, drops the others (T-3161)" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t3161-srch")
+      word = unique_name("t3161-register")
+      active = active_definition!(tenant.schema_name, %{name: word, version: "2.0.0"})
+      draft = create_definition!(tenant.schema_name, %{name: word, version: "3.0.0"})
+
+      search = fn status ->
+        conn =
+          build_conn("GET", "/search?q=#{URI.encode_www_form(word)}#{status}", tenant, %{
+            roles: ["PROCESS_OPERATOR"]
+          })
+          |> dispatch()
+
+        assert conn.status == 200
+        Jason.decode!(conn.resp_body)["items"] |> Enum.map(& &1["definition"]["id"])
+      end
+
+      assert Enum.sort(search.("")) == Enum.sort([active.id, draft.id])
+      assert search.("&status=active") == [active.id]
+      assert search.("&status=ACTIVE") == [active.id]
+      assert search.("&status=draft") == [draft.id]
+    end
+
     test "GET /:id/export returns the export document shape" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req081-ac1e")
       definition = create_definition!(tenant.schema_name)

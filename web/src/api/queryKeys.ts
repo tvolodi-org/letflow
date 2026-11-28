@@ -129,8 +129,8 @@ export const queryKeys = {
     detail: (tenantId: string, id: string) => [...queryKeys.definitions.all(tenantId), 'detail', id] as const,
     active: (tenantId: string, name: string) => [...queryKeys.definitions.all(tenantId), 'active', name] as const,
     versions: (tenantId: string, name: string) => [...queryKeys.definitions.all(tenantId), 'versions', name] as const,
-    search: (tenantId: string, query: string, page_size?: number, cursor?: string) =>
-      [...queryKeys.definitions.all(tenantId), 'search', query, page_size, cursor] as const,
+    search: (tenantId: string, query: string, page_size?: number, cursor?: string, status?: string) =>
+      [...queryKeys.definitions.all(tenantId), 'search', query, page_size, cursor, status] as const,
   },
 
   tasks: {

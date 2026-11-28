@@ -1990,7 +1990,8 @@
       "do": {
         "sweep": {
           "prefix": "uat-tmp-defproof-",
-          "exclude_contains": "${run_id}"
+          "exclude_contains": "${run_id}",
+          "best_effort": true
         }
       },
       "expect": {

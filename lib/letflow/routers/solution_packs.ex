@@ -1133,7 +1133,6 @@ defmodule Letflow.Routers.SolutionPacks do
     :property_not_overridable,
     :override_changes_structure,
     :artefact_type_not_supported,
-    :module_owned_definition_not_supported,
     :override_already_activated,
     :override_version_clash
   ]
@@ -1141,6 +1140,23 @@ defmodule Letflow.Routers.SolutionPacks do
   # Definitions-path failures keep their meaning but never echo violation detail: the effective
   # graph carries patch values (REQ-610: never a patch value in a reply).
   defp render_override_activate_error(conn, :not_found), do: Response.not_found(conn)
+
+  # T-3167: the same 409 and audit row as the other guarded definition routes (T-3014).
+  defp render_override_activate_error(conn, reason)
+       when reason in [:module_owned_definition, :module_owned_definition_not_supported] do
+    Letflow.Definitions.record_refused_attempt(
+      "definition.override_activate",
+      binary_part(
+        to_string(conn.params["override_id"]),
+        0,
+        min(64, byte_size(to_string(conn.params["override_id"])))
+      ),
+      prefix: prefix(conn),
+      actor_id: conn.assigns.auth_context.user_id
+    )
+
+    Response.conflict(conn, "a module-owned definition cannot be changed by a tenant")
+  end
 
   defp render_override_activate_error(conn, reason) when reason in @activate_refusals,
     do: Response.unprocessable(conn, Atom.to_string(reason))
